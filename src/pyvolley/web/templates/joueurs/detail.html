@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}{{ joueur.nom }} {{ joueur.prenom }} - PyVolley{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Breadcrumb -->
+    <nav class="text-gray-500 text-sm">
+        <a href="/" class="hover:text-blue-600">Accueil</a>
+        <span class="mx-2">›</span>
+        <a href="/joueurs" class="hover:text-blue-600">Joueurs</a>
+        <span class="mx-2">›</span>
+        <span class="text-gray-800">{{ joueur.nom }} {{ joueur.prenom }}</span>
+    </nav>
+    
+    <!-- Header -->
+    <div class="bg-white rounded-lg shadow p-6">
+        <div class="flex items-start justify-between">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-800">
+                    {{ joueur.nom }} {{ joueur.prenom }}
+                </h1>
+                <p class="text-gray-600 mt-2">Licence: {{ joueur.licence }}</p>
+            </div>
+            <div class="text-6xl">👤</div>
+        </div>
+    </div>
+    
+    <!-- Stats -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div class="bg-white rounded-lg shadow p-6 text-center">
+            <div class="text-4xl font-bold text-blue-600">{{ stats.matchs_joues }}</div>
+            <div class="text-gray-600 mt-2">Matchs joués</div>
+        </div>
+        <div class="bg-white rounded-lg shadow p-6 text-center">
+            <div class="text-4xl font-bold text-green-600">-</div>
+            <div class="text-gray-600 mt-2">Sets joués</div>
+        </div>
+        <div class="bg-white rounded-lg shadow p-6 text-center">
+            <div class="text-4xl font-bold text-purple-600">-</div>
+            <div class="text-gray-600 mt-2">Équipes</div>
+        </div>
+    </div>
+    
+    <!-- Matchs -->
+    <section class="bg-white rounded-lg shadow">
+        <div class="px-6 py-4 border-b">
+            <h2 class="text-xl font-semibold">📊 Matchs récents</h2>
+        </div>
+        <div class="p-6">
+            {% if matchs %}
+            <table class="w-full">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-2 text-left text-gray-600">Date</th>
+                        <th class="px-4 py-2 text-left text-gray-600">Équipes</th>
+                        <th class="px-4 py-2 text-center text-gray-600">Score</th>
+                        <th class="px-4 py-2 text-right text-gray-600">Actions</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y">
+                    {% for match in matchs %}
+                    <tr class="hover:bg-gray-50">
+                        <td class="px-4 py-3">{{ match.date.strftime('%d/%m/%Y') if match.date else '-' }}</td>
+                        <td class="px-4 py-3">
+                            {{ match.equipe_a.nom if match.equipe_a else '-' }}
+                            <span class="text-gray-400">vs</span>
+                            {{ match.equipe_b.nom if match.equipe_b else '-' }}
+                        </td>
+                        <td class="px-4 py-3 text-center font-bold">{{ match.score_final or '-' }}</td>
+                        <td class="px-4 py-3 text-right">
+                            <a href="/matchs/{{ match.id }}" class="text-blue-600 hover:underline">
+                                Voir →
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="text-gray-500 text-center py-8">Aucun match trouvé pour ce joueur</p>
+            {% endif %}
+        </div>
+    </section>
+</div>
+{% endblock %}

@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block title %}Joueurs - PyVolley{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex justify-between items-center">
+        <h1 class="text-3xl font-bold">👤 Joueurs</h1>
+        <span class="text-gray-500">{{ total }} joueurs au total</span>
+    </div>
+    
+    <!-- Search -->
+    <form action="/joueurs" method="get" class="max-w-md">
+        <div class="flex">
+            <input 
+                type="text" 
+                name="q" 
+                value="{{ query or '' }}"
+                placeholder="Rechercher un joueur..."
+                class="flex-1 px-4 py-2 border rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+            <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded-r-lg hover:bg-blue-700">
+                🔍
+            </button>
+        </div>
+    </form>
+    
+    <!-- Table -->
+    <div class="bg-white rounded-lg shadow overflow-hidden">
+        <table class="w-full">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-6 py-3 text-left text-gray-600 font-medium">Nom</th>
+                    <th class="px-6 py-3 text-left text-gray-600 font-medium">Prénom</th>
+                    <th class="px-6 py-3 text-left text-gray-600 font-medium">Licence</th>
+                    <th class="px-6 py-3 text-right text-gray-600 font-medium">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y">
+                {% for joueur in joueurs %}
+                <tr class="hover:bg-gray-50">
+                    <td class="px-6 py-4 font-medium">{{ joueur.nom }}</td>
+                    <td class="px-6 py-4">{{ joueur.prenom }}</td>
+                    <td class="px-6 py-4 text-gray-600">{{ joueur.licence }}</td>
+                    <td class="px-6 py-4 text-right">
+                        <a href="/joueurs/{{ joueur.id }}" class="text-blue-600 hover:underline">
+                            Voir →
+                        </a>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="4" class="px-6 py-8 text-center text-gray-500">
+                        Aucun joueur trouvé
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Pagination -->
+    <div class="flex justify-center space-x-4">
+        {% if has_prev %}
+        <a href="/joueurs?page={{ page - 1 }}{% if query %}&q={{ query }}{% endif %}" 
+           class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg">
+            ← Précédent
+        </a>
+        {% endif %}
+        
+        <span class="px-4 py-2 text-gray-600">Page {{ page }}</span>
+        
+        {% if has_next %}
+        <a href="/joueurs?page={{ page + 1 }}{% if query %}&q={{ query }}{% endif %}" 
+           class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg">
+            Suivant →
+        </a>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

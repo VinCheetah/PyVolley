@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}{{ club.nom }} - PyVolley{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Breadcrumb -->
+    <nav class="text-gray-500 text-sm">
+        <a href="/" class="hover:text-blue-600">Accueil</a>
+        <span class="mx-2">›</span>
+        <a href="/clubs" class="hover:text-blue-600">Clubs</a>
+        <span class="mx-2">›</span>
+        <span class="text-gray-800">{{ club.nom }}</span>
+    </nav>
+    
+    <!-- Header -->
+    <div class="bg-white rounded-lg shadow p-6">
+        <div class="flex items-start justify-between">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-800">{{ club.nom }}</h1>
+                {% if club.ligue %}
+                <p class="text-gray-600 mt-2">Ligue: {{ club.ligue }}</p>
+                {% endif %}
+                {% if club.ville %}
+                <p class="text-gray-500 mt-1">📍 {{ club.ville }}</p>
+                {% endif %}
+            </div>
+            <div class="text-6xl">🏠</div>
+        </div>
+    </div>
+    
+    <!-- Stats -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="bg-white rounded-lg shadow p-6 text-center">
+            <div class="text-4xl font-bold text-blue-600">{{ equipes|length }}</div>
+            <div class="text-gray-600 mt-2">Équipes</div>
+        </div>
+        <div class="bg-white rounded-lg shadow p-6 text-center">
+            <div class="text-4xl font-bold text-green-600">-</div>
+            <div class="text-gray-600 mt-2">Joueurs</div>
+        </div>
+    </div>
+    
+    <!-- Équipes -->
+    <section class="bg-white rounded-lg shadow">
+        <div class="px-6 py-4 border-b">
+            <h2 class="text-xl font-semibold">👥 Équipes du club</h2>
+        </div>
+        <div class="p-6">
+            {% if equipes %}
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {% for equipe in equipes %}
+                <a href="/equipes/{{ equipe.id }}" class="border rounded-lg p-4 hover:bg-gray-50 transition">
+                    <h3 class="font-semibold text-blue-600">{{ equipe.nom }}</h3>
+                    {% if equipe.categorie or equipe.genre %}
+                    <p class="text-gray-600 text-sm mt-1">{{ equipe.categorie or '' }} {{ equipe.genre or '' }}</p>
+                    {% endif %}
+                </a>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="text-gray-500 text-center py-8">Aucune équipe trouvée pour ce club</p>
+            {% endif %}
+        </div>
+    </section>
+</div>
+{% endblock %}

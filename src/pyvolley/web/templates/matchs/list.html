@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}Matchs - PyVolley{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex justify-between items-center">
+        <h1 class="text-3xl font-bold">📊 Matchs</h1>
+        <span class="text-gray-500">{{ total }} matchs au total</span>
+    </div>
+    
+    <!-- Table -->
+    <div class="bg-white rounded-lg shadow overflow-hidden">
+        <table class="w-full">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-6 py-3 text-left text-gray-600 font-medium">Date</th>
+                    <th class="px-6 py-3 text-left text-gray-600 font-medium">Équipe A</th>
+                    <th class="px-6 py-3 text-center text-gray-600 font-medium">Score</th>
+                    <th class="px-6 py-3 text-left text-gray-600 font-medium">Équipe B</th>
+                    <th class="px-6 py-3 text-left text-gray-600 font-medium">Lieu</th>
+                    <th class="px-6 py-3 text-right text-gray-600 font-medium">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y">
+                {% for match in matchs %}
+                <tr class="hover:bg-gray-50">
+                    <td class="px-6 py-4">{{ match.date.strftime('%d/%m/%Y') if match.date else '-' }}</td>
+                    <td class="px-6 py-4">
+                        <span class="font-medium {% if match.vainqueur_nom == match.equipe_a.nom %}text-green-600{% endif %}">
+                            {{ match.equipe_a.nom if match.equipe_a else '-' }}
+                        </span>
+                    </td>
+                    <td class="px-6 py-4 text-center font-bold">{{ match.score_final or '-' }}</td>
+                    <td class="px-6 py-4">
+                        <span class="font-medium {% if match.vainqueur_nom == match.equipe_b.nom %}text-green-600{% endif %}">
+                            {{ match.equipe_b.nom if match.equipe_b else '-' }}
+                        </span>
+                    </td>
+                    <td class="px-6 py-4 text-gray-600">{{ match.lieu or '-' }}</td>
+                    <td class="px-6 py-4 text-right">
+                        <a href="/matchs/{{ match.id }}" class="text-blue-600 hover:underline">
+                            Voir →
+                        </a>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="6" class="px-6 py-8 text-center text-gray-500">
+                        Aucun match trouvé
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- Pagination -->
+    <div class="flex justify-center space-x-4">
+        {% if has_prev %}
+        <a href="/matchs?page={{ page - 1 }}" class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg">
+            ← Précédent
+        </a>
+        {% endif %}
+        
+        <span class="px-4 py-2 text-gray-600">Page {{ page }}</span>
+        
+        {% if has_next %}
+        <a href="/matchs?page={{ page + 1 }}" class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg">
+            Suivant →
+        </a>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

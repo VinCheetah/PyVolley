@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}PyVolley{% endblock %}</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Alpine.js pour l'interactivité -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+    
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Navigation -->
+    <nav class="bg-blue-600 text-white shadow-lg">
+        <div class="container mx-auto px-4">
+            <div class="flex items-center justify-between h-16">
+                <!-- Logo -->
+                <a href="/" class="flex items-center space-x-2">
+                    <span class="text-2xl">🏐</span>
+                    <span class="font-bold text-xl">PyVolley</span>
+                </a>
+                
+                <!-- Navigation links -->
+                <div class="hidden md:flex items-center space-x-6">
+                    <a href="/" class="hover:text-blue-200 transition">Accueil</a>
+                    <a href="/joueurs" class="hover:text-blue-200 transition">Joueurs</a>
+                    <a href="/equipes" class="hover:text-blue-200 transition">Équipes</a>
+                    <a href="/clubs" class="hover:text-blue-200 transition">Clubs</a>
+                    <a href="/matchs" class="hover:text-blue-200 transition">Matchs</a>
+                </div>
+                
+                <!-- Search -->
+                <div class="flex items-center">
+                    <form action="/search" method="get" class="relative">
+                        <input 
+                            type="text" 
+                            name="q" 
+                            placeholder="Rechercher..."
+                            class="pl-4 pr-10 py-2 rounded-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                        >
+                        <button type="submit" class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500">
+                            🔍
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </nav>
+    
+    <!-- Main content -->
+    <main class="container mx-auto px-4 py-8">
+        {% block content %}{% endblock %}
+    </main>
+    
+    <!-- Footer -->
+    <footer class="bg-gray-800 text-gray-300 py-6 mt-auto">
+        <div class="container mx-auto px-4 text-center">
+            <p>PyVolley - Données volleyball FFVB</p>
+            <p class="text-sm mt-2">© 2024 - Open Source</p>
+        </div>
+    </footer>
+    
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>

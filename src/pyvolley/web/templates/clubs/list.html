@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}Clubs - PyVolley{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <div class="flex justify-between items-center">
+        <h1 class="text-3xl font-bold">🏠 Clubs</h1>
+        <span class="text-gray-500">{{ total }} clubs au total</span>
+    </div>
+    
+    <!-- Search -->
+    <form action="/clubs" method="get" class="max-w-md">
+        <div class="flex">
+            <input 
+                type="text" 
+                name="q" 
+                value="{{ query or '' }}"
+                placeholder="Rechercher un club..."
+                class="flex-1 px-4 py-2 border rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+            <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded-r-lg hover:bg-blue-700">
+                🔍
+            </button>
+        </div>
+    </form>
+    
+    <!-- Cards -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {% for club in clubs %}
+        <a href="/clubs/{{ club.id }}" class="bg-white rounded-lg shadow p-6 hover:shadow-lg transition group">
+            <h3 class="text-xl font-semibold group-hover:text-blue-600">{{ club.nom }}</h3>
+            {% if club.ligue %}
+            <p class="text-gray-600 mt-2">{{ club.ligue }}</p>
+            {% endif %}
+            {% if club.ville %}
+            <p class="text-gray-500 mt-1">📍 {{ club.ville }}</p>
+            {% endif %}
+        </a>
+        {% else %}
+        <div class="col-span-full text-center py-12 text-gray-500">
+            Aucun club trouvé
+        </div>
+        {% endfor %}
+    </div>
+    
+    <!-- Pagination -->
+    <div class="flex justify-center space-x-4">
+        {% if has_prev %}
+        <a href="/clubs?page={{ page - 1 }}{% if query %}&q={{ query }}{% endif %}" 
+           class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg">
+            ← Précédent
+        </a>
+        {% endif %}
+        
+        <span class="px-4 py-2 text-gray-600">Page {{ page }}</span>
+        
+        {% if has_next %}
+        <a href="/clubs?page={{ page + 1 }}{% if query %}&q={{ query }}{% endif %}" 
+           class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg">
+            Suivant →
+        </a>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

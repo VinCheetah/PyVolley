@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+{% block title %}Erreur - PyVolley{% endblock %}
+
+{% block content %}
+<div class="flex flex-col items-center justify-center min-h-96">
+    <div class="text-6xl mb-6">😕</div>
+    <h1 class="text-3xl font-bold text-gray-800 mb-4">Oups !</h1>
+    <p class="text-xl text-gray-600 mb-8">{{ message or "Une erreur s'est produite" }}</p>
+    <a href="/" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg transition">
+        ← Retour à l'accueil
+    </a>
+</div>
+{% endblock %}

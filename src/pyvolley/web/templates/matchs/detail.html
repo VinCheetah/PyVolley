@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block title %}Match {{ match.code_match }} - PyVolley{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Breadcrumb -->
+    <nav class="text-gray-500 text-sm">
+        <a href="/" class="hover:text-blue-600">Accueil</a>
+        <span class="mx-2">›</span>
+        <a href="/matchs" class="hover:text-blue-600">Matchs</a>
+        <span class="mx-2">›</span>
+        <span class="text-gray-800">{{ match.code_match }}</span>
+    </nav>
+    
+    <!-- Header -->
+    <div class="bg-white rounded-lg shadow p-6">
+        <div class="text-center">
+            <!-- Date et lieu -->
+            <div class="text-gray-600 mb-4">
+                {{ match.date.strftime('%d/%m/%Y') if match.date else '-' }}
+                {% if match.heure %} à {{ match.heure }}{% endif %}
+                {% if match.lieu %} • {{ match.lieu }}{% endif %}
+            </div>
+            
+            <!-- Score principal -->
+            <div class="flex items-center justify-center space-x-8">
+                <div class="text-center flex-1">
+                    <div class="text-2xl font-bold {% if match.vainqueur_nom == match.equipe_a.nom %}text-green-600{% endif %}">
+                        {{ match.equipe_a.nom if match.equipe_a else 'Équipe A' }}
+                    </div>
+                </div>
+                
+                <div class="bg-blue-600 text-white px-8 py-4 rounded-xl">
+                    <div class="text-4xl font-bold">{{ match.score_final or '-' }}</div>
+                </div>
+                
+                <div class="text-center flex-1">
+                    <div class="text-2xl font-bold {% if match.vainqueur_nom == match.equipe_b.nom %}text-green-600{% endif %}">
+                        {{ match.equipe_b.nom if match.equipe_b else 'Équipe B' }}
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Vainqueur -->
+            {% if match.vainqueur_nom %}
+            <div class="mt-4">
+                <span class="bg-green-100 text-green-800 px-4 py-2 rounded-full">
+                    🏆 {{ match.vainqueur_nom }}
+                </span>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- Infos -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-xl font-semibold mb-4">📋 Informations</h2>
+            <dl class="space-y-2">
+                <div class="flex justify-between">
+                    <dt class="text-gray-600">Code match</dt>
+                    <dd class="font-medium">{{ match.code_match }}</dd>
+                </div>
+                {% if match.journee %}
+                <div class="flex justify-between">
+                    <dt class="text-gray-600">Journée</dt>
+                    <dd class="font-medium">{{ match.journee }}</dd>
+                </div>
+                {% endif %}
+                {% if match.competition %}
+                <div class="flex justify-between">
+                    <dt class="text-gray-600">Compétition</dt>
+                    <dd class="font-medium">{{ match.competition.nom }}</dd>
+                </div>
+                {% endif %}
+                {% if match.salle %}
+                <div class="flex justify-between">
+                    <dt class="text-gray-600">Salle</dt>
+                    <dd class="font-medium">{{ match.salle }}</dd>
+                </div>
+                {% endif %}
+                {% if match.duree_totale %}
+                <div class="flex justify-between">
+                    <dt class="text-gray-600">Durée</dt>
+                    <dd class="font-medium">{{ match.duree_totale }}</dd>
+                </div>
+                {% endif %}
+            </dl>
+        </div>
+        
+        <!-- Sets -->
+        <div class="bg-white rounded-lg shadow p-6">
+            <h2 class="text-xl font-semibold mb-4">🏐 Sets</h2>
+            {% if match.sets %}
+            <table class="w-full">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-4 py-2 text-left text-gray-600">Set</th>
+                        <th class="px-4 py-2 text-center text-gray-600">{{ match.equipe_a.nom[:15] if match.equipe_a else 'A' }}...</th>
+                        <th class="px-4 py-2 text-center text-gray-600">{{ match.equipe_b.nom[:15] if match.equipe_b else 'B' }}...</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y">
+                    {% for set in match.sets %}
+                    <tr>
+                        <td class="px-4 py-3">Set {{ set.numero }}</td>
+                        <td class="px-4 py-3 text-center font-bold {% if set.score_a > set.score_b %}text-green-600{% endif %}">
+                            {{ set.score_a }}
+                        </td>
+                        <td class="px-4 py-3 text-center font-bold {% if set.score_b > set.score_a %}text-green-600{% endif %}">
+                            {{ set.score_b }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="text-gray-500">Détails des sets non disponibles</p>
+            {% endif %}
+        </div>
+    </div>
+    
+    <!-- Remarques -->
+    {% if match.remarques %}
+    <div class="bg-white rounded-lg shadow p-6">
+        <h2 class="text-xl font-semibold mb-4">📝 Remarques</h2>
+        <p class="text-gray-700">{{ match.remarques }}</p>
+    </div>
+    {% endif %}
+    
+    <!-- Actions -->
+    <div class="flex justify-center space-x-4">
+        <a href="/matchs" class="bg-gray-200 hover:bg-gray-300 px-6 py-2 rounded-lg transition">
+            ← Retour aux matchs
+        </a>
+        {% if match.pdf_url %}
+        <a href="{{ match.pdf_url }}" target="_blank" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition">
+            📄 Voir le PDF
+        </a>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

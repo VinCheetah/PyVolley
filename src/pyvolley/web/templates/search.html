@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}Recherche: {{ query }} - PyVolley{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <h1 class="text-3xl font-bold">
+        {% if query %}
+        Résultats pour "{{ query }}"
+        {% else %}
+        Recherche
+        {% endif %}
+    </h1>
+    
+    <!-- Search form -->
+    <form action="/search" method="get" class="max-w-2xl">
+        <div class="flex">
+            <input 
+                type="text" 
+                name="q" 
+                value="{{ query }}"
+                placeholder="Rechercher un joueur, une équipe, un club..."
+                class="flex-1 px-4 py-3 border rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+            <button 
+                type="submit" 
+                class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-r-lg transition"
+            >
+                🔍 Rechercher
+            </button>
+        </div>
+    </form>
+    
+    {% if query %}
+    <!-- Results -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Joueurs -->
+        <section class="bg-white rounded-lg shadow">
+            <div class="bg-blue-600 text-white px-4 py-3 rounded-t-lg">
+                <h2 class="font-semibold">👤 Joueurs ({{ joueurs|length }})</h2>
+            </div>
+            <div class="p-4">
+                {% if joueurs %}
+                <ul class="divide-y">
+                    {% for joueur in joueurs %}
+                    <li class="py-2">
+                        <a href="/joueurs/{{ joueur.id }}" class="hover:text-blue-600">
+                            <span class="font-medium">{{ joueur.nom }} {{ joueur.prenom }}</span>
+                            <span class="text-gray-500 text-sm">({{ joueur.licence }})</span>
+                        </a>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-gray-500">Aucun joueur trouvé</p>
+                {% endif %}
+            </div>
+        </section>
+        
+        <!-- Équipes -->
+        <section class="bg-white rounded-lg shadow">
+            <div class="bg-green-600 text-white px-4 py-3 rounded-t-lg">
+                <h2 class="font-semibold">👥 Équipes ({{ equipes|length }})</h2>
+            </div>
+            <div class="p-4">
+                {% if equipes %}
+                <ul class="divide-y">
+                    {% for equipe in equipes %}
+                    <li class="py-2">
+                        <a href="/equipes/{{ equipe.id }}" class="hover:text-green-600 font-medium">
+                            {{ equipe.nom }}
+                        </a>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-gray-500">Aucune équipe trouvée</p>
+                {% endif %}
+            </div>
+        </section>
+        
+        <!-- Clubs -->
+        <section class="bg-white rounded-lg shadow">
+            <div class="bg-purple-600 text-white px-4 py-3 rounded-t-lg">
+                <h2 class="font-semibold">🏠 Clubs ({{ clubs|length }})</h2>
+            </div>
+            <div class="p-4">
+                {% if clubs %}
+                <ul class="divide-y">
+                    {% for club in clubs %}
+                    <li class="py-2">
+                        <a href="/clubs/{{ club.id }}" class="hover:text-purple-600 font-medium">
+                            {{ club.nom }}
+                        </a>
+                        {% if club.ligue %}
+                        <span class="text-gray-500 text-sm">({{ club.ligue }})</span>
+                        {% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <p class="text-gray-500">Aucun club trouvé</p>
+                {% endif %}
+            </div>
+        </section>
+    </div>
+    {% else %}
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-6 text-center">
+        <p class="text-blue-800">Entrez un terme de recherche pour trouver des joueurs, équipes ou clubs.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
