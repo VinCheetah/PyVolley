@@ -8,7 +8,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from pyvolley.database.models import Base
-from pyvolley.core.models import MatchData, EquipeData, JoueurData, SetData
+from pyvolley.core.models import Match, Equipe, Joueur, Set
 
 
 # ============== Fixtures Database ==============
@@ -37,8 +37,8 @@ def test_session(test_engine):
 @pytest.fixture
 def sample_joueur():
     """Crée un joueur exemple."""
-    return JoueurData(
-        numero=7,
+    return Joueur(
+        numero="7",
         nom="DUPONT",
         prenom="Jean",
         licence="123456789",
@@ -49,51 +49,43 @@ def sample_joueur():
 @pytest.fixture
 def sample_equipe(sample_joueur):
     """Crée une équipe exemple."""
-    return EquipeData(
+    return Equipe(
         nom="AS Volley Club",
         joueurs=[sample_joueur],
         liberos=[],
-        officiels=[],
     )
 
 
 @pytest.fixture
 def sample_set():
     """Crée un set exemple."""
-    return SetData(
+    return Set(
         numero=1,
         score_a=25,
         score_b=23,
-        debut="14:00",
-        fin="14:30",
     )
 
 
 @pytest.fixture
 def sample_match(sample_equipe, sample_set):
     """Crée un match exemple."""
-    equipe_b = EquipeData(
+    equipe_b = Equipe(
         nom="BC Volley Team",
         joueurs=[],
         liberos=[],
-        officiels=[],
     )
     
-    return MatchData(
+    return Match(
         ligue="Île de France",
         competition="Championnat Régional",
         code_match="2024-R1-001",
         journee="1",
-        date="15/09/2024",
-        heure="14:00",
         lieu="Paris",
         salle="Gymnase Central",
-        categorie="Senior",
-        genre="Masculin",
         equipe_a=sample_equipe,
         equipe_b=equipe_b,
         sets=[sample_set],
-        vainqueur="AS Volley Club",
+        vainqueur_nom="AS Volley Club",
         score_final="3-0",
         duree_totale="1h30",
         arbitres=[],
