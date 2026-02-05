@@ -8,6 +8,7 @@ from typing import Type, Optional
 from pyvolley.parsers.base import BaseParser
 from pyvolley.parsers.v2 import MatchSheetParserV2
 from pyvolley.parsers.v3 import MatchSheetParserV3
+from pyvolley.parsers.v4 import MatchSheetParserV4
 
 
 class ParserFactory:
@@ -117,7 +118,9 @@ def get_parser(name: Optional[str] = None) -> BaseParser:
 
 
 # Enregistrer les parsers par défaut
-# V3 est le parser principal (pdfplumber, 100% de succès)
-# V2 conservé pour référence (PyMuPDF, plus rapide mais non fonctionnel)
+# V4 est le parser principal (pdfplumber optimisé, extraction complète)
+# V3 conservé pour référence (pdfplumber, 100% succès mais incomplet)
+# V2 conservé pour référence (PyMuPDF, plus rapide mais bugs de validation)
+ParserFactory.register(MatchSheetParserV4)
 ParserFactory.register(MatchSheetParserV3)
 ParserFactory.register(MatchSheetParserV2)

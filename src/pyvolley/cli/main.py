@@ -492,23 +492,90 @@ def scrape(
 def parse(
     input_path: Path = typer.Argument(
         ...,
-        help="Chemin vers un PDF ou un dossier de PDFs"
+        help="Chemin vers un PDF, un dossier, ou 'data/pdfs' pour tout parser"
     ),
     output: Optional[Path] = typer.Option(
         None,
         "--output", "-o",
-        help="Fichier JSON de sortie"
+        help="Fichier JSON de sortie pour les résultats"
     ),
     parser_version: str = typer.Option(
-        "v2",
+        "v4",
         "--parser", "-p",
-        help="Version du parser à utiliser (v2)"
+        help="Version du parser (v2, v3, v4)"
+    ),
+    recursive: bool = typer.Option(
+        True,
+        "--recursive/--no-recursive", "-r",
+        help="Parcourir les sous-dossiers récursivement"
+    ),
+    limit: Optional[int] = typer.Option(
+        None,
+        "--limit", "-n",
+        help="Nombre maximum de fichiers à parser"
+    ),
+    skip_parsed: bool = typer.Option(
+        True,
+        "--skip-parsed/--force",
+        help="Ignorer les fichiers déjà parsés (vérifiés par hash ou cache)"
+    ),
+    save_db: bool = typer.Option(
+        False,
+        "--save-db", "-d",
+        help="Enregistrer les résultats directement dans la base de données"
+    ),
+    report: bool = typer.Option(
+        False,
+        "--report",
+        help="Générer un rapport détaillé"
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Afficher ce qui serait fait sans parser"
+    ),
+    saison: Optional[str] = typer.Option(
+        None,
+        "--saison", "-s",
+        help="Filtrer par saison (ex: 2024-2025)"
+    ),
+    entity: Optional[List[str]] = typer.Option(
+        None,
+        "--entity", "-e",
+        help="Filtrer par entité (ex: ABCCS, LIRA)"
+    ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose", "-v",
+        help="Afficher les détails de chaque parsing"
     ),
 ):
     """
-    📄 Parse les feuilles de match PDF.
+    📄 Parse intelligemment les feuilles de match PDF.
+    
+    Exemples:
+    
+        # Parser tous les PDFs récursivement
+        pyvolley parse data/pdfs
+        
+        # Parser avec limite et sauvegarde en base
+        pyvolley parse data/pdfs -n 100 --save-db
+        
+        # Parser une saison spécifique
+        pyvolley parse data/pdfs --saison 2024-2025
+        
+        # Parser seulement certaines entités
+        pyvolley parse data/pdfs -e ABCCS -e LIRA
+        
+        # Exporter en JSON
+        pyvolley parse data/pdfs -o results.json
+        
+        # Mode dry-run pour voir ce qui serait parsé
+        pyvolley parse data/pdfs --dry-run -n 50
     """
-    from pyvolley.parsers import ParserFactory
+    from pyvolley.parsers.factory import ParserFactory, get_parser
+    from pyvolley.parsers.base import ParseResult
+    from hashlib import md5
     
     if not input_path.exists():
         console.print(f"[red]Erreur: {input_path} n'existe pas[/red]")
@@ -516,7 +583,10 @@ def parse(
     
     # Récupérer les fichiers PDF
     if input_path.is_dir():
-        pdf_files = list(input_path.glob("*.pdf"))
+        if recursive:
+            pdf_files = list(input_path.glob("**/*.pdf"))
+        else:
+            pdf_files = list(input_path.glob("*.pdf"))
     else:
         pdf_files = [input_path]
     
@@ -524,49 +594,254 @@ def parse(
         console.print("[yellow]Aucun fichier PDF trouvé[/yellow]")
         raise typer.Exit(0)
     
-    console.print(f"[blue]Parsing de {len(pdf_files)} fichier(s)...[/blue]")
+    # Appliquer les filtres
+    if saison:
+        saison_normalized = saison.replace("/", "-")
+        pdf_files = [f for f in pdf_files if saison_normalized in str(f)]
+    
+    if entity:
+        pdf_files = [f for f in pdf_files if any(e in str(f) for e in entity)]
+    
+    # Appliquer la limite
+    if limit:
+        pdf_files = pdf_files[:limit]
+    
+    if not pdf_files:
+        console.print("[yellow]Aucun fichier PDF après filtres[/yellow]")
+        raise typer.Exit(0)
+    
+    # Afficher le résumé
+    console.print(Panel(
+        f"[bold blue]🏐 PyVolley - Parsing des feuilles de match[/bold blue]\n\n"
+        f"Source: [cyan]{input_path}[/cyan]\n"
+        f"Fichiers: [cyan]{len(pdf_files)}[/cyan]\n"
+        f"Parser: [cyan]{parser_version.upper()}[/cyan]\n"
+        f"Mode: [cyan]{'Aperçu (dry-run)' if dry_run else 'Parsing'}[/cyan]\n"
+        f"Sauvegarde DB: [cyan]{'Oui' if save_db else 'Non'}[/cyan]",
+        title="Configuration"
+    ))
+    
+    # Mode dry-run
+    if dry_run:
+        # Afficher la distribution
+        from collections import Counter
+        
+        # Par saison
+        saisons = Counter()
+        entities_count = Counter()
+        for f in pdf_files:
+            parts = f.parts
+            for p in parts:
+                if p and len(p) == 9 and p[4] == '-':
+                    saisons[p] += 1
+                if p and (p.startswith("LI") or p.startswith("PT") or p.startswith("AB") or p.startswith("AC")):
+                    entities_count[p] += 1
+        
+        if saisons:
+            console.print("\n[bold]Distribution par saison:[/bold]")
+            for s, c in sorted(saisons.items()):
+                console.print(f"  {s}: {c}")
+        
+        if entities_count:
+            console.print("\n[bold]Distribution par entité (top 10):[/bold]")
+            for e, c in entities_count.most_common(10):
+                console.print(f"  {e}: {c}")
+        
+        console.print(f"\n[yellow]Mode dry-run: aucun fichier parsé[/yellow]")
+        raise typer.Exit(0)
     
     # Créer le parser
-    factory = ParserFactory()
-    if parser_version:
-        parser = factory.get(parser_version)
-    else:
-        parser = factory.get_default()
+    try:
+        parser_name = f"MatchSheetParser{parser_version.upper()}"
+        parser = ParserFactory.get(parser_name)
+    except KeyError:
+        console.print(f"[red]Parser '{parser_version}' non trouvé[/red]")
+        console.print(f"[blue]Parsers disponibles: {ParserFactory.list_parsers()}[/blue]")
+        raise typer.Exit(1)
     
+    console.print(f"\n[blue]Utilisation du parser: {parser.name} v{parser.version}[/blue]\n")
+    
+    # Cache pour skip_parsed (basé sur hash du fichier)
+    cache_file = input_path / ".pyvolley_parse_cache.json" if input_path.is_dir() else None
+    parsed_cache = {}
+    if skip_parsed and cache_file and cache_file.exists():
+        try:
+            with open(cache_file, "r") as f:
+                parsed_cache = json.load(f)
+            console.print(f"[dim]Cache chargé: {len(parsed_cache)} fichiers déjà parsés[/dim]")
+        except Exception:
+            pass
+    
+    # Parsing
     results = []
+    successful = 0
+    skipped = 0
+    failed = 0
+    warnings_count = 0
+    error_details = []
     
-    with Progress(console=console) as progress:
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        "[",
+        TextColumn("{task.completed}/{task.total}"),
+        "]",
+        console=console,
+    ) as progress:
         task = progress.add_task("Parsing...", total=len(pdf_files))
         
         for pdf_file in pdf_files:
+            # Vérifier le cache
+            if skip_parsed and cache_file:
+                file_hash = md5(pdf_file.read_bytes()).hexdigest()
+                if file_hash in parsed_cache:
+                    skipped += 1
+                    progress.update(task, advance=1, description=f"[yellow]Skip: {pdf_file.name}[/yellow]")
+                    continue
+            
             try:
                 result = parser.parse(pdf_file)
+                
                 if result.success and result.match:
-                    results.append(result.match)
-                    progress.console.print(f"  [green]✓[/green] {pdf_file.name}")
+                    successful += 1
+                    results.append({
+                        'file': str(pdf_file),
+                        'match': result.match,
+                        'parse_time_ms': result.parse_time_ms
+                    })
+                    
+                    if result.warnings:
+                        warnings_count += len(result.warnings)
+                    
+                    # Mettre en cache
+                    if skip_parsed and cache_file:
+                        file_hash = md5(pdf_file.read_bytes()).hexdigest()
+                        parsed_cache[file_hash] = {
+                            'file': str(pdf_file),
+                            'code_match': result.match.code_match,
+                            'timestamp': datetime.now().isoformat()
+                        }
+                    
+                    if verbose:
+                        m = result.match
+                        progress.console.print(
+                            f"  [green]✓[/green] {pdf_file.name}: {m.code_match} "
+                            f"({m.equipe_a.nom[:20] if m.equipe_a else '?'} vs {m.equipe_b.nom[:20] if m.equipe_b else '?'})"
+                        )
+                    else:
+                        progress.update(task, advance=1, description=f"[green]✓ {pdf_file.name[:30]}[/green]")
                 else:
-                    progress.console.print(f"  [yellow]⚠[/yellow] {pdf_file.name}: {result.errors}")
+                    failed += 1
+                    error_details.append({
+                        'file': str(pdf_file),
+                        'errors': result.errors
+                    })
+                    if verbose:
+                        progress.console.print(f"  [red]✗[/red] {pdf_file.name}: {result.errors[0][:50] if result.errors else 'Erreur inconnue'}...")
+                    else:
+                        progress.update(task, advance=1, description=f"[red]✗ {pdf_file.name[:30]}[/red]")
+                        
             except Exception as e:
-                progress.console.print(f"  [red]✗[/red] {pdf_file.name}: {e}")
+                failed += 1
+                error_details.append({
+                    'file': str(pdf_file),
+                    'errors': [str(e)]
+                })
+                progress.update(task, advance=1, description=f"[red]✗ {pdf_file.name[:30]}: {str(e)[:30]}[/red]")
             
-            progress.advance(task)
+            if not verbose:
+                progress.update(task, advance=1)
     
-    console.print(f"\n[green]✓ {len(results)}/{len(pdf_files)} fichiers parsés avec succès[/green]")
+    # Sauvegarder le cache
+    if skip_parsed and cache_file and parsed_cache:
+        try:
+            with open(cache_file, "w") as f:
+                json.dump(parsed_cache, f)
+        except Exception:
+            pass
     
-    # Exporter si demandé
+    # Résumé
+    console.print("\n" + "=" * 60)
+    console.print(Panel(
+        f"[green]✓ Parsés avec succès: {successful}[/green]\n"
+        f"[yellow]⏭ Skippés (cache): {skipped}[/yellow]\n"
+        f"[red]✗ Échecs: {failed}[/red]\n"
+        f"[dim]⚠ Warnings: {warnings_count}[/dim]",
+        title="Résumé du parsing"
+    ))
+    
+    # Exporter en JSON si demandé
     if output and results:
-        # Convertir en dict pour JSON
-        data = []
+        export_data = []
         for r in results:
-            if hasattr(r, '__dict__'):
-                data.append(r.__dict__ if hasattr(r, '__dict__') else str(r))
-            else:
-                data.append(str(r))
+            match = r['match']
+            export_data.append({
+                'file': r['file'],
+                'parse_time_ms': r['parse_time_ms'],
+                'match': match.model_dump() if hasattr(match, 'model_dump') else match.dict()
+            })
         
         with open(output, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2, default=str)
+            json.dump(export_data, f, ensure_ascii=False, indent=2, default=str)
         
-        console.print(f"[blue]Résultats exportés vers {output}[/blue]")
+        console.print(f"\n[blue]📁 Résultats exportés vers: {output}[/blue]")
+    
+    # Sauvegarder en base de données si demandé
+    if save_db and results:
+        console.print("\n[blue]💾 Sauvegarde en base de données...[/blue]")
+        
+        try:
+            from pyvolley.database.connection import DatabaseSession, init_db
+            from pyvolley.database.import_service import MatchImportService
+            
+            init_db()
+            
+            imported = 0
+            import_errors = 0
+            
+            with DatabaseSession() as session:
+                service = MatchImportService(session)
+                
+                for r in results:
+                    try:
+                        match_db = service.import_match(r['match'])
+                        imported += 1
+                    except Exception as e:
+                        import_errors += 1
+                        if verbose:
+                            console.print(f"  [red]✗[/red] Import {r['match'].code_match}: {e}")
+                
+                session.commit()
+            
+            console.print(f"[green]✓ {imported} matchs importés en base de données[/green]")
+            if import_errors:
+                console.print(f"[red]✗ {import_errors} erreurs d'import[/red]")
+                
+        except Exception as e:
+            console.print(f"[red]Erreur lors de l'import en base: {e}[/red]")
+    
+    # Générer le rapport si demandé
+    if report:
+        report_data = {
+            "timestamp": datetime.now().isoformat(),
+            "input_path": str(input_path),
+            "parser": parser.name,
+            "total_files": len(pdf_files),
+            "successful": successful,
+            "skipped": skipped,
+            "failed": failed,
+            "warnings": warnings_count,
+            "errors": error_details[:50],  # Limiter à 50 erreurs
+            "success_rate": successful / len(pdf_files) * 100 if pdf_files else 0
+        }
+        
+        report_path = Path(f"parse_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+        with open(report_path, "w", encoding="utf-8") as f:
+            json.dump(report_data, f, ensure_ascii=False, indent=2)
+        
+        console.print(f"\n[blue]📊 Rapport généré: {report_path}[/blue]")
 
 
 @app.command()
