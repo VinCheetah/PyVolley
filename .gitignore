@@ -19,7 +19,6 @@ ENV/
 .env.local
 
 # Data files
-data/pdfs/
 data/pdfs/*.pdf
 *.sqlite
 
@@ -53,3 +52,7 @@ data/*.db
 # OS
 .DS_Store
 Thumbs.db
+
+PyVolley/
+
+feuilles_match/
