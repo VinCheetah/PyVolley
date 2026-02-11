@@ -19,6 +19,7 @@ ENV/
 .env.local
 
 # Data files
+data/pdfs/
 data/pdfs/*.pdf
 *.sqlite
 
