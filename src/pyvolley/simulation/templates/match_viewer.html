@@ -1,0 +1,2538 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PyVolley — Simulation de Match</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   CSS CUSTOM PROPERTIES & RESET
+   ═══════════════════════════════════════════════════════════════ */
+:root {
+  --bg-primary: #0b0e17;
+  --bg-secondary: #131829;
+  --bg-card: #1a1f35;
+  --bg-card-hover: #222845;
+  --border-color: #2a3050;
+  --text-primary: #e8eaf0;
+  --text-secondary: #8b92a8;
+  --text-muted: #5a6178;
+
+  --team-a: #3b82f6;
+  --team-a-light: #60a5fa;
+  --team-a-bg: rgba(59, 130, 246, 0.12);
+  --team-a-glow: rgba(59, 130, 246, 0.4);
+
+  --team-b: #ef4444;
+  --team-b-light: #f87171;
+  --team-b-bg: rgba(239, 68, 68, 0.12);
+  --team-b-glow: rgba(239, 68, 68, 0.4);
+
+  --court-green: #1a5c2a;
+  --court-green-light: #237a38;
+  --court-line: rgba(255,255,255,0.85);
+  --net-color: #d4d4d8;
+
+  --gold: #f59e0b;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+  --shadow: 0 4px 24px rgba(0,0,0,0.3);
+  --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  overflow: hidden;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ═══════════════════════════════════════════════════════════════
+   LAYOUT
+   ═══════════════════════════════════════════════════════════════ */
+.app {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  grid-template-columns: 260px 1fr 260px;
+  height: 100vh;
+  gap: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   HEADER
+   ═══════════════════════════════════════════════════════════════ */
+.header {
+  grid-column: 1 / -1;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  padding: 10px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  z-index: 10;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  background: linear-gradient(135deg, var(--team-a), var(--team-b));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.match-info {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.match-info .badge {
+  background: var(--bg-card);
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border-color);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.header-center {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+.header-team {
+  text-align: center;
+  min-width: 180px;
+}
+
+.header-team-name {
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+.header-team.team-a .header-team-name { color: var(--team-a-light); }
+.header-team.team-b .header-team-name { color: var(--team-b-light); }
+
+.header-score {
+  font-size: 32px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-score .score-a { color: var(--team-a-light); }
+.header-score .score-b { color: var(--team-b-light); }
+.header-score .score-sep { color: var(--text-muted); font-size: 24px; }
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-right .badge {
+  background: var(--bg-card);
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border-color);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TEAM PANELS
+   ═══════════════════════════════════════════════════════════════ */
+.team-panel {
+  background: var(--bg-secondary);
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.team-panel.team-a { border-right: 1px solid var(--border-color); }
+.team-panel.team-b { border-left: 1px solid var(--border-color); }
+
+.panel-section-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  padding: 4px 0;
+  margin-top: 4px;
+}
+
+.team-panel.team-a .panel-section-title { border-bottom: 2px solid var(--team-a); }
+.team-panel.team-b .panel-section-title { border-bottom: 2px solid var(--team-b); }
+
+.official-info {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 5px 8px;
+  background: var(--bg-card);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.official-info .label {
+  font-size: 9px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  background: var(--bg-card-hover);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.player-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  transition: var(--transition);
+  cursor: default;
+  font-size: 12px;
+  border: 1px solid transparent;
+}
+
+.player-card:hover { background: var(--bg-card-hover); }
+
+.player-card.on-court {
+  background: var(--bg-card);
+  border-color: var(--border-color);
+}
+
+.team-a .player-card.on-court { border-left: 3px solid var(--team-a); }
+.team-b .player-card.on-court { border-left: 3px solid var(--team-b); }
+
+.player-card.is-serving {
+  animation: servePulse 1.5s ease-in-out infinite;
+}
+
+.team-a .player-card.is-serving { box-shadow: 0 0 12px var(--team-a-glow); border-color: var(--team-a); }
+.team-b .player-card.is-serving { box-shadow: 0 0 12px var(--team-b-glow); border-color: var(--team-b); }
+
+@keyframes servePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.8; }
+}
+
+.player-number {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 11px;
+  flex-shrink: 0;
+  color: white;
+}
+
+.team-a .player-number { background: var(--team-a); }
+.team-b .player-number { background: var(--team-b); }
+
+.player-card.is-libero .player-number {
+  background: var(--gold) !important;
+  color: #000;
+}
+
+.player-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-name .nom { font-weight: 600; }
+.player-name .prenom { color: var(--text-secondary); }
+
+.player-badge {
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.badge-cap { background: var(--gold); color: #000; }
+.badge-lib { background: var(--gold); color: #000; }
+.badge-pos { background: var(--bg-card-hover); color: var(--text-secondary); border: 1px solid var(--border-color); }
+
+/* ═══════════════════════════════════════════════════════════════
+   CENTER AREA (Court + Scoreboard + Event)
+   ═══════════════════════════════════════════════════════════════ */
+.center-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 16px;
+  gap: 10px;
+  background: var(--bg-primary);
+  overflow: hidden;
+  position: relative;
+}
+
+/* Scoreboard */
+.scoreboard {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 8px 24px;
+  z-index: 2;
+}
+
+.sb-team {
+  text-align: center;
+  min-width: 100px;
+}
+
+.sb-team-name {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+
+.sb-team.team-a .sb-team-name { color: var(--team-a-light); }
+.sb-team.team-b .sb-team-name { color: var(--team-b-light); }
+
+.sb-score-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sb-score-value {
+  font-size: 48px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  transition: var(--transition);
+}
+
+.sb-score-value.team-a { color: var(--team-a-light); }
+.sb-score-value.team-b { color: var(--team-b-light); }
+
+.sb-score-value.just-scored {
+  animation: scoreFlash 0.5s ease-out;
+}
+
+@keyframes scoreFlash {
+  0% { transform: scale(1.4); }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+.sb-separator {
+  font-size: 28px;
+  color: var(--text-muted);
+  font-weight: 300;
+}
+
+.sb-sets {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  justify-content: center;
+}
+
+.sb-set-score {
+  width: 28px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 4px;
+  background: var(--bg-card-hover);
+  border: 1px solid var(--border-color);
+}
+
+.sb-set-score.won-a { background: var(--team-a-bg); color: var(--team-a-light); border-color: var(--team-a); }
+.sb-set-score.won-b { background: var(--team-b-bg); color: var(--team-b-light); border-color: var(--team-b); }
+.sb-set-score.active { border-color: var(--gold); box-shadow: 0 0 6px rgba(245,158,11,0.3); }
+
+.sb-service-indicator {
+  font-size: 14px;
+  opacity: 0;
+  transition: var(--transition);
+}
+
+.sb-service-indicator.active { opacity: 1; }
+
+.sb-info {
+  text-align: center;
+}
+
+.sb-set-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
+/* Court */
+.court-container {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 520px;
+}
+
+.court-svg {
+  width: 100%;
+  max-height: 100%;
+}
+
+/* Player circles on court */
+.court-player {
+  cursor: default;
+  transition: transform 0.7s cubic-bezier(0.34, 1.2, 0.64, 1);
+}
+
+.court-player circle.player-bg {
+  transition: all 0.4s ease;
+}
+
+.court-player text {
+  pointer-events: none;
+  user-select: none;
+}
+
+.court-player.serving circle.player-bg {
+  stroke-width: 3;
+  stroke: var(--gold);
+  filter: drop-shadow(0 0 6px rgba(245,158,11,0.5));
+}
+
+.court-player.serving .serve-icon {
+  opacity: 1;
+}
+
+.court-player .serve-icon {
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+/* Animations */
+.court-player.entering {
+  animation: playerEnter 0.6s ease-out;
+}
+
+@keyframes playerEnter {
+  0% { opacity: 0; transform: scale(0.3); }
+  60% { opacity: 1; transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+.court-player.leaving {
+  animation: playerLeave 0.5s ease-in forwards;
+}
+
+@keyframes playerLeave {
+  0% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.3); }
+}
+
+/* Substitution animation */
+.court-player.sub-entering {
+  animation: subEnter 0.7s ease-out;
+}
+
+@keyframes subEnter {
+  0% { opacity: 0; transform: translateY(30px) scale(0.5); }
+  50% { opacity: 1; transform: translateY(-5px) scale(1.05); }
+  100% { transform: translateY(0) scale(1); }
+}
+
+.court-player.sub-leaving {
+  animation: subLeave 0.5s ease-in forwards;
+}
+
+@keyframes subLeave {
+  0% { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-30px) scale(0.5); }
+}
+
+/* Current Event Display */
+.event-display {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 10px 20px;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 520px;
+  z-index: 2;
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.event-display.event-point { }
+.event-display.event-timeout-a {
+  border-color: var(--team-a);
+  background: var(--team-a-bg);
+  box-shadow: 0 0 16px var(--team-a-glow);
+}
+.event-display.event-timeout-b {
+  border-color: var(--team-b);
+  background: var(--team-b-bg);
+  box-shadow: 0 0 16px var(--team-b-glow);
+}
+.event-display.event-substitution-a {
+  border-color: var(--team-a);
+  background: var(--team-a-bg);
+}
+.event-display.event-substitution-b {
+  border-color: var(--team-b);
+  background: var(--team-b-bg);
+}
+.event-display.event-sanction { border-color: var(--danger); background: rgba(239,68,68,0.08); }
+.event-display.event-set_start, .event-display.event-set_end { border-color: var(--gold); background: rgba(245,158,11,0.08); }
+
+.event-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.event-text {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.event-text .event-main { font-weight: 600; }
+.event-text .event-detail { color: var(--text-secondary); font-size: 12px; }
+
+/* Substitution event display */
+.sub-visual {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  margin-top: 2px;
+}
+
+.sub-player {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+.sub-player.sub-in {
+  background: rgba(34,197,94,0.15);
+  border: 1px solid var(--success);
+  color: var(--success);
+}
+
+.sub-player.sub-out {
+  background: rgba(239,68,68,0.1);
+  border: 1px solid rgba(239,68,68,0.3);
+  color: var(--text-secondary);
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.sub-arrow {
+  font-size: 18px;
+  color: var(--success);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CONTROLS BAR
+   ═══════════════════════════════════════════════════════════════ */
+.controls-bar {
+  grid-column: 1 / -1;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+  padding: 10px 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.controls-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.controls-group .group-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+
+.btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 14px;
+  transition: var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 36px;
+}
+
+.btn:hover { background: var(--bg-card-hover); border-color: var(--text-muted); }
+.btn:active { transform: scale(0.95); }
+.btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.btn.btn-play {
+  background: var(--team-a);
+  border-color: var(--team-a);
+  color: white;
+  min-width: 44px;
+}
+
+.btn.btn-play:hover { background: var(--team-a-light); }
+.btn.btn-play.playing { background: var(--warning); border-color: var(--warning); }
+
+.btn.btn-set {
+  min-width: 32px;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.btn.btn-set.active {
+  background: var(--team-a);
+  border-color: var(--team-a);
+  color: white;
+}
+
+.speed-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.speed-control input[type="range"] {
+  -webkit-appearance: none;
+  width: 100px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-color);
+  outline: none;
+}
+
+.speed-control input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--team-a);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.speed-control input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+  background: var(--team-a-light);
+}
+
+.speed-value {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  min-width: 36px;
+}
+
+.progress-info {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Progress bar */
+.timeline-bar {
+  flex: 1;
+  max-width: 300px;
+  height: 4px;
+  background: var(--border-color);
+  border-radius: 2px;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.timeline-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--team-a), var(--team-b));
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   EVENT LOG OVERLAY (togglable)
+   ═══════════════════════════════════════════════════════════════ */
+.event-log-toggle {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 5;
+}
+
+.event-log {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 280px;
+  height: 100%;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border-color);
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 0.3s ease;
+}
+
+.event-log.open { transform: translateX(0); }
+
+.event-log-header {
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.event-log-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.log-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  transition: var(--transition);
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.log-entry:hover { background: var(--bg-card-hover); }
+.log-entry.current { background: var(--bg-card); border-color: var(--border-color); }
+.log-entry.future { opacity: 0.4; }
+
+.log-icon { font-size: 14px; flex-shrink: 0; margin-top: 1px; }
+.log-text { flex: 1; line-height: 1.3; }
+.log-score { color: var(--text-muted); font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+
+/* Timeout log entries with team color */
+.log-entry.log-timeout-a { border-left: 3px solid var(--team-a); }
+.log-entry.log-timeout-b { border-left: 3px solid var(--team-b); }
+
+/* Substitution log entries with team color */
+.log-entry.log-sub-a { border-left: 3px solid var(--team-a); }
+.log-entry.log-sub-b { border-left: 3px solid var(--team-b); }
+
+/* Sideout log entry: subtle rotation indicator */
+.log-entry.log-sideout .log-text::after {
+  content: ' 🔃';
+  font-size: 10px;
+  opacity: 0.5;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   OVERLAY ANIMATIONS
+   ═══════════════════════════════════════════════════════════════ */
+.overlay {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.overlay.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.overlay-content {
+  background: rgba(11, 14, 23, 0.92);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 32px 48px;
+  text-align: center;
+  animation: overlayIn 0.4s ease-out;
+}
+
+@keyframes overlayIn {
+  0% { transform: scale(0.8); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.overlay-title {
+  font-size: 20px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.overlay-subtitle {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.overlay-score {
+  font-size: 48px;
+  font-weight: 900;
+  margin: 12px 0;
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+/* Timeout animation */
+.timeout-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  z-index: 15;
+  border-radius: 50%;
+  width: 120px;
+  height: 120px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.timeout-overlay .timeout-team-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-top: 4px;
+}
+
+.timeout-overlay.team-a-to {
+  background: rgba(59, 130, 246, 0.2);
+  border: 2px solid var(--team-a);
+  color: var(--team-a-light);
+}
+
+.timeout-overlay.team-b-to {
+  background: rgba(239, 68, 68, 0.2);
+  border: 2px solid var(--team-b);
+  color: var(--team-b-light);
+}
+
+.timeout-overlay.show {
+  animation: timeoutPop 1.4s ease-out forwards;
+}
+
+@keyframes timeoutPop {
+  0% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+  15% { transform: translate(-50%, -50%) scale(1.15); opacity: 1; }
+  75% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(0.8); opacity: 0; }
+}
+
+/* Sanction card animation */
+.sanction-card {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotateY(90deg);
+  z-index: 15;
+  width: 50px;
+  height: 70px;
+  border-radius: 6px;
+  opacity: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  font-size: 24px;
+  color: #000;
+}
+
+.sanction-card.type-A { background: var(--warning); }
+.sanction-card.type-P { background: var(--danger); }
+.sanction-card.type-E { background: var(--danger); }
+.sanction-card.type-D { background: #000; color: var(--danger); border: 2px solid var(--danger); }
+
+.sanction-card.show {
+  animation: cardFlip 1.2s ease-out forwards;
+}
+
+@keyframes cardFlip {
+  0% { transform: translate(-50%, -50%) rotateY(90deg); opacity: 0; }
+  30% { transform: translate(-50%, -50%) rotateY(0deg); opacity: 1; }
+  70% { transform: translate(-50%, -50%) rotateY(0deg); opacity: 1; }
+  100% { transform: translate(-50%, -50%) rotateY(90deg) translateY(-20px); opacity: 0; }
+}
+
+/* Point flash */
+.point-flash {
+  position: absolute;
+  top: 0;
+  width: 50%;
+  height: 100%;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 3;
+}
+
+.point-flash.team-a { left: 0; background: linear-gradient(90deg, var(--team-a-glow), transparent); }
+.point-flash.team-b { right: 0; left: auto; background: linear-gradient(-90deg, var(--team-b-glow), transparent); }
+
+.point-flash.show {
+  animation: flashPulse 0.6s ease-out forwards;
+}
+
+@keyframes flashPulse {
+  0% { opacity: 0.6; }
+  100% { opacity: 0; }
+}
+
+/* Substitution overlay */
+.sub-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  z-index: 15;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  border-radius: var(--radius);
+  backdrop-filter: blur(8px);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.sub-overlay .sub-num {
+  font-size: 18px;
+  font-weight: 900;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+}
+
+.sub-overlay .sub-num.sub-out-num {
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+.sub-overlay .sub-arrow-icon {
+  font-size: 24px;
+  color: var(--success);
+}
+
+.sub-overlay.team-a-sub {
+  border: 2px solid var(--team-a);
+  background: rgba(59, 130, 246, 0.15);
+}
+.sub-overlay.team-a-sub .sub-num { background: var(--team-a); }
+
+.sub-overlay.team-b-sub {
+  border: 2px solid var(--team-b);
+  background: rgba(239, 68, 68, 0.15);
+}
+.sub-overlay.team-b-sub .sub-num { background: var(--team-b); }
+
+.sub-overlay.show {
+  animation: subOverlayPop 1.2s ease-out forwards;
+}
+
+@keyframes subOverlayPop {
+  0% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+  15% { transform: translate(-50%, -50%) scale(1.05); opacity: 1; }
+  75% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(0.9); opacity: 0; }
+}
+
+/* Loading */
+.loading-screen {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: var(--bg-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border-color);
+  border-top: 3px solid var(--team-a);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Officials bar */
+.officials-bar {
+  padding: 4px 0 0;
+}
+
+.officials-section {
+  font-size: 10px;
+  color: var(--text-muted);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+}
+
+.official-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  font-size: 10px;
+}
+
+.official-chip .official-role {
+  font-weight: 700;
+  color: var(--gold);
+}
+
+.official-chip .official-name {
+  color: var(--text-secondary);
+}
+
+/* Responsive */
+@media (max-width: 1100px) {
+  .app {
+    grid-template-columns: 200px 1fr 200px;
+  }
+}
+
+@media (max-width: 800px) {
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto 1fr auto;
+  }
+  .team-panel { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div id="loading" class="loading-screen">
+  <div class="loading-spinner"></div>
+  <div style="color: var(--text-secondary); font-size: 14px;">Chargement du match...</div>
+</div>
+
+<div class="app" id="app" style="display:none">
+  <!-- HEADER -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">&#x1F3D0; PyVolley</div>
+      <div class="match-info">
+        <span class="badge" id="hdr-competition"></span>
+        <span class="badge" id="hdr-journee"></span>
+        <span id="hdr-date-lieu" style="font-size:12px"></span>
+      </div>
+    </div>
+    <div class="header-center">
+      <div class="header-team team-a">
+        <div class="header-team-name" id="hdr-team-a"></div>
+      </div>
+      <div class="header-score">
+        <span class="score-a" id="hdr-sets-a">0</span>
+        <span class="score-sep">&ndash;</span>
+        <span class="score-b" id="hdr-sets-b">0</span>
+      </div>
+      <div class="header-team team-b">
+        <div class="header-team-name" id="hdr-team-b"></div>
+      </div>
+    </div>
+    <div class="header-right">
+      <span class="badge" id="hdr-duration"></span>
+      <span class="badge" id="hdr-code"></span>
+    </div>
+  </header>
+
+  <!-- TEAM A PANEL -->
+  <div class="team-panel team-a" id="panel-a"></div>
+
+  <!-- CENTER -->
+  <div class="center-area" id="center-area">
+    <!-- Scoreboard -->
+    <div class="scoreboard">
+      <div class="sb-team team-a">
+        <div class="sb-team-name" id="sb-name-a"></div>
+        <div class="sb-service-indicator" id="sb-serve-a">&#x1F3D0;</div>
+      </div>
+      <div class="sb-score-main">
+        <div class="sb-score-value team-a" id="sb-score-a">0</div>
+        <div class="sb-separator">&mdash;</div>
+        <div class="sb-score-value team-b" id="sb-score-b">0</div>
+      </div>
+      <div class="sb-team team-b">
+        <div class="sb-team-name" id="sb-name-b"></div>
+        <div class="sb-service-indicator" id="sb-serve-b">&#x1F3D0;</div>
+      </div>
+    </div>
+
+    <div class="sb-info">
+      <div class="sb-set-label" id="sb-set-label">Set 1</div>
+      <div class="sb-sets" id="sb-sets"></div>
+      <div class="officials-bar" id="officials-bar"></div>
+    </div>
+
+    <!-- Court -->
+    <div class="court-container">
+      <svg class="court-svg" viewBox="0 0 500 700" id="court-svg">
+        <!-- Court background -->
+        <defs>
+          <linearGradient id="courtGradA" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#1a5c2a"/>
+            <stop offset="100%" stop-color="#1e6830"/>
+          </linearGradient>
+          <linearGradient id="courtGradB" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stop-color="#1e6830"/>
+            <stop offset="100%" stop-color="#1a5c2a"/>
+          </linearGradient>
+          <filter id="glow">
+            <feGaussianBlur stdDeviation="3" result="blur"/>
+            <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+          </filter>
+        </defs>
+
+        <!-- Court floor -->
+        <rect x="25" y="20" width="450" height="320" rx="4" fill="url(#courtGradA)" />
+        <rect x="25" y="360" width="450" height="320" rx="4" fill="url(#courtGradB)" />
+
+        <!-- Court lines -->
+        <rect x="25" y="20" width="450" height="660" rx="4" fill="none" stroke="rgba(255,255,255,0.7)" stroke-width="2"/>
+        <!-- Center line / net -->
+        <line x1="25" y1="340" x2="475" y2="340" stroke="rgba(255,255,255,0.3)" stroke-width="1" stroke-dasharray="5,5"/>
+        <!-- Net -->
+        <rect x="15" y="336" width="470" height="8" rx="2" fill="var(--net-color)" opacity="0.4"/>
+        <line x1="15" y1="340" x2="485" y2="340" stroke="var(--net-color)" stroke-width="2.5"/>
+        <!-- 3m attack lines -->
+        <line x1="25" y1="200" x2="475" y2="200" stroke="rgba(255,255,255,0.5)" stroke-width="1.5" stroke-dasharray="8,4"/>
+        <line x1="25" y1="480" x2="475" y2="480" stroke="rgba(255,255,255,0.5)" stroke-width="1.5" stroke-dasharray="8,4"/>
+
+        <!-- Team labels -->
+        <text x="250" y="14" text-anchor="middle" fill="var(--team-a-light)" font-size="11" font-weight="700" opacity="0.7" id="court-label-a"></text>
+        <text x="250" y="694" text-anchor="middle" fill="var(--team-b-light)" font-size="11" font-weight="700" opacity="0.7" id="court-label-b"></text>
+
+        <!-- Player positions will be added dynamically -->
+        <g id="players-group"></g>
+      </svg>
+
+      <!-- Overlay elements -->
+      <div class="point-flash team-a" id="flash-a"></div>
+      <div class="point-flash team-b" id="flash-b"></div>
+      <div class="timeout-overlay" id="timeout-anim">
+        <span class="timeout-icon">&#x23F8;&#xFE0F;</span>
+        <span class="timeout-team-label"></span>
+      </div>
+      <div class="sub-overlay" id="sub-anim">
+        <span class="sub-num sub-out-num" id="sub-out-num"></span>
+        <span class="sub-arrow-icon">&#x27A1;</span>
+        <span class="sub-num sub-in-num" id="sub-in-num"></span>
+      </div>
+      <div class="sanction-card" id="sanction-anim"></div>
+    </div>
+
+    <!-- Current event display -->
+    <div class="event-display" id="event-display">
+      <span class="event-icon">&#x1F3D0;</span>
+      <div class="event-text">
+        <div class="event-main">Pr&ecirc;t &agrave; d&eacute;marrer</div>
+        <div class="event-detail">Utilisez les contr&ocirc;les pour lancer la simulation</div>
+      </div>
+    </div>
+
+    <!-- Event log -->
+    <button class="btn event-log-toggle" id="log-toggle" title="Journal des &eacute;v&eacute;nements" style="position:absolute;top:8px;right:8px;z-index:5">&#x1F4CB;</button>
+    <div class="event-log" id="event-log">
+      <div class="event-log-header">
+        <span>Journal des &eacute;v&eacute;nements</span>
+        <button class="btn" id="log-close" style="padding:2px 6px;min-width:auto;height:auto;font-size:14px">&times;</button>
+      </div>
+      <div class="event-log-list" id="event-log-list"></div>
+    </div>
+  </div>
+
+  <!-- TEAM B PANEL -->
+  <div class="team-panel team-b" id="panel-b"></div>
+
+  <!-- CONTROLS -->
+  <div class="controls-bar">
+    <div class="controls-group">
+      <span class="group-label">Navigation</span>
+      <button class="btn" id="btn-start" title="D&eacute;but (Home)">&#x23EE;</button>
+      <button class="btn" id="btn-prev" title="Pr&eacute;c&eacute;dent (&larr;)">&#x25C0;</button>
+      <button class="btn btn-play" id="btn-play" title="Lecture/Pause (Espace)">&#x25B6;</button>
+      <button class="btn" id="btn-next" title="Suivant (&rarr;)">&#x25B6;</button>
+      <button class="btn" id="btn-end" title="Fin (End)">&#x23ED;</button>
+    </div>
+
+    <div class="controls-group">
+      <div class="timeline-bar" id="timeline-bar">
+        <div class="timeline-fill" id="timeline-fill"></div>
+      </div>
+      <span class="progress-info" id="progress-info">0 / 0</span>
+    </div>
+
+    <div class="controls-group speed-control">
+      <span class="group-label">Vitesse</span>
+      <input type="range" id="speed-slider" min="1" max="10" value="5" step="1">
+      <span class="speed-value" id="speed-value">1.0&times;</span>
+    </div>
+
+    <div class="controls-group">
+      <span class="group-label">Sets</span>
+      <div id="set-buttons"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     JAVASCRIPT
+     ═══════════════════════════════════════════════════════════════ -->
+<script>
+// ─────────────────────────────────────────
+// MATCH DATA (injected by Python)
+// ─────────────────────────────────────────
+const MATCH_DATA = __MATCH_DATA__;
+
+// ─────────────────────────────────────────
+// GLOBAL STATE
+// ─────────────────────────────────────────
+const state = {
+  currentSet: 0,
+  currentEvent: -1,
+  playing: false,
+  playInterval: null,
+  speed: 5,
+  scoreA: 0,
+  scoreB: 0,
+  setsA: 0,
+  setsB: 0,
+  currentServer: null,
+  positionsA: {},
+  positionsB: {},
+  logOpen: false,
+  timelines: [],
+};
+
+// ─────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────
+function getPlayer(team, numero) {
+  const eq = team === 'A' ? MATCH_DATA.equipe_a : MATCH_DATA.equipe_b;
+  const num = String(numero).replace(/^0+/, '');
+  return eq.joueurs.find(function(j) {
+    return String(j.numero).replace(/^0+/, '') === num;
+  });
+}
+
+function playerName(player) {
+  if (!player) return '?';
+  var prenom = player.prenom ? player.prenom.charAt(0) + '.' : '';
+  return prenom + ' ' + player.nom;
+}
+
+function shortTeamName(name) {
+  if (!name) return '';
+  var words = name.split(/\s+/);
+  if (words.length <= 2) return name;
+  return words.slice(0, 2).join(' ');
+}
+
+function stripLeadingZeros(val) {
+  return String(val).replace(/^0+/, '') || val;
+}
+
+// ─────────────────────────────────────────
+// TIMELINE RECONSTRUCTION
+// ─────────────────────────────────────────
+function buildTimeline(setData) {
+  var events = [];
+  var serviceInitial = setData.service_initial;
+  var formA = setData.formation_a;
+  var formB = setData.formation_b;
+
+  // Set start event
+  events.push({
+    type: 'set_start',
+    set: setData.numero,
+    scoreA: 0, scoreB: 0,
+    server: serviceInitial,
+    formationA: formA ? Object.assign({}, formA) : {},
+    formationB: formB ? Object.assign({}, formB) : {},
+    description: 'D\u00e9but du Set ' + setData.numero,
+    detail: 'Service : ' + (serviceInitial === 'A' ? shortTeamName(MATCH_DATA.equipe_a.nom) : shortTeamName(MATCH_DATA.equipe_b.nom)),
+    icon: '\uD83C\uDFD0'
+  });
+
+  // Build service turn sequences
+  var servicesA = setData.services_a || {};
+  var servicesB = setData.services_b || {};
+
+  function getServiceTurns(services) {
+    var posData = {};
+    for (var pos in services) {
+      if (services.hasOwnProperty(pos)) {
+        posData[parseInt(pos)] = services[pos].slice();
+      }
+    }
+    return posData;
+  }
+
+  var turnsA = getServiceTurns(servicesA);
+  var turnsB = getServiceTurns(servicesB);
+
+  function buildOrderedTurns(posData, isInitialServer) {
+    var startPos = isInitialServer ? 1 : 2;
+    var ordered = [];
+    var counters = {};
+    for (var p = 1; p <= 6; p++) counters[p] = 0;
+
+    var totalTurns = 0;
+    for (var k in posData) {
+      if (posData.hasOwnProperty(k)) totalTurns += posData[k].length;
+    }
+
+    var pos = startPos;
+    for (var i = 0; i < totalTurns; i++) {
+      var posScores = posData[pos];
+      if (posScores && counters[pos] < posScores.length) {
+        ordered.push({ position: pos, endScore: posScores[counters[pos]] });
+        counters[pos]++;
+      } else {
+        var found = false;
+        for (var attempt = 0; attempt < 6; attempt++) {
+          pos = (pos % 6) + 1;
+          var ps = posData[pos];
+          if (ps && counters[pos] < ps.length) {
+            ordered.push({ position: pos, endScore: ps[counters[pos]] });
+            counters[pos]++;
+            found = true;
+            break;
+          }
+        }
+        if (!found) break;
+      }
+      pos = (pos % 6) + 1;
+    }
+    return ordered;
+  }
+
+  var orderedA = buildOrderedTurns(turnsA, serviceInitial === 'A');
+  var orderedB = buildOrderedTurns(turnsB, serviceInitial === 'B');
+
+  // Collect all non-point events with scores
+  var otherEvents = [];
+
+  (setData.changements_a || []).forEach(function(c) {
+    otherEvents.push({
+      type: 'substitution', team: 'A',
+      scoreA: c.score_a, scoreB: c.score_b,
+      entrant: c.joueur_entrant, sortant: c.joueur_sortant,
+      position: c.position
+    });
+  });
+  (setData.changements_b || []).forEach(function(c) {
+    otherEvents.push({
+      type: 'substitution', team: 'B',
+      scoreA: c.score_a, scoreB: c.score_b,
+      entrant: c.joueur_entrant, sortant: c.joueur_sortant,
+      position: c.position
+    });
+  });
+
+  (setData.timeouts_a || []).forEach(function(t) {
+    otherEvents.push({
+      type: 'timeout', team: 'A',
+      scoreA: t.score_a, scoreB: t.score_b
+    });
+  });
+  (setData.timeouts_b || []).forEach(function(t) {
+    otherEvents.push({
+      type: 'timeout', team: 'B',
+      scoreA: t.score_a, scoreB: t.score_b
+    });
+  });
+
+  (MATCH_DATA.sanctions || []).forEach(function(s) {
+    if (s.set_numero === setData.numero) {
+      otherEvents.push({
+        type: 'sanction', team: s.equipe,
+        scoreA: s.score_a, scoreB: s.score_b,
+        sanctionType: s.type, joueurNumero: s.joueur_numero
+      });
+    }
+  });
+
+  // Interleave service turns to build point-by-point timeline
+  var scoreA = 0, scoreB = 0;
+  var idxA = 0, idxB = 0;
+  var currentServer = serviceInitial;
+  var finalScoreA = setData.score_a;
+  var finalScoreB = setData.score_b;
+
+  // Track current positions (for rotations - folded into sideout events)
+  var posA = {};
+  var posB = {};
+  for (var p = 1; p <= 6; p++) {
+    posA[p] = formA ? formA['position_' + p] : '';
+    posB[p] = formB ? formB['position_' + p] : '';
+  }
+
+  function rotatePositions(pos) {
+    var old1 = pos[1];
+    pos[1] = pos[2];
+    pos[2] = pos[3];
+    pos[3] = pos[4];
+    pos[4] = pos[5];
+    pos[5] = pos[6];
+    pos[6] = old1;
+  }
+
+  function clonePos(p) {
+    return { 1: p[1], 2: p[2], 3: p[3], 4: p[4], 5: p[5], 6: p[6] };
+  }
+
+  function insertOtherEvents(targetScoreA, targetScoreB) {
+    var matching = [];
+    for (var i = otherEvents.length - 1; i >= 0; i--) {
+      var e = otherEvents[i];
+      if (e.scoreA === targetScoreA && e.scoreB === targetScoreB) {
+        matching.push(otherEvents.splice(i, 1)[0]);
+      }
+    }
+    matching.reverse();
+    matching.forEach(function(e) {
+      if (e.type === 'timeout') {
+        var teamName = e.team === 'A' ? shortTeamName(MATCH_DATA.equipe_a.nom) : shortTeamName(MATCH_DATA.equipe_b.nom);
+        events.push({
+          type: 'timeout', team: e.team, set: setData.numero,
+          scoreA: e.scoreA, scoreB: e.scoreB,
+          description: 'Temps mort ' + teamName,
+          detail: 'Score : ' + e.scoreA + ' - ' + e.scoreB,
+          icon: '\u23F8\uFE0F',
+          posA: clonePos(posA), posB: clonePos(posB),
+          server: currentServer
+        });
+      } else if (e.type === 'substitution') {
+        var teamName2 = e.team === 'A' ? shortTeamName(MATCH_DATA.equipe_a.nom) : shortTeamName(MATCH_DATA.equipe_b.nom);
+        var pIn = getPlayer(e.team, e.entrant);
+        var pOut = getPlayer(e.team, e.sortant);
+        // Apply substitution to positions
+        var positions = e.team === 'A' ? posA : posB;
+        for (var p2 = 1; p2 <= 6; p2++) {
+          if (stripLeadingZeros(positions[p2]) === stripLeadingZeros(e.sortant)) {
+            positions[p2] = e.entrant;
+            break;
+          }
+        }
+        events.push({
+          type: 'substitution', team: e.team, set: setData.numero,
+          scoreA: e.scoreA, scoreB: e.scoreB,
+          entrant: e.entrant, sortant: e.sortant,
+          description: 'Changement ' + teamName2,
+          detail: '#' + stripLeadingZeros(e.sortant || '') + ' ' + playerName(pOut) + ' \u27A1 #' + stripLeadingZeros(e.entrant) + ' ' + playerName(pIn),
+          icon: '\uD83D\uDD04',
+          posA: clonePos(posA), posB: clonePos(posB),
+          server: currentServer
+        });
+      } else if (e.type === 'sanction') {
+        var teamName3 = e.team === 'A' ? shortTeamName(MATCH_DATA.equipe_a.nom) : shortTeamName(MATCH_DATA.equipe_b.nom);
+        var sanctionNames = { A: 'Avertissement', P: 'P\u00e9nalit\u00e9', E: 'Expulsion', D: 'Disqualification' };
+        var player = e.joueurNumero ? getPlayer(e.team, e.joueurNumero) : null;
+        events.push({
+          type: 'sanction', team: e.team, set: setData.numero,
+          scoreA: e.scoreA, scoreB: e.scoreB,
+          sanctionType: e.sanctionType,
+          description: (sanctionNames[e.sanctionType] || 'Sanction') + ' \u2014 ' + teamName3,
+          detail: player ? '#' + stripLeadingZeros(e.joueurNumero) + ' ' + playerName(player) : '',
+          icon: e.sanctionType === 'A' ? '\uD83D\uDFE1' : '\uD83D\uDD34',
+          posA: clonePos(posA), posB: clonePos(posB),
+          server: currentServer
+        });
+      }
+    });
+  }
+
+  // Main reconstruction loop
+  var safety = 0;
+  var maxEvents = 500;
+
+  while ((scoreA < finalScoreA || scoreB < finalScoreB) && safety < maxEvents) {
+    safety++;
+
+    if (currentServer === 'A') {
+      var turnA = orderedA[idxA];
+      if (!turnA) {
+        while (scoreA < finalScoreA && safety < maxEvents) {
+          safety++;
+          scoreA++;
+          insertOtherEvents(scoreA, scoreB);
+          events.push({
+            type: 'point', team: 'A', set: setData.numero,
+            scoreA: scoreA, scoreB: scoreB,
+            description: 'Point ' + shortTeamName(MATCH_DATA.equipe_a.nom),
+            detail: scoreA + ' - ' + scoreB,
+            icon: '\uD83D\uDD35',
+            posA: clonePos(posA), posB: clonePos(posB),
+            server: 'A'
+          });
+        }
+        break;
+      }
+
+      var endScoreA = turnA.endScore;
+      while (scoreA < endScoreA && safety < maxEvents) {
+        safety++;
+        scoreA++;
+        insertOtherEvents(scoreA, scoreB);
+        events.push({
+          type: 'point', team: 'A', set: setData.numero,
+          scoreA: scoreA, scoreB: scoreB,
+          description: 'Point ' + shortTeamName(MATCH_DATA.equipe_a.nom),
+          detail: scoreA + ' - ' + scoreB,
+          icon: '\uD83D\uDD35',
+          posA: clonePos(posA), posB: clonePos(posB),
+          server: 'A'
+        });
+      }
+
+      // Sideout: B scores
+      scoreB++;
+      if (scoreB > finalScoreB) { scoreB = finalScoreB; break; }
+      if (scoreA > finalScoreA) { scoreA = finalScoreA; break; }
+
+      // B gains serve: rotate B, fold rotation into the sideout point
+      idxA++;
+      currentServer = 'B';
+      rotatePositions(posB);
+
+      insertOtherEvents(scoreA, scoreB);
+
+      if (scoreB <= finalScoreB) {
+        events.push({
+          type: 'point', team: 'B', set: setData.numero,
+          scoreA: scoreA, scoreB: scoreB,
+          sideout: true,
+          rotatedTeam: 'B',
+          description: 'Point ' + shortTeamName(MATCH_DATA.equipe_b.nom),
+          detail: scoreA + ' - ' + scoreB,
+          icon: '\uD83D\uDD34',
+          posA: clonePos(posA), posB: clonePos(posB),
+          server: 'B'
+        });
+      }
+
+      if (scoreA >= finalScoreA && scoreB >= finalScoreB) break;
+
+    } else {
+      // B serves
+      var turnB = orderedB[idxB];
+      if (!turnB) {
+        while (scoreB < finalScoreB && safety < maxEvents) {
+          safety++;
+          scoreB++;
+          insertOtherEvents(scoreA, scoreB);
+          events.push({
+            type: 'point', team: 'B', set: setData.numero,
+            scoreA: scoreA, scoreB: scoreB,
+            description: 'Point ' + shortTeamName(MATCH_DATA.equipe_b.nom),
+            detail: scoreA + ' - ' + scoreB,
+            icon: '\uD83D\uDD34',
+            posA: clonePos(posA), posB: clonePos(posB),
+            server: 'B'
+          });
+        }
+        break;
+      }
+
+      var endScoreB = turnB.endScore;
+      while (scoreB < endScoreB && safety < maxEvents) {
+        safety++;
+        scoreB++;
+        insertOtherEvents(scoreA, scoreB);
+        events.push({
+          type: 'point', team: 'B', set: setData.numero,
+          scoreA: scoreA, scoreB: scoreB,
+          description: 'Point ' + shortTeamName(MATCH_DATA.equipe_b.nom),
+          detail: scoreA + ' - ' + scoreB,
+          icon: '\uD83D\uDD34',
+          posA: clonePos(posA), posB: clonePos(posB),
+          server: 'B'
+        });
+      }
+
+      // Sideout: A scores
+      scoreA++;
+      if (scoreA > finalScoreA) { scoreA = finalScoreA; break; }
+      if (scoreB > finalScoreB) { scoreB = finalScoreB; break; }
+
+      // A gains serve: rotate A, fold rotation into the sideout point
+      idxB++;
+      currentServer = 'A';
+      rotatePositions(posA);
+
+      insertOtherEvents(scoreA, scoreB);
+
+      if (scoreA <= finalScoreA) {
+        events.push({
+          type: 'point', team: 'A', set: setData.numero,
+          scoreA: scoreA, scoreB: scoreB,
+          sideout: true,
+          rotatedTeam: 'A',
+          description: 'Point ' + shortTeamName(MATCH_DATA.equipe_a.nom),
+          detail: scoreA + ' - ' + scoreB,
+          icon: '\uD83D\uDD35',
+          posA: clonePos(posA), posB: clonePos(posB),
+          server: 'A'
+        });
+      }
+
+      if (scoreA >= finalScoreA && scoreB >= finalScoreB) break;
+    }
+  }
+
+  // Set end event
+  var winner = setData.score_a > setData.score_b ? 'A' : 'B';
+  var winnerName = winner === 'A' ? MATCH_DATA.equipe_a.nom : MATCH_DATA.equipe_b.nom;
+  events.push({
+    type: 'set_end',
+    set: setData.numero,
+    scoreA: finalScoreA, scoreB: finalScoreB,
+    winner: winner,
+    description: 'Fin du Set ' + setData.numero,
+    detail: finalScoreA + ' - ' + finalScoreB + ' \u2014 ' + shortTeamName(winnerName) + ' remporte le set',
+    icon: '\uD83C\uDFC6',
+    posA: clonePos(posA), posB: clonePos(posB),
+    server: currentServer,
+    duration: setData.duree_minutes
+  });
+
+  return events;
+}
+
+function buildAllTimelines() {
+  state.timelines = [];
+  for (var i = 0; i < MATCH_DATA.sets.length; i++) {
+    state.timelines.push(buildTimeline(MATCH_DATA.sets[i]));
+  }
+}
+
+// ─────────────────────────────────────────
+// RENDERING - HEADER & PANELS
+// ─────────────────────────────────────────
+function initUI() {
+  document.getElementById('hdr-competition').textContent = MATCH_DATA.competition || '';
+  document.getElementById('hdr-journee').textContent = MATCH_DATA.journee ? 'J' + MATCH_DATA.journee : '';
+  var dateStr = MATCH_DATA.date || '';
+  var lieuStr = MATCH_DATA.lieu || '';
+  var salleStr = MATCH_DATA.salle || '';
+  document.getElementById('hdr-date-lieu').textContent = dateStr + ' \u2022 ' + lieuStr + (salleStr ? ' \u2014 ' + salleStr : '');
+  document.getElementById('hdr-team-a').textContent = MATCH_DATA.equipe_a.nom;
+  document.getElementById('hdr-team-b').textContent = MATCH_DATA.equipe_b.nom;
+  document.getElementById('hdr-sets-a').textContent = MATCH_DATA.sets_a || '0';
+  document.getElementById('hdr-sets-b').textContent = MATCH_DATA.sets_b || '0';
+  document.getElementById('hdr-duration').textContent = MATCH_DATA.duree_totale || '';
+  document.getElementById('hdr-code').textContent = MATCH_DATA.code_match || '';
+
+  document.getElementById('sb-name-a').textContent = shortTeamName(MATCH_DATA.equipe_a.nom);
+  document.getElementById('sb-name-b').textContent = shortTeamName(MATCH_DATA.equipe_b.nom);
+
+  document.getElementById('court-label-a').textContent = shortTeamName(MATCH_DATA.equipe_a.nom).toUpperCase();
+  document.getElementById('court-label-b').textContent = shortTeamName(MATCH_DATA.equipe_b.nom).toUpperCase();
+
+  // Set buttons & set score chips
+  var setButtonsDiv = document.getElementById('set-buttons');
+  var sbSetsDiv = document.getElementById('sb-sets');
+  setButtonsDiv.innerHTML = '';
+  sbSetsDiv.innerHTML = '';
+  MATCH_DATA.sets.forEach(function(s, i) {
+    var btn = document.createElement('button');
+    btn.className = 'btn btn-set' + (i === 0 ? ' active' : '');
+    btn.textContent = s.numero;
+    btn.dataset.setIndex = i;
+    btn.addEventListener('click', function() { goToSet(i); });
+    setButtonsDiv.appendChild(btn);
+
+    var chip = document.createElement('span');
+    chip.className = 'sb-set-score';
+    chip.id = 'sb-set-' + i;
+    chip.textContent = '-';
+    sbSetsDiv.appendChild(chip);
+  });
+
+  renderOfficialsBar();
+  renderTeamPanel('A', MATCH_DATA.equipe_a, 'panel-a');
+  renderTeamPanel('B', MATCH_DATA.equipe_b, 'panel-b');
+}
+
+function renderOfficialsBar() {
+  var bar = document.getElementById('officials-bar');
+  var arbitres = MATCH_DATA.arbitres || [];
+  if (arbitres.length === 0) { bar.innerHTML = ''; return; }
+
+  var html = '<div class="officials-section">';
+  html += '<span style="font-weight:600;color:var(--gold)">\uD83C\uDFC5 Officiels :</span>';
+  arbitres.forEach(function(a) {
+    var label = a.role || '';
+    var name = a.prenom ? a.prenom.charAt(0) + '. ' + a.nom : a.nom;
+    html += '<span class="official-chip"><span class="official-role">' + label + '</span><span class="official-name">' + name + '</span></span>';
+  });
+  html += '</div>';
+  bar.innerHTML = html;
+}
+
+function renderTeamPanel(team, equipe, containerId) {
+  var container = document.getElementById(containerId);
+  var html = '';
+
+  // Officials / staff
+  if (equipe.officiels && equipe.officiels.length > 0) {
+    html += '<div class="panel-section-title">Staff</div>';
+    var roleMap = { EA: 'Entra\u00eeneur', EB: 'Assistant', MA: 'Manager', MB: 'Mgr. Adj.', KA: 'Kin\u00e9', KB: 'Kin\u00e9 Adj.' };
+    equipe.officiels.forEach(function(o) {
+      var label = roleMap[o.role] || o.role;
+      var name = o.prenom ? o.nom + ' ' + o.prenom : o.nom;
+      html += '<div class="official-info"><span class="label">' + label + '</span>' + name + '</div>';
+    });
+  } else if (equipe.entraineur) {
+    html += '<div class="panel-section-title">Staff</div>';
+    html += '<div class="official-info"><span class="label">Coach</span>' + equipe.entraineur + '</div>';
+    if (equipe.assistant) {
+      html += '<div class="official-info"><span class="label">Assist.</span>' + equipe.assistant + '</div>';
+    }
+  }
+
+  // Players
+  html += '<div class="panel-section-title">Effectif</div>';
+  equipe.joueurs.forEach(function(j) {
+    var num = stripLeadingZeros(j.numero);
+    var isLibero = j.est_libero;
+    var isCap = j.est_capitaine;
+    html += '<div class="player-card' + (isLibero ? ' is-libero' : '') + '" id="panel-player-' + team + '-' + num + '">';
+    html += '<span class="player-number">' + num + '</span>';
+    html += '<span class="player-name"><span class="nom">' + j.nom + '</span> <span class="prenom">' + (j.prenom || '') + '</span></span>';
+    if (isCap) html += '<span class="player-badge badge-cap">C</span>';
+    if (isLibero) html += '<span class="player-badge badge-lib">L</span>';
+    html += '<span class="player-badge badge-pos" id="panel-pos-' + team + '-' + num + '" style="display:none"></span>';
+    html += '</div>';
+  });
+
+  container.innerHTML = html;
+}
+
+// ─────────────────────────────────────────
+// RENDERING - COURT
+// ─────────────────────────────────────────
+var COURT_POSITIONS = {
+  A: {
+    1: { x: 112, y: 90 },
+    6: { x: 250, y: 90 },
+    5: { x: 388, y: 90 },
+    2: { x: 112, y: 250 },
+    3: { x: 250, y: 250 },
+    4: { x: 388, y: 250 }
+  },
+  B: {
+    4: { x: 112, y: 430 },
+    3: { x: 250, y: 430 },
+    2: { x: 388, y: 430 },
+    5: { x: 112, y: 590 },
+    6: { x: 250, y: 590 },
+    1: { x: 388, y: 590 }
+  }
+};
+
+function renderCourt(animate, subInfo) {
+  var group = document.getElementById('players-group');
+
+  // Build desired on-court map
+  var desired = {};
+  for (var pos = 1; pos <= 6; pos++) {
+    var numA = state.positionsA[pos];
+    if (numA) {
+      var pA = getPlayer('A', numA);
+      var cA = COURT_POSITIONS.A[pos];
+      var servA = state.currentServer === 'A' && pos === 1;
+      var libA = pA && pA.est_libero;
+      var keyA = 'A-' + stripLeadingZeros(numA);
+      desired[keyA] = { team: 'A', pos: pos, numero: numA, player: pA, coord: cA, isServing: servA, isLibero: libA };
+    }
+    var numB = state.positionsB[pos];
+    if (numB) {
+      var pB = getPlayer('B', numB);
+      var cB = COURT_POSITIONS.B[pos];
+      var servB = state.currentServer === 'B' && pos === 1;
+      var libB = pB && pB.est_libero;
+      var keyB = 'B-' + stripLeadingZeros(numB);
+      desired[keyB] = { team: 'B', pos: pos, numero: numB, player: pB, coord: cB, isServing: servB, isLibero: libB };
+    }
+  }
+
+  // Existing elements
+  var existing = {};
+  group.querySelectorAll('.court-player').forEach(function(el) {
+    existing[el.id] = el;
+  });
+
+  var subEntrantKey = subInfo ? subInfo.team + '-' + stripLeadingZeros(subInfo.entrant) : null;
+  var subSortantKey = subInfo ? subInfo.team + '-' + stripLeadingZeros(subInfo.sortant) : null;
+
+  // Remove players no longer on court
+  for (var id in existing) {
+    if (!existing.hasOwnProperty(id)) continue;
+    var key = id.replace('court-p-', '');
+    if (!desired[key]) {
+      var el = existing[id];
+      if (animate) {
+        var isSub = subSortantKey && key === subSortantKey;
+        el.classList.add(isSub ? 'sub-leaving' : 'leaving');
+        (function(elem) { setTimeout(function() { elem.remove(); }, isSub ? 500 : 400); })(el);
+      } else {
+        el.remove();
+      }
+    }
+  }
+
+  // Add or update
+  for (var dkey in desired) {
+    if (!desired.hasOwnProperty(dkey)) continue;
+    var info = desired[dkey];
+    var elId = 'court-p-' + dkey;
+    var existingEl = existing[elId];
+
+    if (existingEl) {
+      existingEl.setAttribute('transform', 'translate(' + info.coord.x + ', ' + info.coord.y + ')');
+      updatePlayerServing(existingEl, info);
+      updatePlayerPosLabel(existingEl, info);
+    } else {
+      var g = createCourtPlayerElement(info);
+      g.id = elId;
+      group.appendChild(g);
+      if (animate) {
+        var isSubIn = subEntrantKey && dkey === subEntrantKey;
+        g.classList.add(isSubIn ? 'sub-entering' : 'entering');
+      }
+    }
+  }
+}
+
+function createCourtPlayerElement(info) {
+  var g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  g.setAttribute('class', 'court-player' + (info.isServing ? ' serving' : ''));
+  g.setAttribute('transform', 'translate(' + info.coord.x + ', ' + info.coord.y + ')');
+
+  var fillColor = info.isLibero ? '#f59e0b' : (info.team === 'A' ? '#3b82f6' : '#ef4444');
+  var strokeColor = info.isServing ? '#f59e0b' : (info.team === 'A' ? '#2563eb' : '#dc2626');
+
+  var circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  circle.setAttribute('class', 'player-bg');
+  circle.setAttribute('cx', 0);
+  circle.setAttribute('cy', 0);
+  circle.setAttribute('r', 24);
+  circle.setAttribute('fill', fillColor);
+  circle.setAttribute('stroke', strokeColor);
+  circle.setAttribute('stroke-width', info.isServing ? 3 : 1.5);
+  if (info.isServing) circle.setAttribute('filter', 'url(#glow)');
+  g.appendChild(circle);
+
+  var numText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  numText.setAttribute('class', 'jersey-number');
+  numText.setAttribute('text-anchor', 'middle');
+  numText.setAttribute('dy', '0.35em');
+  numText.setAttribute('fill', 'white');
+  numText.setAttribute('font-size', '14');
+  numText.setAttribute('font-weight', '800');
+  numText.textContent = stripLeadingZeros(info.numero);
+  g.appendChild(numText);
+
+  if (info.player) {
+    var nameText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    nameText.setAttribute('class', 'player-name-label');
+    nameText.setAttribute('text-anchor', 'middle');
+    nameText.setAttribute('y', 38);
+    nameText.setAttribute('fill', 'rgba(255,255,255,0.8)');
+    nameText.setAttribute('font-size', '9');
+    nameText.setAttribute('font-weight', '600');
+    var displayName = info.player.nom.length > 10 ? info.player.nom.substring(0, 10) + '.' : info.player.nom;
+    nameText.textContent = displayName;
+    g.appendChild(nameText);
+  }
+
+  var serveIcon = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  serveIcon.setAttribute('class', 'serve-icon');
+  serveIcon.setAttribute('text-anchor', 'middle');
+  serveIcon.setAttribute('y', -32);
+  serveIcon.setAttribute('fill', '#f59e0b');
+  serveIcon.setAttribute('font-size', '14');
+  serveIcon.textContent = '\uD83C\uDFD0';
+  serveIcon.style.opacity = info.isServing ? 1 : 0;
+  g.appendChild(serveIcon);
+
+  var posLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  posLabel.setAttribute('class', 'pos-label');
+  posLabel.setAttribute('text-anchor', 'middle');
+  posLabel.setAttribute('y', -30);
+  posLabel.setAttribute('fill', 'rgba(255,255,255,0.3)');
+  posLabel.setAttribute('font-size', '8');
+  posLabel.textContent = 'P' + info.pos;
+  posLabel.style.display = info.isServing ? 'none' : '';
+  g.appendChild(posLabel);
+
+  return g;
+}
+
+function updatePlayerServing(el, info) {
+  var circle = el.querySelector('.player-bg');
+  var serveIcon = el.querySelector('.serve-icon');
+  var fillColor = info.isLibero ? '#f59e0b' : (info.team === 'A' ? '#3b82f6' : '#ef4444');
+  var strokeColor = info.isServing ? '#f59e0b' : (info.team === 'A' ? '#2563eb' : '#dc2626');
+
+  if (info.isServing) {
+    el.classList.add('serving');
+    circle.setAttribute('stroke', strokeColor);
+    circle.setAttribute('stroke-width', 3);
+    circle.setAttribute('filter', 'url(#glow)');
+    if (serveIcon) serveIcon.style.opacity = 1;
+  } else {
+    el.classList.remove('serving');
+    circle.setAttribute('stroke', strokeColor);
+    circle.setAttribute('stroke-width', 1.5);
+    circle.removeAttribute('filter');
+    if (serveIcon) serveIcon.style.opacity = 0;
+  }
+  circle.setAttribute('fill', fillColor);
+}
+
+function updatePlayerPosLabel(el, info) {
+  var posLabel = el.querySelector('.pos-label');
+  if (posLabel) {
+    posLabel.textContent = 'P' + info.pos;
+    posLabel.style.display = info.isServing ? 'none' : '';
+  }
+}
+
+// ─────────────────────────────────────────
+// RENDERING - SCOREBOARD & UI UPDATES
+// ─────────────────────────────────────────
+function updateScoreboard(sA, sB, animate) {
+  var elA = document.getElementById('sb-score-a');
+  var elB = document.getElementById('sb-score-b');
+
+  if (animate) {
+    if (parseInt(elA.textContent) !== sA) {
+      elA.classList.remove('just-scored');
+      void elA.offsetWidth;
+      elA.classList.add('just-scored');
+    }
+    if (parseInt(elB.textContent) !== sB) {
+      elB.classList.remove('just-scored');
+      void elB.offsetWidth;
+      elB.classList.add('just-scored');
+    }
+  }
+
+  elA.textContent = sA;
+  elB.textContent = sB;
+}
+
+function updateServiceIndicator(server) {
+  document.getElementById('sb-serve-a').classList.toggle('active', server === 'A');
+  document.getElementById('sb-serve-b').classList.toggle('active', server === 'B');
+}
+
+function updateSetInfo() {
+  var setData = MATCH_DATA.sets[state.currentSet];
+  document.getElementById('sb-set-label').textContent = 'Set ' + setData.numero + (setData.duree_minutes ? ' \u2022 ' + setData.duree_minutes + ' min' : '');
+
+  MATCH_DATA.sets.forEach(function(s, i) {
+    var chip = document.getElementById('sb-set-' + i);
+    if (!chip) return;
+    chip.className = 'sb-set-score';
+    if (i < state.currentSet || (i === state.currentSet && state.currentEvent >= state.timelines[i].length - 1)) {
+      chip.textContent = s.score_a + '-' + s.score_b;
+      if (s.score_a > s.score_b) chip.classList.add('won-a');
+      else chip.classList.add('won-b');
+    } else if (i === state.currentSet) {
+      chip.textContent = state.scoreA + '-' + state.scoreB;
+      chip.classList.add('active');
+    } else {
+      chip.textContent = '-';
+    }
+  });
+
+  document.querySelectorAll('.btn-set').forEach(function(btn) {
+    btn.classList.toggle('active', parseInt(btn.dataset.setIndex) === state.currentSet);
+  });
+}
+
+function updatePanelHighlights() {
+  document.querySelectorAll('.player-card').forEach(function(card) {
+    card.classList.remove('on-court', 'is-serving');
+  });
+
+  for (var pos = 1; pos <= 6; pos++) {
+    var numA = stripLeadingZeros(state.positionsA[pos] || '');
+    var numB = stripLeadingZeros(state.positionsB[pos] || '');
+    var cardA = document.getElementById('panel-player-A-' + numA);
+    var cardB = document.getElementById('panel-player-B-' + numB);
+    if (cardA) {
+      cardA.classList.add('on-court');
+      if (state.currentServer === 'A' && pos === 1) cardA.classList.add('is-serving');
+      var posElA = document.getElementById('panel-pos-A-' + numA);
+      if (posElA) { posElA.textContent = 'P' + pos; posElA.style.display = ''; }
+    }
+    if (cardB) {
+      cardB.classList.add('on-court');
+      if (state.currentServer === 'B' && pos === 1) cardB.classList.add('is-serving');
+      var posElB = document.getElementById('panel-pos-B-' + numB);
+      if (posElB) { posElB.textContent = 'P' + pos; posElB.style.display = ''; }
+    }
+  }
+
+  document.querySelectorAll('.badge-pos').forEach(function(el) {
+    if (!el.closest('.on-court')) el.style.display = 'none';
+  });
+}
+
+function updateEventDisplay(event) {
+  var el = document.getElementById('event-display');
+  if (!event) {
+    el.className = 'event-display';
+    el.innerHTML = '<span class="event-icon">\uD83C\uDFD0</span><div class="event-text"><div class="event-main">Pr\u00eat \u00e0 d\u00e9marrer</div><div class="event-detail">Utilisez les contr\u00f4les pour lancer la simulation</div></div>';
+    return;
+  }
+
+  var cssClass = 'event-' + event.type;
+  if (event.type === 'timeout') {
+    cssClass = 'event-timeout-' + (event.team === 'A' ? 'a' : 'b');
+  } else if (event.type === 'substitution') {
+    cssClass = 'event-substitution-' + (event.team === 'A' ? 'a' : 'b');
+  }
+
+  el.className = 'event-display ' + cssClass;
+
+  if (event.type === 'substitution') {
+    var pIn = getPlayer(event.team, event.entrant);
+    var pOut = getPlayer(event.team, event.sortant);
+    var teamColor = event.team === 'A' ? 'var(--team-a-light)' : 'var(--team-b-light)';
+    var teamName = event.team === 'A' ? shortTeamName(MATCH_DATA.equipe_a.nom) : shortTeamName(MATCH_DATA.equipe_b.nom);
+    el.innerHTML = '<span class="event-icon">\uD83D\uDD04</span>' +
+      '<div class="event-text">' +
+      '<div class="event-main" style="color:' + teamColor + '">Changement ' + teamName + '</div>' +
+      '<div class="sub-visual">' +
+      '<span class="sub-player sub-out">#' + stripLeadingZeros(event.sortant || '') + ' ' + playerName(pOut) + '</span>' +
+      '<span class="sub-arrow">\u27A1</span>' +
+      '<span class="sub-player sub-in">#' + stripLeadingZeros(event.entrant) + ' ' + playerName(pIn) + '</span>' +
+      '</div></div>';
+  } else if (event.type === 'timeout') {
+    var toTeamName = event.team === 'A' ? shortTeamName(MATCH_DATA.equipe_a.nom) : shortTeamName(MATCH_DATA.equipe_b.nom);
+    var toColor = event.team === 'A' ? 'var(--team-a-light)' : 'var(--team-b-light)';
+    el.innerHTML = '<span class="event-icon">\u23F8\uFE0F</span>' +
+      '<div class="event-text">' +
+      '<div class="event-main" style="color:' + toColor + '">Temps mort \u2014 ' + toTeamName + '</div>' +
+      '<div class="event-detail">Score : ' + event.scoreA + ' - ' + event.scoreB + '</div>' +
+      '</div>';
+  } else {
+    var sideoutTag = (event.sideout && event.rotatedTeam) ? ' <span style="font-size:11px;opacity:0.6">\uD83D\uDD03</span>' : '';
+    el.innerHTML = '<span class="event-icon">' + (event.icon || '') + '</span>' +
+      '<div class="event-text">' +
+      '<div class="event-main">' + (event.description || '') + sideoutTag + '</div>' +
+      '<div class="event-detail">' + (event.detail || '') + '</div>' +
+      '</div>';
+  }
+}
+
+function updateProgress() {
+  var timeline = state.timelines[state.currentSet];
+  if (!timeline) return;
+  var total = timeline.length;
+  var current = state.currentEvent + 1;
+  document.getElementById('progress-info').textContent = current + ' / ' + total;
+  var pct = total > 0 ? (current / total) * 100 : 0;
+  document.getElementById('timeline-fill').style.width = pct + '%';
+}
+
+// ─────────────────────────────────────────
+// EVENT LOG
+// ─────────────────────────────────────────
+function renderEventLog() {
+  var list = document.getElementById('event-log-list');
+  var timeline = state.timelines[state.currentSet];
+  if (!timeline) return;
+
+  var html = '';
+  timeline.forEach(function(e, i) {
+    var cls = i === state.currentEvent ? 'current' : (i > state.currentEvent ? 'future' : '');
+    var scoreStr = (e.scoreA !== undefined && e.scoreB !== undefined) ? e.scoreA + '-' + e.scoreB : '';
+
+    // Extra CSS classes for team-colored entries
+    var extraCls = '';
+    if (e.type === 'timeout') extraCls = ' log-timeout-' + (e.team === 'A' ? 'a' : 'b');
+    else if (e.type === 'substitution') extraCls = ' log-sub-' + (e.team === 'A' ? 'a' : 'b');
+    if (e.sideout) extraCls += ' log-sideout';
+
+    html += '<div class="log-entry ' + cls + extraCls + '" data-idx="' + i + '">';
+    html += '<span class="log-icon">' + (e.icon || '') + '</span>';
+    html += '<span class="log-text">' + (e.description || '') + '</span>';
+    html += '<span class="log-score">' + scoreStr + '</span>';
+    html += '</div>';
+  });
+  list.innerHTML = html;
+
+  var currentEl = list.querySelector('.current');
+  if (currentEl) currentEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+  list.querySelectorAll('.log-entry').forEach(function(el2) {
+    el2.addEventListener('click', function() {
+      goToEvent(parseInt(el2.dataset.idx));
+    });
+  });
+}
+
+// ─────────────────────────────────────────
+// ANIMATIONS
+// ─────────────────────────────────────────
+function animatePoint(team) {
+  var flash = document.getElementById(team === 'A' ? 'flash-a' : 'flash-b');
+  flash.classList.remove('show');
+  void flash.offsetWidth;
+  flash.classList.add('show');
+  setTimeout(function() { flash.classList.remove('show'); }, 600);
+}
+
+function animateTimeout(team) {
+  var el = document.getElementById('timeout-anim');
+  var teamName = team === 'A' ? shortTeamName(MATCH_DATA.equipe_a.nom) : shortTeamName(MATCH_DATA.equipe_b.nom);
+  el.className = 'timeout-overlay team-' + (team === 'A' ? 'a' : 'b') + '-to';
+  el.querySelector('.timeout-icon').textContent = '\u23F8\uFE0F';
+  el.querySelector('.timeout-team-label').textContent = teamName;
+  void el.offsetWidth;
+  el.classList.add('show');
+  setTimeout(function() { el.classList.remove('show'); }, 1400);
+}
+
+function animateSubstitution(team, entrant, sortant) {
+  var el = document.getElementById('sub-anim');
+  el.className = 'sub-overlay team-' + (team === 'A' ? 'a' : 'b') + '-sub';
+  document.getElementById('sub-out-num').textContent = stripLeadingZeros(sortant || '?');
+  document.getElementById('sub-in-num').textContent = stripLeadingZeros(entrant);
+  void el.offsetWidth;
+  el.classList.add('show');
+  setTimeout(function() { el.classList.remove('show'); }, 1200);
+}
+
+function animateSanction(type) {
+  var el = document.getElementById('sanction-anim');
+  el.className = 'sanction-card type-' + type;
+  var symbols = { A: '\u26A0', P: '\uD83D\uDD34', E: '\u274C', D: '\u26D4' };
+  el.textContent = symbols[type] || '\u26A0';
+  el.classList.add('show');
+  setTimeout(function() { el.classList.remove('show'); }, 1200);
+}
+
+// ─────────────────────────────────────────
+// NAVIGATION
+// ─────────────────────────────────────────
+function applyEvent(event, animate) {
+  if (!event) return;
+
+  if (event.scoreA !== undefined) state.scoreA = event.scoreA;
+  if (event.scoreB !== undefined) state.scoreB = event.scoreB;
+  if (event.server) state.currentServer = event.server;
+  if (event.posA) state.positionsA = { 1: event.posA[1], 2: event.posA[2], 3: event.posA[3], 4: event.posA[4], 5: event.posA[5], 6: event.posA[6] };
+  if (event.posB) state.positionsB = { 1: event.posB[1], 2: event.posB[2], 3: event.posB[3], 4: event.posB[4], 5: event.posB[5], 6: event.posB[6] };
+
+  if (event.type === 'set_start') {
+    if (event.formationA) {
+      for (var p = 1; p <= 6; p++) state.positionsA[p] = event.formationA['position_' + p];
+    }
+    if (event.formationB) {
+      for (var p2 = 1; p2 <= 6; p2++) state.positionsB[p2] = event.formationB['position_' + p2];
+    }
+  }
+
+  var subInfo = null;
+  if (event.type === 'substitution') {
+    subInfo = { team: event.team, entrant: event.entrant, sortant: event.sortant };
+  }
+
+  updateScoreboard(state.scoreA, state.scoreB, animate);
+  updateServiceIndicator(state.currentServer);
+  renderCourt(animate, subInfo);
+  updateEventDisplay(event);
+  updateSetInfo();
+  updatePanelHighlights();
+  updateProgress();
+
+  if (animate) {
+    if (event.type === 'point') animatePoint(event.team);
+    if (event.type === 'timeout') animateTimeout(event.team);
+    if (event.type === 'substitution') animateSubstitution(event.team, event.entrant, event.sortant);
+    if (event.type === 'sanction' && event.sanctionType) animateSanction(event.sanctionType);
+  }
+}
+
+function goToEvent(idx) {
+  var timeline = state.timelines[state.currentSet];
+  if (!timeline || idx < 0 || idx >= timeline.length) return;
+
+  if (idx < state.currentEvent) {
+    document.getElementById('players-group').innerHTML = '';
+    state.currentEvent = -1;
+    state.scoreA = 0;
+    state.scoreB = 0;
+    for (var i = 0; i <= idx; i++) {
+      state.currentEvent = i;
+      applyEvent(timeline[i], false);
+    }
+  } else {
+    for (var i2 = state.currentEvent + 1; i2 <= idx; i2++) {
+      state.currentEvent = i2;
+      applyEvent(timeline[i2], i2 === idx);
+    }
+  }
+  renderEventLog();
+}
+
+function nextEvent() {
+  var timeline = state.timelines[state.currentSet];
+  if (!timeline) return;
+
+  if (state.currentEvent < timeline.length - 1) {
+    state.currentEvent++;
+    applyEvent(timeline[state.currentEvent], true);
+    renderEventLog();
+  } else {
+    if (state.currentSet < MATCH_DATA.sets.length - 1) {
+      goToSet(state.currentSet + 1);
+    } else {
+      stopPlaying();
+    }
+  }
+}
+
+function prevEvent() {
+  if (state.currentEvent > 0) {
+    goToEvent(state.currentEvent - 1);
+  } else if (state.currentSet > 0) {
+    var prevSet = state.currentSet - 1;
+    goToSet(prevSet);
+    var timeline = state.timelines[prevSet];
+    goToEvent(timeline.length - 1);
+  }
+}
+
+function goToStart() {
+  stopPlaying();
+  document.getElementById('players-group').innerHTML = '';
+  state.currentSet = 0;
+  state.currentEvent = -1;
+  state.scoreA = 0;
+  state.scoreB = 0;
+  state.setsA = 0;
+  state.setsB = 0;
+  var firstEvent = state.timelines[0] ? state.timelines[0][0] : null;
+  if (firstEvent) {
+    state.currentEvent = 0;
+    applyEvent(firstEvent, false);
+  } else {
+    updateScoreboard(0, 0, false);
+    updateEventDisplay(null);
+    renderCourt(false);
+    updateSetInfo();
+    updatePanelHighlights();
+    updateProgress();
+  }
+  renderEventLog();
+}
+
+function goToEnd() {
+  stopPlaying();
+  var lastSet = MATCH_DATA.sets.length - 1;
+  goToSet(lastSet);
+  var timeline = state.timelines[lastSet];
+  goToEvent(timeline.length - 1);
+}
+
+function goToSet(setIdx) {
+  if (setIdx < 0 || setIdx >= MATCH_DATA.sets.length) return;
+  document.getElementById('players-group').innerHTML = '';
+  state.currentSet = setIdx;
+  state.currentEvent = -1;
+  state.scoreA = 0;
+  state.scoreB = 0;
+
+  state.setsA = 0;
+  state.setsB = 0;
+  for (var i = 0; i < setIdx; i++) {
+    var s = MATCH_DATA.sets[i];
+    if (s.score_a > s.score_b) state.setsA++;
+    else state.setsB++;
+  }
+
+  var timeline = state.timelines[setIdx];
+  if (timeline && timeline.length > 0) {
+    state.currentEvent = 0;
+    applyEvent(timeline[0], false);
+  }
+  renderEventLog();
+}
+
+// ─────────────────────────────────────────
+// PLAYBACK
+// ─────────────────────────────────────────
+function getPlayDelay() {
+  var speeds = [2000, 1500, 1200, 1000, 800, 600, 450, 300, 200, 100];
+  return speeds[state.speed - 1] || 800;
+}
+
+function startPlaying() {
+  if (state.playing) return;
+  state.playing = true;
+  document.getElementById('btn-play').classList.add('playing');
+  document.getElementById('btn-play').textContent = '\u23F8';
+  scheduleNext();
+}
+
+function stopPlaying() {
+  state.playing = false;
+  if (state.playInterval) clearTimeout(state.playInterval);
+  state.playInterval = null;
+  document.getElementById('btn-play').classList.remove('playing');
+  document.getElementById('btn-play').textContent = '\u25B6';
+}
+
+function scheduleNext() {
+  if (!state.playing) return;
+  var timeline = state.timelines[state.currentSet];
+  if (!timeline) { stopPlaying(); return; }
+
+  var delay = getPlayDelay();
+  var currentEvent = timeline[state.currentEvent];
+  if (currentEvent) {
+    if (currentEvent.type === 'set_start' || currentEvent.type === 'set_end') delay *= 3;
+    else if (currentEvent.type === 'timeout') delay *= 2.5;
+    else if (currentEvent.type === 'substitution') delay *= 2;
+    else if (currentEvent.type === 'sanction') delay *= 2;
+    else if (currentEvent.sideout) delay *= 1.3;
+  }
+
+  state.playInterval = setTimeout(function() {
+    nextEvent();
+    if (state.playing) scheduleNext();
+  }, delay);
+}
+
+function togglePlay() {
+  if (state.playing) stopPlaying();
+  else startPlaying();
+}
+
+// ─────────────────────────────────────────
+// EVENT HANDLERS
+// ─────────────────────────────────────────
+function initControls() {
+  document.getElementById('btn-play').addEventListener('click', togglePlay);
+  document.getElementById('btn-next').addEventListener('click', nextEvent);
+  document.getElementById('btn-prev').addEventListener('click', prevEvent);
+  document.getElementById('btn-start').addEventListener('click', goToStart);
+  document.getElementById('btn-end').addEventListener('click', goToEnd);
+
+  var speedSlider = document.getElementById('speed-slider');
+  speedSlider.addEventListener('input', function() {
+    state.speed = parseInt(speedSlider.value);
+    var speedLabel = ['0.2\u00d7', '0.4\u00d7', '0.6\u00d7', '0.8\u00d7', '1.0\u00d7', '1.5\u00d7', '2.0\u00d7', '3.0\u00d7', '4.0\u00d7', '5.0\u00d7'];
+    document.getElementById('speed-value').textContent = speedLabel[state.speed - 1] || '1.0\u00d7';
+  });
+
+  document.getElementById('timeline-bar').addEventListener('click', function(e) {
+    var rect = e.target.getBoundingClientRect();
+    var pct = (e.clientX - rect.left) / rect.width;
+    var timeline = state.timelines[state.currentSet];
+    if (timeline) {
+      var idx = Math.round(pct * (timeline.length - 1));
+      goToEvent(idx);
+    }
+  });
+
+  document.getElementById('log-toggle').addEventListener('click', function() {
+    var log = document.getElementById('event-log');
+    state.logOpen = !state.logOpen;
+    log.classList.toggle('open', state.logOpen);
+  });
+  document.getElementById('log-close').addEventListener('click', function() {
+    state.logOpen = false;
+    document.getElementById('event-log').classList.remove('open');
+  });
+
+  document.addEventListener('keydown', function(e) {
+    if (e.target.tagName === 'INPUT') return;
+    switch (e.key) {
+      case ' ':
+      case 'k':
+        e.preventDefault();
+        togglePlay();
+        break;
+      case 'ArrowRight':
+      case 'l':
+        e.preventDefault();
+        nextEvent();
+        break;
+      case 'ArrowLeft':
+      case 'j':
+        e.preventDefault();
+        prevEvent();
+        break;
+      case 'Home':
+        e.preventDefault();
+        goToStart();
+        break;
+      case 'End':
+        e.preventDefault();
+        goToEnd();
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        if (state.speed < 10) {
+          state.speed++;
+          speedSlider.value = state.speed;
+          speedSlider.dispatchEvent(new Event('input'));
+        }
+        break;
+      case 'ArrowDown':
+        e.preventDefault();
+        if (state.speed > 1) {
+          state.speed--;
+          speedSlider.value = state.speed;
+          speedSlider.dispatchEvent(new Event('input'));
+        }
+        break;
+      default:
+        var num = parseInt(e.key);
+        if (num >= 1 && num <= MATCH_DATA.sets.length) {
+          e.preventDefault();
+          goToSet(num - 1);
+        }
+    }
+  });
+}
+
+// ─────────────────────────────────────────
+// INITIALIZATION
+// ─────────────────────────────────────────
+function init() {
+  buildAllTimelines();
+  initUI();
+  initControls();
+  goToSet(0);
+
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('app').style.display = '';
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
+</script>
+</body>
+</html>
