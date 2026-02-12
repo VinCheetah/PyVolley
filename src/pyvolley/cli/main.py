@@ -13,7 +13,7 @@ from datetime import datetime
 import typer
 from rich.console import Console
 from rich.table import Table
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
 from rich.panel import Panel
 from rich.live import Live
 from rich.layout import Layout
@@ -500,9 +500,9 @@ def parse(
         help="Fichier JSON de sortie pour les résultats"
     ),
     parser_version: str = typer.Option(
-        "v4",
+        "v5",
         "--parser", "-p",
-        help="Version du parser (v2, v3, v4)"
+        help="Version du parser (v2, v3, v4, v5)"
     ),
     recursive: bool = typer.Option(
         True,
@@ -688,6 +688,7 @@ def parse(
         "[",
         TextColumn("{task.completed}/{task.total}"),
         "]",
+        TimeRemainingColumn(),
         console=console,
     ) as progress:
         task = progress.add_task("Parsing...", total=len(pdf_files))
@@ -709,7 +710,8 @@ def parse(
                     results.append({
                         'file': str(pdf_file),
                         'match': result.match,
-                        'parse_time_ms': result.parse_time_ms
+                        'parse_time_ms': result.parse_time_ms,
+                        'warnings': result.warnings,
                     })
                     
                     if result.warnings:
@@ -730,16 +732,28 @@ def parse(
                             f"  [green]✓[/green] {pdf_file.name}: {m.code_match} "
                             f"({m.equipe_a.nom[:20] if m.equipe_a else '?'} vs {m.equipe_b.nom[:20] if m.equipe_b else '?'})"
                         )
+                        # Afficher les warnings en détail
+                        if result.warnings:
+                            for warn in result.warnings:
+                                progress.console.print(f"      [yellow]⚠ {warn}[/yellow]")
+                        progress.update(task, advance=1)
                     else:
                         progress.update(task, advance=1, description=f"[green]✓ {pdf_file.name[:30]}[/green]")
                 else:
                     failed += 1
                     error_details.append({
                         'file': str(pdf_file),
-                        'errors': result.errors
+                        'errors': result.errors,
+                        'warnings': result.warnings,
                     })
                     if verbose:
-                        progress.console.print(f"  [red]✗[/red] {pdf_file.name}: {result.errors[0][:50] if result.errors else 'Erreur inconnue'}...")
+                        msg = result.errors[0][:50] if result.errors else 'Erreur inconnue'
+                        progress.console.print(f"  [red]✗[/red] {pdf_file.name}: {msg}...")
+                        # Afficher aussi les warnings même en cas d'erreur
+                        if result.warnings:
+                            for warn in result.warnings:
+                                progress.console.print(f"      [yellow]⚠ {warn}[/yellow]")
+                        progress.update(task, advance=1)
                     else:
                         progress.update(task, advance=1, description=f"[red]✗ {pdf_file.name[:30]}[/red]")
                         
@@ -747,12 +761,10 @@ def parse(
                 failed += 1
                 error_details.append({
                     'file': str(pdf_file),
-                    'errors': [str(e)]
+                    'errors': [str(e)],
+                    'warnings': [],
                 })
                 progress.update(task, advance=1, description=f"[red]✗ {pdf_file.name[:30]}: {str(e)[:30]}[/red]")
-            
-            if not verbose:
-                progress.update(task, advance=1)
     
     # Sauvegarder le cache
     if skip_parsed and cache_file and parsed_cache:
@@ -824,17 +836,32 @@ def parse(
     
     # Générer le rapport si demandé
     if report:
+        # Améliorer l'export JSON avec les warnings détaillés
+        detailed_results = []
+        for r in results:
+            detailed_results.append({
+                'file': r['file'],
+                'match_code': r['match'].code_match if r.get('match') else None,
+                'parse_time_ms': r['parse_time_ms'],
+                'warnings': r.get('warnings', []),
+            })
+        
         report_data = {
             "timestamp": datetime.now().isoformat(),
             "input_path": str(input_path),
             "parser": parser.name,
+            "parser_version": parser.version,
             "total_files": len(pdf_files),
             "successful": successful,
             "skipped": skipped,
             "failed": failed,
-            "warnings": warnings_count,
+            "warnings_total": warnings_count,
+            "summary": {
+                "success_rate_percent": successful / len(pdf_files) * 100 if pdf_files else 0,
+                "avg_parse_time_ms": sum(r['parse_time_ms'] for r in results) / len(results) if results else 0,
+            },
             "errors": error_details[:50],  # Limiter à 50 erreurs
-            "success_rate": successful / len(pdf_files) * 100 if pdf_files else 0
+            "successful_files_with_warnings": [r for r in detailed_results if r['warnings']],
         }
         
         report_path = Path(f"parse_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
@@ -842,6 +869,79 @@ def parse(
             json.dump(report_data, f, ensure_ascii=False, indent=2)
         
         console.print(f"\n[blue]📊 Rapport généré: {report_path}[/blue]")
+        if report_data["successful_files_with_warnings"]:
+            console.print(f"[yellow]⚠ {len(report_data['successful_files_with_warnings'])} fichiers avec avertissements[/yellow]")
+
+
+@app.command()
+def simulate(
+    source: Path = typer.Argument(
+        ...,
+        help="Chemin vers un PDF ou un JSON de match parsé"
+    ),
+    output: Optional[Path] = typer.Option(
+        None,
+        "--output", "-o",
+        help="Chemin de sortie pour le HTML généré (optionnel)"
+    ),
+    no_browser: bool = typer.Option(
+        False,
+        "--no-browser",
+        help="N'ouvre pas automatiquement le navigateur"
+    ),
+    parser: Optional[str] = typer.Option(
+        None,
+        "--parser", "-p",
+        help="Parser à utiliser (v5 par défaut)"
+    ),
+):
+    """
+    🎬 Lance la simulation interactive d'un match en HTML.
+
+    Permet de visualiser le déroulé d'un match de volley-ball de manière interactive
+    dans votre navigateur.
+
+    Exemples:
+
+        # Simuler un PDF
+        pyvolley simulate data/pdfs/mon_match.pdf
+
+        # Simuler un match JSON et ouvrir dans un navigateur
+        pyvolley simulate match.json --no-browser
+
+        # Spécifier un parser personnalisé
+        pyvolley simulate match.pdf --parser v4
+    """
+    if not source.exists():
+        console.print(f"[red]Erreur: {source} n'existe pas[/red]")
+        raise typer.Exit(1)
+
+    try:
+        from pyvolley.simulation import launch_viewer
+
+        console.print(f"[blue]📂 Traitement de {source.name}...[/blue]")
+        
+        html_path = launch_viewer(
+            source,
+            output=str(output) if output else None,
+            open_browser=not no_browser,
+            parser_name=parser,
+        )
+        
+        console.print(f"[green]✓ Simulation générée: {html_path}[/green]")
+        
+        if not no_browser:
+            console.print(f"[blue]🌐 Ouverture du navigateur...[/blue]")
+        
+    except FileNotFoundError as e:
+        console.print(f"[red]Erreur: {e}[/red]")
+        raise typer.Exit(1)
+    except ValueError as e:
+        console.print(f"[red]Erreur de parsing: {e}[/red]")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Erreur: {e}[/red]")
+        raise typer.Exit(1)
 
 
 @app.command()
@@ -949,6 +1049,10 @@ def init():
 db_app = typer.Typer(help="🗄️ Gestion de la base de données et des migrations")
 app.add_typer(db_app, name="db")
 
+# Sous-commandes d'exploration de la base de données
+from pyvolley.cli.db_explorer import explore_app
+db_app.add_typer(explore_app, name="explore")
+
 
 @db_app.command("status")
 def db_status():
@@ -1043,23 +1147,41 @@ def db_downgrade(
 @db_app.command("reset")
 def db_reset(
     force: bool = typer.Option(False, "--force", "-f", help="Ne pas demander confirmation"),
+    full: bool = typer.Option(False, "--full", help="Réinitialise complètement y compris les migrations"),
 ):
     """
-    🔄 Réinitialise complètement la base de données.
+    🔄 Réinitialise la base de données.
     
     ⚠️ ATTENTION: Supprime toutes les données!
+    
+    Options:
+        --full: Réinitialise aussi l'historique des migrations (après des changements de schéma)
     """
-    from pyvolley.database.connection import reset_db
+    from pyvolley.database.connection import reset_db, reset_db_with_migrations
+    
+    if full:
+        action_desc = "COMPLÈTEMENT Y COMPRIS LES MIGRATIONS"
+    else:
+        action_desc = "complètement"
     
     if not force:
-        confirm = typer.confirm("⚠️ Cette action va SUPPRIMER toutes les données. Continuer?")
+        confirm = typer.confirm(f"⚠️ Cette action va SUPPRIMER toutes les données {action_desc}. Continuer?")
         if not confirm:
             console.print("[yellow]Annulé[/yellow]")
             raise typer.Exit(0)
     
-    console.print("[yellow]Réinitialisation de la base de données...[/yellow]")
-    reset_db()
-    console.print("[green]✓ Base de données réinitialisée[/green]")
+    console.print(f"[yellow]Réinitialisation de la base de données ({action_desc})...[/yellow]")
+    
+    try:
+        if full:
+            reset_db_with_migrations()
+            console.print("[green]✓ Base de données complètement réinitialisée avec migrations reset[/green]")
+        else:
+            reset_db()
+            console.print("[green]✓ Base de données réinitialisée[/green]")
+    except Exception as e:
+        console.print(f"[red]✗ Erreur: {e}[/red]")
+        raise typer.Exit(1)
 
 
 @db_app.command("history")

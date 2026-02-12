@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     
     # Environnement
     env: Literal["development", "production", "test"] = "development"
-    debug: bool = True
+    debug: bool = False
     
     # Chemins - Calculés dynamiquement dans __init__ pour garantir le bon chemin
     base_dir: Path = Path(__file__).parent.parent.parent.parent

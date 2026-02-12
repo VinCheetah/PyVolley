@@ -80,26 +80,15 @@ def upgrade() -> None:
 
     # ── 2. Modifier table sets ─────────────────────────────────────
     #    - Supprimer colonnes JSON (formation_a/b, timeouts_a/b)
-    #    - Modifier type heure_debut/fin de String → Time
+    #    - GARDER heure_debut/fin en String (SQLite ne supporte pas Time)
 
     with op.batch_alter_table("sets", schema=None) as batch_op:
         batch_op.drop_column("formation_a")
         batch_op.drop_column("formation_b")
         batch_op.drop_column("timeouts_a")
         batch_op.drop_column("timeouts_b")
-        # Note: SQLite ne supporte pas ALTER COLUMN, batch mode gère cela
-        batch_op.alter_column(
-            "heure_debut",
-            existing_type=sa.String(length=8),
-            type_=sa.Time(),
-            existing_nullable=True,
-        )
-        batch_op.alter_column(
-            "heure_fin",
-            existing_type=sa.String(length=8),
-            type_=sa.Time(),
-            existing_nullable=True,
-        )
+        # Note: On conserve heure_debut et heure_fin en String(8)
+        # car SQLite ne supporte pas le type Time()
 
     # ── 3. Modifier table matchs ──────────────────────────────────
     #    - Renommer vainqueur_nom → vainqueur, score_final → score_sets
@@ -180,18 +169,7 @@ def downgrade() -> None:
         batch_op.add_column(sa.Column("formation_b", sa.Text(), nullable=True))
         batch_op.add_column(sa.Column("timeouts_a", sa.Text(), nullable=True))
         batch_op.add_column(sa.Column("timeouts_b", sa.Text(), nullable=True))
-        batch_op.alter_column(
-            "heure_debut",
-            existing_type=sa.Time(),
-            type_=sa.String(length=8),
-            existing_nullable=True,
-        )
-        batch_op.alter_column(
-            "heure_fin",
-            existing_type=sa.Time(),
-            type_=sa.String(length=8),
-            existing_nullable=True,
-        )
+        # Note: heure_debut et heure_fin restent en String(8) - pas de conversion
 
     # 1. Drop new tables
     with op.batch_alter_table("services", schema=None) as batch_op:

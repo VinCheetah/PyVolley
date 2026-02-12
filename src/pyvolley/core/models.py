@@ -48,6 +48,8 @@ class RoleArbitre(str, Enum):
     PREMIER = "1er"
     SECOND = "2ème"
     MARQUEUR = "Marqueur"
+    MARQUEUR_ASSISTANT = "Marqueur assistant"
+    RESPONSABLE_SALLE = "Responsable de salle"
     JUGE_LIGNE = "Juge de ligne"
 
 
@@ -110,9 +112,10 @@ class Club(PyVolleyModel):
     """Club de volleyball."""
     id: Optional[int] = None
     nom: str = Field(..., min_length=2)
+    nom_court: Optional[str] = None
     code: Optional[str] = None
     ville: Optional[str] = None
-    ligue: Optional[str] = None
+    departement: Optional[str] = None
 
 
 class Equipe(PyVolleyModel):
@@ -120,10 +123,13 @@ class Equipe(PyVolleyModel):
     id: Optional[int] = None
     nom: str = Field(..., min_length=2)
     nom_court: Optional[str] = None
+    club_nom: Optional[str] = None  # Nom du club extrait du nom d'équipe
+    numero_equipe: Optional[int] = None  # 1, 2, 3... si multiple équipes du club
     club_id: Optional[int] = None
     club: Optional[Club] = None
     joueurs: list[Joueur] = Field(default_factory=list)
     liberos: list[Joueur] = Field(default_factory=list)
+    officiels: list["Officiel"] = Field(default_factory=list)
     entraineur: Optional[str] = None
     assistant: Optional[str] = None
 
@@ -139,6 +145,22 @@ class Arbitre(PyVolleyModel):
     ligue: Optional[str] = None
     role: RoleArbitre = RoleArbitre.PREMIER
     
+    @property
+    def nom_complet(self) -> str:
+        if self.prenom:
+            return f"{self.nom} {self.prenom}"
+        return self.nom
+
+
+# ============== Officiel d'équipe ==============
+
+class Officiel(PyVolleyModel):
+    """Officiel d'équipe (EA, EB, MA, MB, KA, KB)."""
+    role: str
+    nom: str
+    prenom: Optional[str] = None
+    licence: Optional[str] = None
+
     @property
     def nom_complet(self) -> str:
         if self.prenom:
@@ -190,6 +212,23 @@ class TimeOut(PyVolleyModel):
     score_b: int
 
 
+class Changement(PyVolleyModel):
+    """Changement de joueur pendant un set."""
+    joueur_entrant: str
+    joueur_sortant: Optional[str] = None
+    position: Optional[int] = None
+    score_a: Optional[int] = None
+    score_b: Optional[int] = None
+
+
+class SetTeamData(PyVolleyModel):
+    """Données d'équipe pour un set (formations, temps morts, changements)."""
+    formation: Optional[Formation] = None
+    timeouts: list[TimeOut] = Field(default_factory=list)
+    changements: list[Changement] = Field(default_factory=list)
+    services: dict[int, list[int]] = Field(default_factory=dict)
+
+
 class Set(PyVolleyModel):
     """Données d'un set de volleyball."""
     id: Optional[int] = None
@@ -204,6 +243,8 @@ class Set(PyVolleyModel):
     formation_b: Optional[Formation] = None
     timeouts_a: list[TimeOut] = Field(default_factory=list)
     timeouts_b: list[TimeOut] = Field(default_factory=list)
+    equipe_a: Optional[SetTeamData] = None
+    equipe_b: Optional[SetTeamData] = None
     
     @property
     def vainqueur(self) -> Optional[str]:
@@ -236,7 +277,8 @@ class Match(MatchBase):
     
     # Compétition
     ligue: Optional[str] = None
-    competition: Optional[str] = None
+    competition: Optional[str] = None  # Nom complet ("EMA - ELITE MASCULINE - POULE A")
+    competition_code: Optional[str] = None  # Code de la poule ("EMA")
     journee: Optional[str] = None
     saison: Optional[str] = None  # "2024-2025"
     categorie: Optional[Categorie] = None

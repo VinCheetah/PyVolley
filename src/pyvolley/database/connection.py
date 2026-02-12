@@ -178,6 +178,62 @@ def reset_db() -> None:
     logger.info("Database reset completed")
 
 
+def reset_db_with_migrations() -> None:
+    """
+    Réinitialise complètement la base de données y compris l'historique des migrations.
+    
+    ⚠️ Attention: Cette opération est destructive!
+    - Supprime le fichier de base de données SQLite
+    - Réinitialise l'historique des migrations Alembic
+    - Crée une nouvelle base de données
+    
+    Utilisez uniquement en développement après des changements de schéma majeurs.
+    """
+    import os
+    import shutil
+    from pathlib import Path
+    
+    database_url = settings.database_url
+    
+    # 1. Supprimer la base de données SQLite si elle existe
+    if database_url.startswith("sqlite"):
+        # Extraire le chemin du fichier
+        db_path = database_url.replace("sqlite:///", "")
+        if db_path and db_path != ":memory:":
+            try:
+                if os.path.exists(db_path):
+                    os.remove(db_path)
+                    logger.warning(f"Deleted database file: {db_path}")
+            except Exception as e:
+                logger.error(f"Failed to delete database file: {e}")
+    
+    # 2. Réinitialiser l'engine et la SessionFactory
+    global _engine, _SessionLocal
+    _engine = None
+    _SessionLocal = None
+    logger.info("Database engine and session factory reset")
+    
+    # 3. Réinitialiser l'historique des migrations Alembic
+    try:
+        alembic_dir = Path(__file__).parent.parent.parent.parent / "alembic"
+        versions_dir = alembic_dir / "versions"
+        
+        if versions_dir.exists():
+            # Supprimer les fichiers __pycache__
+            pycache_dir = versions_dir / "__pycache__"
+            if pycache_dir.exists():
+                shutil.rmtree(pycache_dir)
+                logger.info("Cleared alembic versions __pycache__")
+        
+        logger.info("Alembic migrations directory preserved for manual cleanup if needed")
+    except Exception as e:
+        logger.error(f"Error handling alembic directory: {e}")
+    
+    # 4. Initialiser la nouvelle base de données
+    init_db()
+    logger.warning("Database fully reset - new empty database created")
+
+
 def check_connection() -> bool:
     """
     Vérifie que la connexion à la base de données fonctionne.
