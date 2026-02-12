@@ -480,6 +480,38 @@ class MatchSheetParserV5(BaseParser):
         name = re.sub(r'\s+[A-Z]$', '', name)
         return name.strip()
 
+    @staticmethod
+    def _extract_club_info(team_name: str) -> tuple[str, Optional[int]]:
+        """Extrait le nom du club et le numéro d'équipe depuis le nom d'équipe.
+
+        Les noms d'équipe FFVB suivent le pattern :
+          "NOM DU CLUB"  ou  "NOM DU CLUB 2"  (numéro d'équipe en fin)
+
+        Exemples :
+          "GRENOBLE V.UNIVERSITE CLUB" → ("GRENOBLE V.UNIVERSITE CLUB", None)
+          "PARIS UC 2" → ("PARIS UC", 2)
+          "NANTES REZE METROPOLE VB 3" → ("NANTES REZE METROPOLE VB", 3)
+          "AS CANNES VB" → ("AS CANNES VB", None)
+          "STADE POITEVIN VB" → ("STADE POITEVIN VB", None)
+
+        Returns:
+            Tuple (club_name, team_number) – team_number is None if no suffix.
+        """
+        if not team_name:
+            return team_name, None
+
+        name = team_name.strip()
+
+        # Chercher un numéro d'équipe en fin de nom : " 2", " 3", etc.
+        # On ne touche pas à " 1" car les équipes premières ne portent généralement pas de numéro
+        m = re.match(r'^(.+?)\s+(\d)$', name)
+        if m:
+            club_name = m.group(1).strip()
+            num = int(m.group(2))
+            return club_name, num
+
+        return name, None
+
     # =====================================================================
     # Résultat global
     # =====================================================================
@@ -1488,6 +1520,10 @@ class MatchSheetParserV5(BaseParser):
                 debut=debut_t, fin=fin_t,
                 duree_minutes=duree,
                 service_initial=srv,
+                formation_a=form_a,
+                formation_b=form_b,
+                timeouts_a=timeouts_a,
+                timeouts_b=timeouts_b,
                 equipe_a=SetTeamData(
                     formation=form_a,
                     timeouts=timeouts_a,
@@ -1833,17 +1869,25 @@ class MatchSheetParserV5(BaseParser):
         nom_a = equipes_info.get("equipe_a") or "Équipe A"
         nom_b = equipes_info.get("equipe_b") or "Équipe B"
 
+        # Extraire les informations du club depuis le nom d'équipe
+        club_nom_a, num_equipe_a = self._extract_club_info(nom_a)
+        club_nom_b, num_equipe_b = self._extract_club_info(nom_b)
+
         # Fusionner libéros dans la liste des joueurs (évite la duplication)
         all_joueurs_a = self._merge_liberos(joueurs_a, liberos_a)
         all_joueurs_b = self._merge_liberos(joueurs_b, liberos_b)
 
         equipe_a = Equipe(
             nom=nom_a,
+            club_nom=club_nom_a,
+            numero_equipe=num_equipe_a,
             joueurs=all_joueurs_a,
             officiels=off_a,
         )
         equipe_b = Equipe(
             nom=nom_b,
+            club_nom=club_nom_b,
+            numero_equipe=num_equipe_b,
             joueurs=all_joueurs_b,
             officiels=off_b,
         )
@@ -1879,10 +1923,16 @@ class MatchSheetParserV5(BaseParser):
             all_remarks.append(f"Demande non fondée: {demande_nf}")
         full_remarks = ' | '.join(all_remarks) if all_remarks else None
 
+        # Extraire le code de compétition/poule depuis le code match
+        # Ex: "EMA001" → "EMA", "PMAA001" → "PMAA"
+        code_match = header.get("code_match") or "UNKNOWN"
+        competition_code = self._extract_competition_code(code_match)
+
         return Match(
-            code_match=header.get("code_match") or "UNKNOWN",
+            code_match=code_match,
             ligue=header.get("ligue"),
             competition=header.get("competition"),
+            competition_code=competition_code,
             journee=header.get("journee"),
             saison=header.get("saison"),
             date=header.get("date_obj"),
@@ -1894,8 +1944,8 @@ class MatchSheetParserV5(BaseParser):
             equipe_a=equipe_a,
             equipe_b=equipe_b,
             sets=sets,
-            vainqueur=resultat.get("vainqueur"),
-            score_sets=f"{sets_a}/{sets_b}" if sets_a + sets_b > 0 else resultat.get("score_final"),
+            vainqueur_nom=resultat.get("vainqueur"),
+            score_final=f"{sets_a}/{sets_b}" if sets_a + sets_b > 0 else resultat.get("score_final"),
             sets_a=sets_a,
             sets_b=sets_b,
             duree_totale=resultat.get("duree_totale"),
@@ -1932,3 +1982,25 @@ class MatchSheetParserV5(BaseParser):
             return enum_cls(val)
         except (ValueError, KeyError):
             return None
+
+    @staticmethod
+    def _extract_competition_code(code_match: str) -> Optional[str]:
+        """Extrait le code de compétition/poule depuis le code match.
+
+        Les codes match FFVB suivent le pattern : CODE_POULE + NUMERO_MATCH.
+        Le numéro de match est toujours constitué de chiffres en fin de chaîne.
+
+        Exemples :
+          "EMA001"   → "EMA"
+          "PMAA001"  → "PMAA"
+          "1FA012"   → "1FA"
+          "PFAH001"  → "PFAH"
+          "UNKNOWN"  → None
+        """
+        if not code_match or code_match == "UNKNOWN":
+            return None
+        # Le code match = code_poule + numéro (que des chiffres à la fin)
+        m = re.match(r'^([A-Za-z0-9]+?)(\d{2,})$', code_match)
+        if m:
+            return m.group(1)
+        return None

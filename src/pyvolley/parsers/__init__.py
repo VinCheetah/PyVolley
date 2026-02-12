@@ -10,6 +10,7 @@ Contient :
 from pyvolley.parsers.base import BaseParser, ParseResult
 from pyvolley.parsers.v2 import MatchSheetParserV2
 from pyvolley.parsers.v3 import MatchSheetParserV3
+from pyvolley.parsers.v5 import MatchSheetParserV5
 from pyvolley.parsers.factory import ParserFactory, get_parser
 
 __all__ = [
@@ -17,6 +18,7 @@ __all__ = [
     "ParseResult", 
     "MatchSheetParserV2",
     "MatchSheetParserV3",
+    "MatchSheetParserV5",
     "ParserFactory",
     "get_parser",
 ]
