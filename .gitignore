@@ -27,6 +27,9 @@ data/pdfs/*.pdf
 feuilles_match/*.pdf
 feuilles_match/**/*.pdf
 
+# Reports
+*.json
+
 # Logs
 logs/
 *.log
