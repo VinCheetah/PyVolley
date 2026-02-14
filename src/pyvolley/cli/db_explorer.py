@@ -504,7 +504,7 @@ def search_matchs(
                     MatchDB.code_match.ilike(pattern),
                     MatchDB.lieu.ilike(pattern),
                     MatchDB.salle.ilike(pattern),
-                    MatchDB.vainqueur_nom.ilike(pattern),
+                    MatchDB.vainqueur.ilike(pattern),
                     EquipeDB.nom.ilike(pattern),
                     equipe_b_alias.nom.ilike(pattern),
                 )
@@ -527,7 +527,12 @@ def search_matchs(
             )
 
         if competition:
-            conditions.append(CompetitionDB.code.ilike(f"%{competition}%"))
+            conditions.append(
+                or_(
+                    CompetitionDB.code_competition.ilike(f"%{competition}%"),
+                    CompetitionDB.nom.ilike(f"%{competition}%"),
+                )
+            )
 
         if date_debut:
             conditions.append(MatchDB.date_match >= date_debut)
@@ -536,7 +541,7 @@ def search_matchs(
             conditions.append(MatchDB.date_match <= date_fin)
 
         if score:
-            conditions.append(MatchDB.score_final == score)
+            conditions.append(MatchDB.score_sets == score)
 
         if conditions:
             stmt = stmt.where(*conditions)
@@ -569,8 +574,8 @@ def search_matchs(
             equipe_a_nom = m.equipe_a.nom if m.equipe_a else "-"
             equipe_b_nom = m.equipe_b.nom if m.equipe_b else "-"
             date_str = str(m.date_match) if m.date_match else "-"
-            score_str = m.score_final or "-"
-            comp_code = m.competition.code if m.competition else "-"
+            score_str = m.score_sets or "-"
+            comp_code = m.competition.code_competition if m.competition else "-"
 
             row = [
                 str(m.id), m.code_match, date_str,
@@ -621,13 +626,13 @@ def match_detail(
 
         console.print(Panel(
             f"[bold cyan]{match.code_match}[/bold cyan]\n\n"
-            f"[bold]{eq_a}[/bold]  [bold green]{match.score_final or '? - ?'}[/bold green]  [bold]{eq_b}[/bold]\n\n"
+            f"[bold]{eq_a}[/bold]  [bold green]{match.score_sets or '? - ?'}[/bold green]  [bold]{eq_b}[/bold]\n\n"
             f"📅 Date: {date_str}  🕐 Heure: {heure_str}\n"
             f"📍 Lieu: {match.lieu or '?'}  |  Salle: {match.salle or '?'}\n"
-            f"🏆 Compétition: {match.competition.nom if match.competition else '?'} ({match.competition.code if match.competition else '?'})\n"
+            f"🏆 Compétition: {match.competition.nom if match.competition else '?'} ({match.competition.code_competition if match.competition else '?'})\n"
             f"📅 Saison: {match.saison.code if match.saison else '?'}\n"
             f"📆 Journée: {match.journee or '?'}\n"
-            f"🏆 Vainqueur: {match.vainqueur.nom if match.vainqueur else match.vainqueur_nom or '?'}\n"
+            f"🏆 Vainqueur: {match.vainqueur or '?'}\n"
             f"⏱️ Durée: {match.duree_totale or '?'}",
             title="🏐 Détails du match",
             border_style="blue",
@@ -681,8 +686,6 @@ def match_detail(
                         roles.append("C")
                     if p.est_libero:
                         roles.append("L")
-                    if not p.est_titulaire:
-                        roles.append("Rempl.")
                     role_str = " ".join(roles) or "-"
 
                     p_tbl.add_row(
@@ -695,12 +698,12 @@ def match_detail(
                 console.print(p_tbl)
 
         # Arbitres
-        if match.arbitres:
+        if match.arbitrages:
             arb_tbl = Table(title="🧑‍⚖️ Arbitres", box=box.SIMPLE)
             arb_tbl.add_column("Rôle", style="cyan", width=12)
             arb_tbl.add_column("Nom", style="white")
             arb_tbl.add_column("Licence", style="dim", width=12)
-            for a in match.arbitres:
+            for a in match.arbitrages:
                 arb_tbl.add_row(
                     a.role,
                     a.arbitre.nom_complet if a.arbitre else "-",
@@ -755,10 +758,10 @@ def search_joueurs(
     Exemples:
         pyvolley db explore joueurs
         pyvolley db explore joueurs "Dupont"
-        pyvolley db explore joueurs --equipe "Paris" --sort matchs_joues -d
+        pyvolley db explore joueurs --equipe "Paris" --sort nom -d
         pyvolley db explore joueurs --club "Nantes"
     """
-    from pyvolley.database.models import JoueurDB, EquipeDB, ClubDB, joueur_equipe
+    from pyvolley.database.models import JoueurDB, EquipeDB, ClubDB, ParticipationMatchDB
 
     session = _get_session()
     try:
@@ -778,17 +781,19 @@ def search_joueurs(
             )
 
         if equipe:
-            stmt = stmt.join(joueur_equipe).join(EquipeDB)
+            stmt = stmt.join(ParticipationMatchDB).join(EquipeDB, ParticipationMatchDB.equipe_id == EquipeDB.id)
             conditions.append(EquipeDB.nom.ilike(f"%{equipe}%"))
 
         if club:
             if not equipe:
-                stmt = stmt.join(joueur_equipe).join(EquipeDB)
+                stmt = stmt.join(ParticipationMatchDB).join(EquipeDB, ParticipationMatchDB.equipe_id == EquipeDB.id)
             stmt = stmt.join(ClubDB, EquipeDB.club_id == ClubDB.id)
             conditions.append(ClubDB.nom.ilike(f"%{club}%"))
 
         if conditions:
             stmt = stmt.where(*conditions)
+
+        stmt = stmt.distinct()
 
         # Tri
         sort_col = getattr(JoueurDB, sort, JoueurDB.nom)
@@ -810,22 +815,32 @@ def search_joueurs(
         tbl.add_column("Licence", style="cyan", width=12)
         tbl.add_column("Nom", style="bold white", min_width=15)
         tbl.add_column("Prénom", style="white", min_width=12)
-        tbl.add_column("Date naiss.", style="dim", width=12)
         tbl.add_column("Matchs", justify="right", style="green", width=7)
         tbl.add_column("Équipes", style="magenta", max_width=30, overflow="ellipsis")
 
         for j in joueurs:
-            equipes_str = ", ".join(e.nom for e in j.equipes[:3])
-            if len(j.equipes) > 3:
-                equipes_str += f"... (+{len(j.equipes) - 3})"
+            # Compter les matchs via participations
+            nb_matchs = session.scalar(
+                select(func.count()).select_from(ParticipationMatchDB)
+                .where(ParticipationMatchDB.joueur_id == j.id)
+            ) or 0
+            # Trouver les équipes via participations
+            equipe_noms = list(session.scalars(
+                select(EquipeDB.nom).distinct()
+                .join(ParticipationMatchDB, ParticipationMatchDB.equipe_id == EquipeDB.id)
+                .where(ParticipationMatchDB.joueur_id == j.id)
+                .limit(4)
+            ))
+            equipes_str = ", ".join(equipe_noms[:3])
+            if len(equipe_noms) > 3:
+                equipes_str += "..."
             
             tbl.add_row(
                 str(j.id),
                 j.licence,
                 j.nom,
                 j.prenom,
-                str(j.date_naissance) if j.date_naissance else "-",
-                str(j.matchs_joues),
+                str(nb_matchs),
                 equipes_str or "-",
             )
 
@@ -847,7 +862,7 @@ def joueur_detail(
         pyvolley db explore joueur 42
         pyvolley db explore joueur 1234567
     """
-    from pyvolley.database.models import JoueurDB, ParticipationMatchDB, MatchDB
+    from pyvolley.database.models import JoueurDB, ParticipationMatchDB, MatchDB, EquipeDB
 
     session = _get_session()
     try:
@@ -861,25 +876,33 @@ def joueur_detail(
             console.print(f"[red]Joueur '{joueur_id}' introuvable[/red]")
             return
 
+        # Compter les matchs via participations
+        nb_matchs = session.scalar(
+            select(func.count()).select_from(ParticipationMatchDB)
+            .where(ParticipationMatchDB.joueur_id == joueur.id)
+        ) or 0
+
         # Infos générales
         console.print(Panel(
             f"[bold cyan]{joueur.nom} {joueur.prenom}[/bold cyan]\n\n"
             f"📋 Licence: {joueur.licence}\n"
-            f"📅 Date de naissance: {joueur.date_naissance or '?'}\n"
-            f"🌍 Nationalité: {joueur.nationalite or '?'}\n"
-            f"🏐 Matchs joués: {joueur.matchs_joues}\n"
-            f"📊 Sets joués: {joueur.sets_joues}",
+            f"🏐 Matchs joués: {nb_matchs}",
             title="👤 Profil joueur",
             border_style="blue",
         ))
 
-        # Équipes
-        if joueur.equipes:
+        # Équipes (via participations)
+        equipes = list(session.scalars(
+            select(EquipeDB).distinct()
+            .join(ParticipationMatchDB, ParticipationMatchDB.equipe_id == EquipeDB.id)
+            .where(ParticipationMatchDB.joueur_id == joueur.id)
+        ))
+        if equipes:
             eq_tbl = Table(title="🏠 Équipes", box=box.SIMPLE)
             eq_tbl.add_column("Équipe", style="white")
             eq_tbl.add_column("Club", style="cyan")
             eq_tbl.add_column("Catégorie", style="dim")
-            for e in joueur.equipes:
+            for e in equipes:
                 eq_tbl.add_row(
                     e.nom,
                     e.club.nom if e.club else "-",
@@ -919,16 +942,14 @@ def joueur_detail(
                     roles.append("C")
                 if p.est_libero:
                     roles.append("L")
-                if not p.est_titulaire:
-                    roles.append("R")
 
                 m_tbl.add_row(
                     str(match.date_match) if match.date_match else "-",
                     match.code_match,
                     adversaire,
-                    match.score_final or "-",
+                    match.score_sets or "-",
                     p.numero_maillot or "-",
-                    " ".join(roles) or "Tit.",
+                    " ".join(roles) or "-",
                 )
             console.print(m_tbl)
     finally:
@@ -940,7 +961,6 @@ def joueur_detail(
 @explore_app.command("clubs")
 def search_clubs(
     query: Optional[str] = typer.Argument(None, help="Recherche par nom de club"),
-    ligue: Optional[str] = typer.Option(None, "--ligue", "-l", help="Filtrer par ligue"),
     limit: int = typer.Option(30, "--limit", "-n", help="Nombre max de résultats"),
 ):
     """
@@ -949,7 +969,6 @@ def search_clubs(
     Exemples:
         pyvolley db explore clubs
         pyvolley db explore clubs "Paris"
-        pyvolley db explore clubs --ligue LIFL
     """
     from pyvolley.database.models import ClubDB
 
@@ -959,9 +978,13 @@ def search_clubs(
         conditions = []
 
         if query:
-            conditions.append(ClubDB.nom.ilike(f"%{query}%"))
-        if ligue:
-            conditions.append(ClubDB.ligue.ilike(f"%{ligue}%"))
+            conditions.append(
+                or_(
+                    ClubDB.nom.ilike(f"%{query}%"),
+                    ClubDB.nom_court.ilike(f"%{query}%"),
+                    ClubDB.ville.ilike(f"%{query}%"),
+                )
+            )
 
         if conditions:
             stmt = stmt.where(*conditions)
@@ -980,18 +1003,18 @@ def search_clubs(
         )
         tbl.add_column("ID", style="dim", width=5, justify="right")
         tbl.add_column("Nom", style="bold white", min_width=25)
-        tbl.add_column("Code", style="cyan", width=10)
+        tbl.add_column("Code FFVB", style="cyan", width=10)
         tbl.add_column("Ville", style="yellow", width=15)
-        tbl.add_column("Ligue", style="magenta", width=10)
+        tbl.add_column("Dép.", style="magenta", width=6)
         tbl.add_column("Équipes", justify="right", style="green", width=8)
 
         for c in clubs:
             tbl.add_row(
                 str(c.id),
                 c.nom,
-                c.code or "-",
+                c.code_ffvb or "-",
                 c.ville or "-",
-                c.ligue or "-",
+                c.departement or "-",
                 str(len(c.equipes)),
             )
 
@@ -1018,7 +1041,7 @@ def search_equipes(
         pyvolley db explore equipes "Volley"
         pyvolley db explore equipes --club "Paris" --genre M
     """
-    from pyvolley.database.models import EquipeDB, ClubDB
+    from pyvolley.database.models import EquipeDB, ClubDB, ParticipationMatchDB
 
     session = _get_session()
     try:
@@ -1058,13 +1081,17 @@ def search_equipes(
         tbl.add_column("Joueurs", justify="right", style="green", width=8)
 
         for e in equipes:
+            nb_joueurs = session.scalar(
+                select(func.count(func.distinct(ParticipationMatchDB.joueur_id)))
+                .where(ParticipationMatchDB.equipe_id == e.id)
+            ) or 0
             tbl.add_row(
                 str(e.id),
                 e.nom,
                 e.club.nom if e.club else "-",
                 e.categorie or "-",
                 e.genre or "-",
-                str(len(e.joueurs)),
+                str(nb_joueurs),
             )
 
         console.print(tbl)
@@ -1079,7 +1106,7 @@ def search_competitions(
     query: Optional[str] = typer.Argument(None, help="Recherche par nom ou code"),
     saison: Optional[str] = typer.Option(None, "--saison", "-s", help="Filtrer par saison"),
     genre: Optional[str] = typer.Option(None, "--genre", "-g", help="Filtrer par genre"),
-    ligue: Optional[str] = typer.Option(None, "--ligue", "-l", help="Filtrer par ligue"),
+    entite: Optional[str] = typer.Option(None, "--entite", "-e", help="Filtrer par entité organisatrice"),
     limit: int = typer.Option(30, "--limit", "-n", help="Nombre max de résultats"),
 ):
     """
@@ -1090,18 +1117,18 @@ def search_competitions(
         pyvolley db explore competitions "Nationale"
         pyvolley db explore competitions --saison 2024-2025
     """
-    from pyvolley.database.models import CompetitionDB, SaisonDB
+    from pyvolley.database.models import CompetitionDB, SaisonDB, EntiteFFVBDB
 
     session = _get_session()
     try:
-        stmt = select(CompetitionDB).outerjoin(SaisonDB)
+        stmt = select(CompetitionDB).outerjoin(SaisonDB).outerjoin(EntiteFFVBDB)
         conditions = []
 
         if query:
             pattern = f"%{query}%"
             conditions.append(
                 or_(
-                    CompetitionDB.code.ilike(pattern),
+                    CompetitionDB.code_competition.ilike(pattern),
                     CompetitionDB.nom.ilike(pattern),
                 )
             )
@@ -1109,8 +1136,13 @@ def search_competitions(
             conditions.append(SaisonDB.code.ilike(f"%{saison}%"))
         if genre:
             conditions.append(CompetitionDB.genre.ilike(f"%{genre}%"))
-        if ligue:
-            conditions.append(CompetitionDB.ligue.ilike(f"%{ligue}%"))
+        if entite:
+            conditions.append(
+                or_(
+                    EntiteFFVBDB.code.ilike(f"%{entite}%"),
+                    EntiteFFVBDB.nom.ilike(f"%{entite}%"),
+                )
+            )
 
         if conditions:
             stmt = stmt.where(*conditions)
@@ -1133,18 +1165,18 @@ def search_competitions(
         tbl.add_column("Saison", style="yellow", width=12)
         tbl.add_column("Genre", justify="center", width=6)
         tbl.add_column("Catégorie", style="dim", width=12)
-        tbl.add_column("Ligue", style="magenta", width=10)
+        tbl.add_column("Entité", style="magenta", width=10)
         tbl.add_column("Matchs", justify="right", style="green", width=7)
 
         for c in competitions:
             tbl.add_row(
                 str(c.id),
-                c.code,
+                c.code_competition or "-",
                 c.nom,
                 c.saison.code if c.saison else "-",
                 c.genre or "-",
                 c.categorie or "-",
-                c.ligue or "-",
+                c.entite.code if c.entite else "-",
                 str(len(c.matchs)),
             )
 
@@ -1211,7 +1243,6 @@ def list_saisons():
 def search_arbitres(
     query: Optional[str] = typer.Argument(None, help="Recherche par nom"),
     ligue: Optional[str] = typer.Option(None, "--ligue", "-l", help="Filtrer par ligue"),
-    grade: Optional[str] = typer.Option(None, "--grade", "-g", help="Filtrer par grade"),
     limit: int = typer.Option(30, "--limit", "-n", help="Nombre max de résultats"),
 ):
     """
@@ -1239,8 +1270,6 @@ def search_arbitres(
             )
         if ligue:
             conditions.append(ArbitreDB.ligue.ilike(f"%{ligue}%"))
-        if grade:
-            conditions.append(ArbitreDB.grade.ilike(f"%{grade}%"))
 
         if conditions:
             stmt = stmt.where(*conditions)
@@ -1262,7 +1291,6 @@ def search_arbitres(
         tbl.add_column("Nom", style="bold white", min_width=15)
         tbl.add_column("Prénom", style="white", min_width=10)
         tbl.add_column("Ligue", style="magenta", width=10)
-        tbl.add_column("Grade", style="yellow", width=12)
         tbl.add_column("Matchs", justify="right", style="green", width=7)
 
         for a in arbitres:
@@ -1275,7 +1303,6 @@ def search_arbitres(
                 a.nom,
                 a.prenom or "-",
                 a.ligue or "-",
-                a.grade or "-",
                 str(nb_matchs),
             )
 
@@ -1335,7 +1362,7 @@ def global_search(
             found_any = True
             console.print(f"\n[bold cyan]🏠 Clubs ({len(clubs)})[/bold cyan]")
             for c in clubs:
-                console.print(f"  [{c.id}] {c.nom} — ligue: {c.ligue or '?'}")
+                console.print(f"  [{c.id}] {c.nom} — ville: {c.ville or '?'}")
 
         # Équipes
         equipes = list(session.scalars(
@@ -1354,7 +1381,7 @@ def global_search(
                 or_(
                     MatchDB.code_match.ilike(pattern),
                     MatchDB.lieu.ilike(pattern),
-                    MatchDB.vainqueur_nom.ilike(pattern),
+                    MatchDB.vainqueur.ilike(pattern),
                 )
             ).limit(limit)
         ))
@@ -1364,13 +1391,13 @@ def global_search(
             for m in matchs:
                 eq_a = m.equipe_a.nom[:20] if m.equipe_a else "?"
                 eq_b = m.equipe_b.nom[:20] if m.equipe_b else "?"
-                console.print(f"  [{m.id}] {m.code_match}: {eq_a} {m.score_final or '?'} {eq_b} ({m.date_match or '?'})")
+                console.print(f"  [{m.id}] {m.code_match}: {eq_a} {m.score_sets or '?'} {eq_b} ({m.date_match or '?'})")
 
         # Compétitions
         competitions = list(session.scalars(
             select(CompetitionDB).where(
                 or_(
-                    CompetitionDB.code.ilike(pattern),
+                    CompetitionDB.code_competition.ilike(pattern),
                     CompetitionDB.nom.ilike(pattern),
                 )
             ).limit(limit)
@@ -1379,7 +1406,7 @@ def global_search(
             found_any = True
             console.print(f"\n[bold cyan]🏆 Compétitions ({len(competitions)})[/bold cyan]")
             for c in competitions:
-                console.print(f"  [{c.id}] {c.code}: {c.nom}")
+                console.print(f"  [{c.id}] {c.code_competition or '-'}: {c.nom}")
 
         # Arbitres
         arbitres = list(session.scalars(
@@ -1394,7 +1421,7 @@ def global_search(
             found_any = True
             console.print(f"\n[bold cyan]🧑‍⚖️ Arbitres ({len(arbitres)})[/bold cyan]")
             for a in arbitres:
-                console.print(f"  [{a.id}] {a.nom_complet} — grade: {a.grade or '?'}")
+                console.print(f"  [{a.id}] {a.nom_complet} — ligue: {a.ligue or '?'}")
 
         if not found_any:
             console.print(f"[yellow]Aucun résultat pour '{query}'[/yellow]")

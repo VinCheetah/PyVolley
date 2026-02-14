@@ -517,7 +517,7 @@ def parse(
     skip_parsed: bool = typer.Option(
         True,
         "--skip-parsed/--force",
-        help="Ignorer les fichiers déjà parsés (vérifiés par hash ou cache)"
+        help="Ignorer les fichiers déjà parsés (basé sur le cache de hashes)"
     ),
     save_db: bool = typer.Option(
         False,
@@ -534,15 +534,20 @@ def parse(
         "--dry-run",
         help="Afficher ce qui serait fait sans parser"
     ),
-    saison: Optional[str] = typer.Option(
+    saison: Optional[List[str]] = typer.Option(
         None,
         "--saison", "-s",
-        help="Filtrer par saison (ex: 2024-2025)"
+        help="Filtrer par saison (ex: 2024-2025). Répétable: -s 2024-2025 -s 2025-2026"
     ),
     entity: Optional[List[str]] = typer.Option(
         None,
         "--entity", "-e",
-        help="Filtrer par entité (ex: ABCCS, LIRA)"
+        help="Filtrer par entité (ex: ABCCS, LIRA). Répétable."
+    ),
+    clear_cache: bool = typer.Option(
+        False,
+        "--clear-cache",
+        help="Vide le cache de parsing avant de commencer"
     ),
     verbose: bool = typer.Option(
         False,
@@ -553,6 +558,10 @@ def parse(
     """
     📄 Parse intelligemment les feuilles de match PDF.
     
+    Le cache de parsing (basé sur le hash des fichiers) permet de ne pas
+    re-parser les PDFs déjà traités. Lors de l'import en base (--save-db),
+    les doublons sont détectés directement en base, indépendamment du cache.
+    
     Exemples:
     
         # Parser tous les PDFs récursivement
@@ -561,8 +570,14 @@ def parse(
         # Parser avec limite et sauvegarde en base
         pyvolley parse data/pdfs -n 100 --save-db
         
-        # Parser une saison spécifique
-        pyvolley parse data/pdfs --saison 2024-2025
+        # Parser plusieurs saisons
+        pyvolley parse data/pdfs -s 2024-2025 -s 2025-2026
+        
+        # Parser avec forçage (ignore le cache)
+        pyvolley parse data/pdfs --force
+        
+        # Vider le cache puis parser
+        pyvolley parse data/pdfs --clear-cache
         
         # Parser seulement certaines entités
         pyvolley parse data/pdfs -e ABCCS -e LIRA
@@ -573,20 +588,16 @@ def parse(
         # Mode dry-run pour voir ce qui serait parsé
         pyvolley parse data/pdfs --dry-run -n 50
     """
-    from pyvolley.parsers.factory import ParserFactory, get_parser
-    from pyvolley.parsers.base import ParseResult
+    from pyvolley.parsers.factory import ParserFactory
     from hashlib import md5
     
     if not input_path.exists():
         console.print(f"[red]Erreur: {input_path} n'existe pas[/red]")
         raise typer.Exit(1)
     
-    # Récupérer les fichiers PDF
+    # ── Collecte des fichiers PDF ──────────────────────────────────────
     if input_path.is_dir():
-        if recursive:
-            pdf_files = list(input_path.glob("**/*.pdf"))
-        else:
-            pdf_files = list(input_path.glob("*.pdf"))
+        pdf_files = list(input_path.glob("**/*.pdf" if recursive else "*.pdf"))
     else:
         pdf_files = [input_path]
     
@@ -594,54 +605,77 @@ def parse(
         console.print("[yellow]Aucun fichier PDF trouvé[/yellow]")
         raise typer.Exit(0)
     
-    # Appliquer les filtres
+    # ── Filtres saison / entité ────────────────────────────────────────
     if saison:
-        saison_normalized = saison.replace("/", "-")
-        pdf_files = [f for f in pdf_files if saison_normalized in str(f)]
+        normalized_saisons = [s.replace("/", "-") for s in saison]
+        pdf_files = [f for f in pdf_files if any(ns in str(f) for ns in normalized_saisons)]
     
     if entity:
         pdf_files = [f for f in pdf_files if any(e in str(f) for e in entity)]
     
-    # Appliquer la limite
-    if limit:
-        pdf_files = pdf_files[:limit]
-    
     if not pdf_files:
         console.print("[yellow]Aucun fichier PDF après filtres[/yellow]")
         raise typer.Exit(0)
+
+    # Tri déterministe
+    pdf_files.sort()
     
-    # Afficher le résumé
+    if limit:
+        pdf_files = pdf_files[:limit]
+    
+    # ── Cache de parsing ───────────────────────────────────────────────
+    # Le cache est centralisé dans data/.pyvolley_parse_cache.json
+    # Il associe un hash de fichier → code_match parsé pour éviter de
+    # re-parser les mêmes PDFs.  Le cache est indépendant de la base de
+    # données : lors de --save-db, les doublons sont détectés en DB.
+    cache_dir = input_path if input_path.is_dir() else input_path.parent
+    cache_file = cache_dir / ".pyvolley_parse_cache.json"
+    parsed_cache: dict = {}
+    
+    if clear_cache and cache_file.exists():
+        cache_file.unlink()
+        console.print("[yellow]Cache de parsing vidé[/yellow]")
+    
+    if skip_parsed and cache_file.exists():
+        try:
+            with open(cache_file, "r") as f:
+                parsed_cache = json.load(f)
+            console.print(f"[dim]Cache chargé: {len(parsed_cache)} fichiers déjà parsés[/dim]")
+        except Exception:
+            parsed_cache = {}
+    
+    # ── Afficher le résumé ─────────────────────────────────────────────
+    saison_display = ", ".join(saison) if saison else "toutes"
+    entity_display = ", ".join(entity) if entity else "toutes"
+    
     console.print(Panel(
         f"[bold blue]🏐 PyVolley - Parsing des feuilles de match[/bold blue]\n\n"
         f"Source: [cyan]{input_path}[/cyan]\n"
         f"Fichiers: [cyan]{len(pdf_files)}[/cyan]\n"
+        f"Saison(s): [cyan]{saison_display}[/cyan]\n"
+        f"Entité(s): [cyan]{entity_display}[/cyan]\n"
         f"Parser: [cyan]{parser_version.upper()}[/cyan]\n"
         f"Mode: [cyan]{'Aperçu (dry-run)' if dry_run else 'Parsing'}[/cyan]\n"
         f"Sauvegarde DB: [cyan]{'Oui' if save_db else 'Non'}[/cyan]",
         title="Configuration"
     ))
     
-    # Mode dry-run
+    # ── Mode dry-run ───────────────────────────────────────────────────
     if dry_run:
-        # Afficher la distribution
         from collections import Counter
-        
-        # Par saison
-        saisons = Counter()
-        entities_count = Counter()
+        saisons_count: Counter = Counter()
+        entities_count: Counter = Counter()
         for f in pdf_files:
-            parts = f.parts
-            for p in parts:
+            for p in f.parts:
                 if p and len(p) == 9 and p[4] == '-':
-                    saisons[p] += 1
+                    saisons_count[p] += 1
                 if p and (p.startswith("LI") or p.startswith("PT") or p.startswith("AB") or p.startswith("AC")):
                     entities_count[p] += 1
         
-        if saisons:
+        if saisons_count:
             console.print("\n[bold]Distribution par saison:[/bold]")
-            for s, c in sorted(saisons.items()):
+            for s, c in sorted(saisons_count.items()):
                 console.print(f"  {s}: {c}")
-        
         if entities_count:
             console.print("\n[bold]Distribution par entité (top 10):[/bold]")
             for e, c in entities_count.most_common(10):
@@ -650,7 +684,7 @@ def parse(
         console.print(f"\n[yellow]Mode dry-run: aucun fichier parsé[/yellow]")
         raise typer.Exit(0)
     
-    # Créer le parser
+    # ── Créer le parser ────────────────────────────────────────────────
     try:
         parser_name = f"MatchSheetParser{parser_version.upper()}"
         parser = ParserFactory.get(parser_name)
@@ -661,18 +695,7 @@ def parse(
     
     console.print(f"\n[blue]Utilisation du parser: {parser.name} v{parser.version}[/blue]\n")
     
-    # Cache pour skip_parsed (basé sur hash du fichier)
-    cache_file = input_path / ".pyvolley_parse_cache.json" if input_path.is_dir() else None
-    parsed_cache = {}
-    if skip_parsed and cache_file and cache_file.exists():
-        try:
-            with open(cache_file, "r") as f:
-                parsed_cache = json.load(f)
-            console.print(f"[dim]Cache chargé: {len(parsed_cache)} fichiers déjà parsés[/dim]")
-        except Exception:
-            pass
-    
-    # Parsing
+    # ── Parsing ────────────────────────────────────────────────────────
     results = []
     successful = 0
     skipped = 0
@@ -694,7 +717,8 @@ def parse(
         task = progress.add_task("Parsing...", total=len(pdf_files))
         
         for pdf_file in pdf_files:
-            # Vérifier le cache
+            # Vérifier le cache (skip re-parsing, pas l'import DB)
+            file_hash: Optional[str] = None
             if skip_parsed and cache_file:
                 file_hash = md5(pdf_file.read_bytes()).hexdigest()
                 if file_hash in parsed_cache:
@@ -719,7 +743,8 @@ def parse(
                     
                     # Mettre en cache
                     if skip_parsed and cache_file:
-                        file_hash = md5(pdf_file.read_bytes()).hexdigest()
+                        if file_hash is None:
+                            file_hash = md5(pdf_file.read_bytes()).hexdigest()
                         parsed_cache[file_hash] = {
                             'file': str(pdf_file),
                             'code_match': result.match.code_match,
@@ -732,7 +757,6 @@ def parse(
                             f"  [green]✓[/green] {pdf_file.name}: {m.code_match} "
                             f"({m.equipe_a.nom[:20] if m.equipe_a else '?'} vs {m.equipe_b.nom[:20] if m.equipe_b else '?'})"
                         )
-                        # Afficher les warnings en détail
                         if result.warnings:
                             for warn in result.warnings:
                                 progress.console.print(f"      [yellow]⚠ {warn}[/yellow]")
@@ -749,7 +773,6 @@ def parse(
                     if verbose:
                         msg = result.errors[0][:50] if result.errors else 'Erreur inconnue'
                         progress.console.print(f"  [red]✗[/red] {pdf_file.name}: {msg}...")
-                        # Afficher aussi les warnings même en cas d'erreur
                         if result.warnings:
                             for warn in result.warnings:
                                 progress.console.print(f"      [yellow]⚠ {warn}[/yellow]")
@@ -766,7 +789,7 @@ def parse(
                 })
                 progress.update(task, advance=1, description=f"[red]✗ {pdf_file.name[:30]}: {str(e)[:30]}[/red]")
     
-    # Sauvegarder le cache
+    # ── Sauvegarder le cache ───────────────────────────────────────────
     if skip_parsed and cache_file and parsed_cache:
         try:
             with open(cache_file, "w") as f:
@@ -774,7 +797,7 @@ def parse(
         except Exception:
             pass
     
-    # Résumé
+    # ── Résumé ─────────────────────────────────────────────────────────
     console.print("\n" + "=" * 60)
     console.print(Panel(
         f"[green]✓ Parsés avec succès: {successful}[/green]\n"
@@ -784,7 +807,7 @@ def parse(
         title="Résumé du parsing"
     ))
     
-    # Exporter en JSON si demandé
+    # ── Exporter en JSON ───────────────────────────────────────────────
     if output and results:
         export_data = []
         for r in results:
@@ -800,7 +823,10 @@ def parse(
         
         console.print(f"\n[blue]📁 Résultats exportés vers: {output}[/blue]")
     
-    # Sauvegarder en base de données si demandé
+    # ── Import en base de données ──────────────────────────────────────
+    # L'import vérifie les doublons directement en base via code_match +
+    # saison_id, donc il est fiable même si le cache de parsing contient
+    # des entrées pour des matchs supprimés lors d'un reset DB.
     if save_db and results:
         console.print("\n[blue]💾 Sauvegarde en base de données...[/blue]")
         
@@ -812,31 +838,53 @@ def parse(
             
             imported = 0
             import_errors = 0
+            duplicates = 0
             
             with DatabaseSession() as session:
                 service = MatchImportService(session)
                 
-                for r in results:
-                    try:
-                        match_db = service.import_match(r['match'])
-                        imported += 1
-                    except Exception as e:
-                        import_errors += 1
-                        if verbose:
-                            console.print(f"  [red]✗[/red] Import {r['match'].code_match}: {e}")
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    TaskProgressColumn(),
+                    console=console,
+                    transient=True,
+                ) as db_progress:
+                    db_task = db_progress.add_task("Import DB...", total=len(results))
+                    
+                    for r in results:
+                        try:
+                            match_db = service.import_match(r['match'])
+                            if match_db:
+                                imported += 1
+                            else:
+                                duplicates += 1
+                        except Exception as e:
+                            import_errors += 1
+                            session.rollback()
+                            service.clear_caches()
+                            if verbose:
+                                console.print(f"  [red]✗[/red] Import {r['match'].code_match}: {e}")
+                        db_progress.update(db_task, advance=1)
                 
-                session.commit()
+                try:
+                    session.commit()
+                except Exception as e:
+                    session.rollback()
+                    console.print(f"[red]Erreur lors du commit final: {e}[/red]")
             
             console.print(f"[green]✓ {imported} matchs importés en base de données[/green]")
+            if duplicates:
+                console.print(f"[dim]↳ {duplicates} matchs déjà existants (ignorés)[/dim]")
             if import_errors:
                 console.print(f"[red]✗ {import_errors} erreurs d'import[/red]")
                 
         except Exception as e:
             console.print(f"[red]Erreur lors de l'import en base: {e}[/red]")
     
-    # Générer le rapport si demandé
+    # ── Rapport ────────────────────────────────────────────────────────
     if report:
-        # Améliorer l'export JSON avec les warnings détaillés
         detailed_results = []
         for r in results:
             detailed_results.append({
@@ -856,11 +904,15 @@ def parse(
             "skipped": skipped,
             "failed": failed,
             "warnings_total": warnings_count,
+            "filters": {
+                "saisons": saison or [],
+                "entities": entity or [],
+            },
             "summary": {
                 "success_rate_percent": successful / len(pdf_files) * 100 if pdf_files else 0,
                 "avg_parse_time_ms": sum(r['parse_time_ms'] for r in results) / len(results) if results else 0,
             },
-            "errors": error_details[:50],  # Limiter à 50 erreurs
+            "errors": error_details[:50],
             "successful_files_with_warnings": [r for r in detailed_results if r['warnings']],
         }
         
@@ -1053,6 +1105,10 @@ app.add_typer(db_app, name="db")
 from pyvolley.cli.db_explorer import explore_app
 db_app.add_typer(explore_app, name="explore")
 
+# Sous-commandes de rapports
+from pyvolley.cli.reports import report_app
+db_app.add_typer(report_app, name="report")
+
 
 @db_app.command("status")
 def db_status():
@@ -1152,7 +1208,7 @@ def db_reset(
     """
     🔄 Réinitialise la base de données.
     
-    ⚠️ ATTENTION: Supprime toutes les données!
+    ⚠️ ATTENTION: Supprime toutes les données et les caches de parsing!
     
     Options:
         --full: Réinitialise aussi l'historique des migrations (après des changements de schéma)
@@ -1165,7 +1221,7 @@ def db_reset(
         action_desc = "complètement"
     
     if not force:
-        confirm = typer.confirm(f"⚠️ Cette action va SUPPRIMER toutes les données {action_desc}. Continuer?")
+        confirm = typer.confirm(f"⚠️ Cette action va SUPPRIMER toutes les données {action_desc} et vider les caches. Continuer?")
         if not confirm:
             console.print("[yellow]Annulé[/yellow]")
             raise typer.Exit(0)
@@ -1179,6 +1235,7 @@ def db_reset(
         else:
             reset_db()
             console.print("[green]✓ Base de données réinitialisée[/green]")
+        console.print("[dim]↳ Caches de parsing vidés[/dim]")
     except Exception as e:
         console.print(f"[red]✗ Erreur: {e}[/red]")
         raise typer.Exit(1)
