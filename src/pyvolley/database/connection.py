@@ -5,9 +5,12 @@ Supporte PostgreSQL (production) et SQLite (développement).
 Utilise SQLAlchemy 2.0 avec le style moderne.
 """
 
-from contextlib import contextmanager
-from typing import Generator, Optional
 import logging
+import os
+import shutil
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Generator, Optional
 
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker, Session
@@ -171,11 +174,12 @@ def reset_db() -> None:
     """
     Réinitialise complètement la base de données.
     
-    ⚠️ Supprime toutes les données !
+    ⚠️ Supprime toutes les données et invalide les caches de parsing !
     """
     drop_db()
     init_db()
-    logger.info("Database reset completed")
+    _clear_parse_caches()
+    logger.info("Database reset completed (parse caches cleared)")
 
 
 def reset_db_with_migrations() -> None:
@@ -186,13 +190,10 @@ def reset_db_with_migrations() -> None:
     - Supprime le fichier de base de données SQLite
     - Réinitialise l'historique des migrations Alembic
     - Crée une nouvelle base de données
+    - Invalide les caches de parsing
     
     Utilisez uniquement en développement après des changements de schéma majeurs.
     """
-    import os
-    import shutil
-    from pathlib import Path
-    
     database_url = settings.database_url
     
     # 1. Supprimer la base de données SQLite si elle existe
@@ -231,7 +232,30 @@ def reset_db_with_migrations() -> None:
     
     # 4. Initialiser la nouvelle base de données
     init_db()
-    logger.warning("Database fully reset - new empty database created")
+    _clear_parse_caches()
+    logger.warning("Database fully reset - new empty database created (parse caches cleared)")
+
+
+def _clear_parse_caches() -> None:
+    """
+    Supprime tous les fichiers de cache de parsing (.pyvolley_parse_cache.json)
+    trouvés dans le dossier data/.
+
+    Appelé automatiquement lors d'un reset de la base de données pour qu'un
+    ``parse --save-db`` subséquent re-parse et ré-importe tout.
+    """
+    data_dir = settings.data_dir
+    if not data_dir.exists():
+        return
+    count = 0
+    for cache_file in data_dir.rglob(".pyvolley_parse_cache.json"):
+        try:
+            cache_file.unlink()
+            count += 1
+        except Exception as e:
+            logger.warning(f"Impossible de supprimer le cache {cache_file}: {e}")
+    if count:
+        logger.info(f"Supprimé {count} fichier(s) de cache de parsing")
 
 
 def check_connection() -> bool:

@@ -273,6 +273,13 @@ class MatchDB(Base):
     sets_equipe_b: Mapped[int] = mapped_column(Integer, default=0)
     duree_totale: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
 
+    # Match status
+    match_joue: Mapped[bool] = mapped_column(Boolean, default=False)
+    has_details: Mapped[bool] = mapped_column(Boolean, default=False)
+    score_source: Mapped[Optional[str]] = mapped_column(
+        String(20), nullable=True
+    )  # "pdf", "online", "manual"
+
     # Remarques
     remarques: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
@@ -308,6 +315,16 @@ class MatchDB(Base):
         UniqueConstraint("code_match", "saison_id", name="uq_match_code_saison"),
         Index("ix_matchs_date", "date_match"),
         Index("ix_matchs_competition", "competition_id"),
+        Index("ix_matchs_has_details", "has_details", "saison_id"),
+        # Partial index pour les matchs sans saison (empêche les doublons
+        # quand saison_id IS NULL)
+        Index(
+            "ix_matchs_code_no_saison",
+            "code_match",
+            unique=True,
+            sqlite_where=Column("saison_id").is_(None),
+            postgresql_where=Column("saison_id").is_(None),
+        ),
     )
 
     @property

@@ -51,6 +51,24 @@ class MatchImportService:
         self._arbitre_cache: dict[str, ArbitreDB] = {}
         self._competition_cache: dict[tuple[str, int, Optional[str]], CompetitionDB] = {}
         self._poule_cache: dict[tuple[str, int], PouleDB] = {}
+        # Track participations ajoutées (non-flushées) pour éviter les doublons
+        # Nécessaire car autoflush=False empêche les queries de voir les adds en attente
+        self._participation_seen: set[tuple[int, int]] = set()
+
+    def clear_caches(self) -> None:
+        """Vide tous les caches internes.
+
+        À appeler impérativement après un ``session.rollback()`` : les objets
+        cachés sont alors détachés et leurs identifiants potentiellement invalides.
+        """
+        self._saison_cache.clear()
+        self._club_cache.clear()
+        self._equipe_cache.clear()
+        self._joueur_cache.clear()
+        self._arbitre_cache.clear()
+        self._competition_cache.clear()
+        self._poule_cache.clear()
+        self._participation_seen.clear()
 
     # =================================================================
     # Import principal
@@ -70,7 +88,8 @@ class MatchImportService:
         saison_id = saison.id if saison else None
         existing = self._get_match_by_code(match_data.code_match, saison_id)
         if existing:
-            return existing
+            logger.debug(f"Match {match_data.code_match} déjà présent, ignoré")
+            return None
 
         # 3. Compétition & Poule
         competition = self._get_or_create_competition(match_data, saison)
@@ -100,6 +119,9 @@ class MatchImportService:
             sets_equipe_a=match_data.sets_a,
             sets_equipe_b=match_data.sets_b,
             duree_totale=match_data.duree_totale,
+            match_joue=getattr(match_data, 'match_joue', False),
+            has_details=getattr(match_data, 'has_details', False),
+            score_source=getattr(match_data, 'score_source', None),
             remarques=match_data.remarques,
             source_pdf=match_data.source_pdf,
             parsed_at=match_data.parsed_at,
@@ -115,6 +137,8 @@ class MatchImportService:
             self._import_joueurs(match_db, match_data.equipe_a, equipe_a_db)
         if match_data.equipe_b and equipe_b_db:
             self._import_joueurs(match_db, match_data.equipe_b, equipe_b_db)
+        # Flush les participations pour que les prochaines queries les voient
+        self.session.flush()
 
         # 8. Arbitres
         self._import_arbitres(match_db, match_data.arbitres)
@@ -131,23 +155,30 @@ class MatchImportService:
         return match_db
 
     def import_matches(self, matches: List[Match]) -> dict:
-        """Importe plusieurs matchs. Retourne les statistiques."""
+        """Importe plusieurs matchs avec commit par batch.
+
+        La détection de doublons se fait en base de données (code_match +
+        saison_id) : c'est l'unique source de vérité, indépendante de tout
+        cache fichier.  Après un ``reset_db``, tous les matchs seront
+        ré-importés même si le cache de parsing n'a pas été vidé.
+
+        Returns:
+            Statistiques d'import : total, imported, duplicates, errors.
+        """
         stats = {"total": len(matches), "imported": 0, "duplicates": 0, "errors": []}
 
         for match_data in matches:
             try:
-                saison = self._get_or_create_saison(match_data)
-                saison_id = saison.id if saison else None
-                if self._get_match_by_code(match_data.code_match, saison_id):
-                    stats["duplicates"] += 1
-                    continue
-
                 result = self.import_match(match_data)
                 if result:
                     stats["imported"] += 1
+                else:
+                    stats["duplicates"] += 1
             except Exception as e:
                 stats["errors"].append({"code_match": match_data.code_match, "error": str(e)})
                 logger.warning(f"Import error for {match_data.code_match}: {e}")
+                self.session.rollback()
+                self.clear_caches()
 
         self.session.commit()
         return stats
@@ -462,22 +493,55 @@ class MatchImportService:
     def _import_joueurs(
         self, match_db: MatchDB, equipe_data: Equipe, equipe_db: EquipeDB
     ) -> None:
-        """Importe les joueurs d'une équipe et crée les participations."""
+        """Importe les joueurs d'une équipe et crée les participations.
+
+        Gère les doublons via un set en mémoire (``_participation_seen``) car
+        ``autoflush=False`` empêche les queries de voir les adds en attente.
+        """
         all_joueurs = list(equipe_data.joueurs)
         # Les libéros doivent déjà être fusionnés dans joueurs par le parser v5
-        # mais on vérifie au cas où
+        # mais on vérifie au cas où (par licence OU par numéro+nom)
         for lib in equipe_data.liberos:
-            if not any(j.licence == lib.licence for j in all_joueurs if j.licence):
+            dup = False
+            for j in all_joueurs:
+                if j.licence and lib.licence and j.licence == lib.licence:
+                    dup = True
+                    break
+                if j.numero and lib.numero and j.numero == lib.numero and j.nom == lib.nom:
+                    dup = True
+                    break
+            if not dup:
                 all_joueurs.append(lib)
 
-        for joueur_data in all_joueurs:
+        # Dédupliquer la liste elle-même par licence (protège contre les
+        # doublons provenant du parsing)
+        seen_licences: set[str] = set()
+        unique_joueurs: list = []
+        for jd in all_joueurs:
+            key = jd.licence or f"{jd.nom}_{jd.prenom}"
+            if key in seen_licences:
+                continue
+            seen_licences.add(key)
+            unique_joueurs.append(jd)
+
+        for joueur_data in unique_joueurs:
             licence = joueur_data.licence
             if not licence or licence.strip() == "":
                 licence = f"TEMP_{hash(f'{joueur_data.nom}_{joueur_data.prenom}') % 100000:06d}"
 
             joueur_db = self._get_or_create_joueur(licence, joueur_data.nom, joueur_data.prenom)
 
-            # Vérifier qu'on n'a pas déjà cette participation
+            # Vérifier via le set en mémoire (fiable même sans autoflush)
+            part_key = (match_db.id, joueur_db.id)
+            if part_key in self._participation_seen:
+                logger.debug(
+                    f"Participation doublon ignorée: joueur={joueur_db.id} "
+                    f"match={match_db.id}"
+                )
+                continue
+
+            # Double-check en DB (pour la robustesse, au cas où la session
+            # aurait été flushée entre-temps)
             existing_part = self.session.scalar(
                 select(ParticipationMatchDB).where(
                     ParticipationMatchDB.match_id == match_db.id,
@@ -485,6 +549,7 @@ class MatchImportService:
                 )
             )
             if existing_part:
+                self._participation_seen.add(part_key)
                 continue
 
             participation = ParticipationMatchDB(
@@ -496,6 +561,7 @@ class MatchImportService:
                 est_capitaine=joueur_data.est_capitaine,
             )
             self.session.add(participation)
+            self._participation_seen.add(part_key)
 
     def _get_or_create_joueur(self, licence: str, nom: str, prenom: str) -> JoueurDB:
         """Crée ou récupère un joueur par sa licence."""
@@ -612,11 +678,126 @@ class MatchImportService:
     # =================================================================
 
     def _get_match_by_code(self, code_match: str, saison_id: Optional[int]) -> Optional[MatchDB]:
-        """Cherche un match existant par code + saison."""
+        """Cherche un match existant par code + saison.
+
+        Quand ``saison_id`` est fourni, la recherche utilise le couple
+        (code_match, saison_id) — ce qui correspond à la contrainte
+        d'unicité ``uq_match_code_saison``.
+
+        Quand ``saison_id`` est ``None``, on cherche uniquement les matchs
+        qui n'ont pas de saison rattachée pour éviter les faux positifs
+        inter-saisons.
+        """
         stmt = select(MatchDB).where(MatchDB.code_match == code_match)
-        if saison_id:
+        if saison_id is not None:
             stmt = stmt.where(MatchDB.saison_id == saison_id)
+        else:
+            stmt = stmt.where(MatchDB.saison_id.is_(None))
         return self.session.scalar(stmt)
+
+    # =================================================================
+    # Mise à jour des scores (complétion en ligne)
+    # =================================================================
+
+    def update_match_scores(
+        self,
+        code_match: str,
+        saison_id: Optional[int],
+        *,
+        score_sets: str,
+        sets_a: int,
+        sets_b: int,
+        set_scores: list[tuple[int, int]],
+        source: str = "online",
+        duree_totale: Optional[str] = None,
+        vainqueur: Optional[str] = None,
+    ) -> Optional[MatchDB]:
+        """Met à jour les scores d'un match existant depuis une source externe.
+
+        N'écrase pas les scores déjà renseignés depuis le PDF, sauf si
+        ``score_source`` est ``None`` (match sans détails).
+
+        Args:
+            code_match: Code du match (ex: "EMA001")
+            saison_id: ID de la saison en base
+            score_sets: Score en sets (ex: "3/2")
+            sets_a / sets_b: Nombre de sets gagnés par chaque équipe
+            set_scores: Liste de tuples (score_a, score_b) pour chaque set
+            source: Origine des données ("online", "manual")
+            duree_totale: Durée totale du match (optionnel)
+            vainqueur: Nom du vainqueur (optionnel)
+
+        Returns:
+            Le MatchDB mis à jour, ou None si le match n'existe pas ou
+            a déjà des détails.
+        """
+        match_db = self._get_match_by_code(code_match, saison_id)
+        if not match_db:
+            logger.debug("update_match_scores: match %s non trouvé", code_match)
+            return None
+
+        # Ne pas écraser les scores PDF existants
+        if match_db.score_source == "pdf" and match_db.has_details:
+            logger.debug(
+                "update_match_scores: match %s a déjà des détails PDF, ignoré",
+                code_match,
+            )
+            return None
+
+        # Mettre à jour le résultat global
+        match_db.score_sets = score_sets
+        match_db.sets_equipe_a = sets_a
+        match_db.sets_equipe_b = sets_b
+        match_db.match_joue = True
+        match_db.has_details = bool(set_scores)
+        match_db.score_source = source
+
+        if duree_totale:
+            match_db.duree_totale = duree_totale
+        if vainqueur:
+            match_db.vainqueur = vainqueur
+
+        # Supprimer les anciens sets (tous à 0)
+        for old_set in list(match_db.sets):
+            self.session.delete(old_set)
+        self.session.flush()
+
+        # Créer les nouveaux sets
+        for i, (sa, sb) in enumerate(set_scores, 1):
+            set_db = SetDB(
+                match_id=match_db.id,
+                numero=i,
+                score_a=sa,
+                score_b=sb,
+            )
+            self.session.add(set_db)
+
+        match_db.updated_at = datetime.now()
+        self.session.flush()
+
+        logger.info(
+            "Scores mis à jour pour %s (saison_id=%s) depuis %s: %s",
+            code_match, saison_id, source, score_sets,
+        )
+        return match_db
+
+    def get_matches_without_scores(
+        self, saison_id: Optional[int] = None,
+    ) -> list[MatchDB]:
+        """Récupère les matchs qui n'ont pas de scores détaillés.
+
+        Utile pour le système de complétion en ligne : on cherche les matchs
+        dont ``has_details`` est False mais qui ont un vainqueur (donc jouables).
+        """
+        stmt = (
+            select(MatchDB)
+            .where(
+                MatchDB.has_details == False,  # noqa: E712
+            )
+        )
+        if saison_id is not None:
+            stmt = stmt.where(MatchDB.saison_id == saison_id)
+        return list(self.session.scalars(stmt).all())
 
     @staticmethod
     def _parse_date(date_val) -> Optional[datetime_date]:
@@ -695,6 +876,7 @@ class BulkImportService:
             except Exception as e:
                 stats["errors"].append({"index": i, "error": str(e)})
                 self.session.rollback()
+                self.import_service.clear_caches()
 
         try:
             self.session.commit()

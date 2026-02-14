@@ -297,6 +297,9 @@ class Match(MatchBase):
     sets_a: int = 0
     sets_b: int = 0
     duree_totale: Optional[str] = None
+    match_joue: bool = False  # True si le match a effectivement été joué
+    has_details: bool = False  # True si des détails de sets sont disponibles
+    score_source: Optional[str] = None  # "pdf", "online", "manual"
     
     # Détails
     sets: list[Set] = Field(default_factory=list)
@@ -310,7 +313,7 @@ class Match(MatchBase):
     
     @property
     def is_played(self) -> bool:
-        return bool(self.vainqueur_nom or self.sets_a > 0 or self.sets_b > 0)
+        return bool(self.match_joue or self.vainqueur_nom or self.sets_a > 0 or self.sets_b > 0)
 
 
 # ============== Saison ==============
