@@ -10,6 +10,7 @@ Structure du site FFVB:
 - ffvolley_fdme.php : Téléchargement du PDF d'une feuille de match
 """
 
+import logging
 import re
 import time
 from dataclasses import dataclass
@@ -19,6 +20,8 @@ from urllib.parse import urljoin, urlencode
 
 import requests
 from bs4 import BeautifulSoup
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from pyvolley.core.config import settings
 from pyvolley.core.exceptions import NetworkError, PageNotFoundError, ScrapingError
@@ -28,6 +31,8 @@ from pyvolley.scrapers.base import (
     MatchInfo,
     ScrapeResult,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -61,6 +66,10 @@ class FFVBScraper(BaseScraper):
     - download_match_pdf(): Télécharge le PDF d'un match
     """
     
+    # Nombre max de tentatives pour les erreurs récupérables (403, 429, 5xx)
+    MAX_RETRIES = 3
+    RETRY_BACKOFF_FACTOR = 2.0  # secondes : 2, 4, 8...
+
     def __init__(
         self,
         base_url: Optional[str] = None,
@@ -71,9 +80,29 @@ class FFVBScraper(BaseScraper):
         self._delay = request_delay or settings.ffvb_request_delay
         self._timeout = timeout or settings.ffvb_timeout
         self._session = requests.Session()
+        # Headers réalistes pour éviter les blocages 403
         self._session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/131.0.0.0 Safari/537.36"
+            ),
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
         })
+        # Retry automatique via urllib3 pour les erreurs de connexion
+        retry_strategy = Retry(
+            total=self.MAX_RETRIES,
+            backoff_factor=self.RETRY_BACKOFF_FACTOR,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["GET", "HEAD"],
+        )
+        adapter = HTTPAdapter(max_retries=retry_strategy)
+        self._session.mount("https://", adapter)
+        self._session.mount("http://", adapter)
         self._last_request_time = 0.0
     
     @property
@@ -92,18 +121,44 @@ class FFVBScraper(BaseScraper):
         self._last_request_time = time.time()
     
     def _get(self, url: str) -> requests.Response:
-        """Effectue une requête GET avec gestion des erreurs."""
-        self._rate_limit()
-        try:
-            response = self._session.get(url, timeout=self._timeout)
-            response.raise_for_status()
-            return response
-        except requests.exceptions.HTTPError as e:
-            if e.response.status_code == 404:
-                raise PageNotFoundError(f"Page non trouvée: {url}")
-            raise NetworkError(f"Erreur HTTP {e.response.status_code}: {url}")
-        except requests.exceptions.RequestException as e:
-            raise NetworkError(f"Erreur réseau: {e}")
+        """Effectue une requête GET avec gestion des erreurs et retry sur 403."""
+        last_exc: Optional[Exception] = None
+
+        for attempt in range(1, self.MAX_RETRIES + 1):
+            self._rate_limit()
+            try:
+                response = self._session.get(url, timeout=self._timeout)
+                response.raise_for_status()
+                return response
+            except requests.exceptions.HTTPError as e:
+                status = e.response.status_code if e.response is not None else 0
+                if status == 404:
+                    raise PageNotFoundError(f"Page non trouvée: {url}")
+                # 403 : le serveur bloque temporairement → retry avec backoff
+                if status == 403 and attempt < self.MAX_RETRIES:
+                    wait = self.RETRY_BACKOFF_FACTOR * (2 ** (attempt - 1))
+                    logger.warning(
+                        f"HTTP 403 sur {url} – tentative {attempt}/{self.MAX_RETRIES}, "
+                        f"retry dans {wait:.0f}s"
+                    )
+                    time.sleep(wait)
+                    last_exc = e
+                    continue
+                raise NetworkError(f"Erreur HTTP {status}: {url}")
+            except requests.exceptions.RequestException as e:
+                if attempt < self.MAX_RETRIES:
+                    wait = self.RETRY_BACKOFF_FACTOR * (2 ** (attempt - 1))
+                    logger.warning(
+                        f"Erreur réseau sur {url} – tentative {attempt}/{self.MAX_RETRIES}, "
+                        f"retry dans {wait:.0f}s"
+                    )
+                    time.sleep(wait)
+                    last_exc = e
+                    continue
+                raise NetworkError(f"Erreur réseau: {e}")
+
+        # Ne devrait pas arriver, mais par sécurité
+        raise NetworkError(f"Échec après {self.MAX_RETRIES} tentatives: {url} ({last_exc})")
     
     def _get_soup(self, url: str) -> BeautifulSoup:
         """Récupère et parse une page HTML."""
