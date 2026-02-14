@@ -144,6 +144,8 @@ class MatchSheetParserV5(BaseParser):
                 tidx = self._identify_tables(tables)
                 fields_count = 0
 
+                # ── Phase 1 : Informations générales (toujours disponibles) ──
+
                 # 1. Header (lignes de texte)
                 header = self._parse_header(lines)
                 fields_count += sum(1 for v in header.values() if v)
@@ -152,40 +154,72 @@ class MatchSheetParserV5(BaseParser):
                 equipes_info = self._parse_equipes(tidx, words, lines)
                 fields_count += sum(1 for v in equipes_info.values() if v)
 
-                # 3. Résultat global
-                resultat = self._parse_resultat(lines, tidx)
-                fields_count += sum(1 for v in resultat.values() if v)
+                # ── Phase 2 : Personnes (joueurs, officiels, arbitres) ──
 
-                match_joue = self._is_match_played(resultat)
-
-                # 4. Joueurs
+                # 3. Joueurs
                 joueurs_a, joueurs_b = self._parse_joueurs(tidx)
                 fields_count += len(joueurs_a) + len(joueurs_b)
 
-                # 5. Libéros
+                # 4. Libéros
                 liberos_a, liberos_b = self._parse_liberos(words)
                 self._mark_liberos(joueurs_a, liberos_a)
                 self._mark_liberos(joueurs_b, liberos_b)
 
-                # 6. Officiels d'équipe
+                # 5. Officiels d'équipe
                 off_a, off_b = self._parse_officiels(words)
 
-                # 7. Capitaines
+                # 6. Capitaines (3 méthodes, fallback successif)
                 cap_a, cap_b = self._detect_capitaines(images, chars, words)
                 if not cap_a or not cap_b:
                     cap_a2, cap_b2 = self._capitaines_from_signatures(tidx)
                     cap_a = cap_a or cap_a2
                     cap_b = cap_b or cap_b2
+                if not cap_a or not cap_b:
+                    cap_a3, cap_b3 = self._capitaines_from_chars(chars, words)
+                    cap_a = cap_a or cap_a3
+                    cap_b = cap_b or cap_b3
                 self._mark_capitaine(joueurs_a, cap_a)
                 self._mark_capitaine(joueurs_b, cap_b)
 
-                # 8. Détails des sets
-                sets_detailed = self._parse_all_sets(tidx)
+                # 7. Arbitres
+                arbitres = self._parse_arbitres(tidx, full_text)
+                fields_count += len(arbitres)
 
-                # 9. Table RESULTATS
+                # ── Phase 3 : Résultats & détection match joué ──
+
+                # 8. Résultat global (vainqueur, score, durée)
+                resultat = self._parse_resultat(lines, tidx)
+                fields_count += sum(1 for v in resultat.values() if v)
+
+                match_joue = self._is_match_played(resultat)
+                has_detailed_score = self._has_detailed_scores(resultat)
+                saison_str = header.get("saison")
+                saison_year = self._saison_year(saison_str)
+                # Avant 2024-2025, les feuilles n'ont pas de détails de sets
+                is_modern = saison_year is not None and saison_year >= 2024
+
+                # 9. Table RESULTATS (scores par set)
                 res_data, duree_from_table = self._parse_resultats_table(tidx)
                 if duree_from_table and not resultat.get("duree_totale"):
                     resultat["duree_totale"] = duree_from_table
+
+                # Déterminer si des détails de sets sont renseignés
+                has_set_scores = any(
+                    (r.get('points_a') or 0) > 0 or (r.get('points_b') or 0) > 0
+                    for r in res_data
+                )
+
+                # ── Phase 4 : Détails des sets (coûteux, sauté si inutile) ──
+                # On parse les sections SET uniquement si la feuille contient
+                # des données réelles (score non nul ou points par set).
+                sets_detailed: list[dict] = []
+                if has_detailed_score or has_set_scores:
+                    sets_detailed = self._parse_all_sets(tidx)
+                else:
+                    logger.debug(
+                        "Pas de données de sets détaillées – parsing des "
+                        "sections SET ignoré : %s", pdf_path.name,
+                    )
 
                 # 10. Construire les Sets
                 sets, set_warnings = self._build_sets(
@@ -197,20 +231,19 @@ class MatchSheetParserV5(BaseParser):
                     result.add_warning(w)
                 fields_count += len(sets) * 5
 
-                # 11. Arbitres
-                arbitres = self._parse_arbitres(tidx, full_text)
-                fields_count += len(arbitres)
+                # ── Phase 5 : Sanctions, remarques ──
 
-                # 12. Sanctions
+                # 11. Sanctions
                 sanctions, sanc_warnings = self._parse_sanctions(tidx)
                 for w in sanc_warnings:
                     result.add_warning(w)
 
-                # 13. Remarques / Demande non fondée
+                # 12. Remarques / Demande non fondée
                 remarques = self._parse_remarques(tidx)
                 demande_nf = self._parse_demande_non_fondee(tidx)
 
-                # 14. Construire le Match
+                # ── Phase 6 : Construction du Match ──
+
                 match = self._build_match(
                     header=header,
                     equipes_info=equipes_info,
@@ -232,10 +265,17 @@ class MatchSheetParserV5(BaseParser):
                 result.fields_extracted = min(fields_count, 40)
                 result.fields_total = 40
 
+                # ── Warnings contextuels ──
                 if not match_joue:
-                    result.add_warning("Match non joué ou annulé")
+                    result.add_warning("Match non joué ou annulé (aucun vainqueur)")
+                elif match_joue and not has_detailed_score and is_modern:
+                    # Saison >= 2024 : on s'attend à des scores détaillés
+                    result.add_warning(
+                        "Match joué mais scores de sets absents "
+                        "(attendus pour saison >= 2024-2025)"
+                    )
 
-                result.warnings.extend(self._validate(match))
+                result.warnings.extend(self._validate(match, is_modern=is_modern))
 
         except Exception as e:
             result.add_error(f"Erreur de parsing: {e}")
@@ -449,6 +489,12 @@ class MatchSheetParserV5(BaseParser):
         # Nettoyage des noms d'équipe
         for key in ("equipe_a", "equipe_b"):
             if eq[key]:
+                # Supprimer un caractère isolé en début de nom (artefact
+                # de cellule adjacente, ex: "L ISSY..." → "ISSY...")
+                eq[key] = re.sub(
+                    r'^[A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ]\s+(?=[A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ])',
+                    '', eq[key],
+                )
                 eq[key] = self._clean_team_name(eq[key])
 
         # Méthode 3 fallback : mots positionnels dans la bande 55-80px
@@ -527,7 +573,7 @@ class MatchSheetParserV5(BaseParser):
             r'\s+(\d)/(\d)',
             full_text,
         ):
-            result["vainqueur"] = vm.group(1).strip()
+            result["vainqueur"] = self._normalize_name(vm.group(1).strip())
             result["score_final"] = f"{vm.group(2)}/{vm.group(3)}"
         else:
             if v2 := re.search(
@@ -537,9 +583,9 @@ class MatchSheetParserV5(BaseParser):
                 raw = v2.group(1).strip()
                 if sm := re.search(r'(\d)/(\d)\s*$', raw):
                     result["score_final"] = f"{sm.group(1)}/{sm.group(2)}"
-                    result["vainqueur"] = raw[:sm.start()].strip()
+                    result["vainqueur"] = self._normalize_name(raw[:sm.start()].strip())
                 elif len(raw) > 3:
-                    result["vainqueur"] = raw
+                    result["vainqueur"] = self._normalize_name(raw)
 
         # Aussi chercher dans la table RESULTATS (dernière ligne)
         tbl = tidx.get('results')
@@ -553,9 +599,13 @@ class MatchSheetParserV5(BaseParser):
                         r'Vainqueur:\s*(.+?)\s+(\d)/(\d)',
                         rt,
                     ):
-                        result["vainqueur"] = vm.group(1).strip()
+                        result["vainqueur"] = self._normalize_name(vm.group(1).strip())
                         result["score_final"] = f"{vm.group(2)}/{vm.group(3)}"
                     break
+
+        # Nettoyer les noms tronqués (supprimer une lettre isolée en fin)
+        if result["vainqueur"]:
+            result["vainqueur"] = self._clean_team_name(result["vainqueur"])
 
         # Durée
         if dm := re.search(r'Durée\s*(\d+h\d+)', full_text):
@@ -567,9 +617,34 @@ class MatchSheetParserV5(BaseParser):
 
     @staticmethod
     def _is_match_played(resultat: dict) -> bool:
-        if not resultat.get("vainqueur"):
+        """Un match est considéré comme joué dès qu'un vainqueur est renseigné.
+
+        Avant 2024-2025, les feuilles n'ont pas de score détaillé (souvent
+        0/0) mais le vainqueur apparaît quand même → match joué.
+        """
+        return bool(resultat.get("vainqueur"))
+
+    @staticmethod
+    def _has_detailed_scores(resultat: dict) -> bool:
+        """True si la feuille contient un score de sets non nul (ex: 3/1)."""
+        sf = resultat.get("score_final", "0/0")
+        if not sf:
             return False
-        return resultat.get("score_final", "0/0") != "0/0"
+        try:
+            a, b = sf.split("/")
+            return int(a) + int(b) > 0
+        except (ValueError, AttributeError):
+            return False
+
+    @staticmethod
+    def _saison_year(saison: Optional[str]) -> Optional[int]:
+        """Extrait l'année de début d'une saison ('2024-2025' → 2024)."""
+        if not saison:
+            return None
+        try:
+            return int(saison.split("-")[0])
+        except (ValueError, IndexError):
+            return None
 
     # =====================================================================
     # Joueurs (table roster)
@@ -836,7 +911,13 @@ class MatchSheetParserV5(BaseParser):
     def _detect_capitaines(
         self, images: list, chars: list, words: list,
     ) -> tuple[Optional[str], Optional[str]]:
-        """Détecte les capitaines via les cercles-images dans le roster."""
+        """Détecte les capitaines via les cercles-images dans le roster.
+
+        Le cercle-image encadre le numéro du capitaine, mais il est souvent
+        positionné entre deux lignes de joueurs. On regroupe les chiffres
+        proches par ligne (Y), puis on sélectionne la ligne la plus proche
+        du centre vertical du cercle.
+        """
         cap_a: Optional[str] = None
         cap_b: Optional[str] = None
 
@@ -849,25 +930,45 @@ class MatchSheetParserV5(BaseParser):
         ]
         roster_y_end = min(w['top'] for w in lib_headers) if lib_headers else 400
 
+        # Cercles-images marquant le capitaine (critères élargis pour robustesse)
         captain_imgs = [
             img for img in images
-            if img['x0'] > 570
-            and roster_y_start < img['top'] < roster_y_end
-            and 7 < img['x1'] - img['x0'] < 16
-            and 7 < img['bottom'] - img['top'] < 16
+            if img['x0'] > 550
+            and roster_y_start - 5 < img['top'] < roster_y_end + 5
+            and 5 < img['x1'] - img['x0'] < 22
+            and 5 < img['bottom'] - img['top'] < 22
         ]
 
         x_split = 680
         for img in captain_imgs:
             side = 'A' if img['x0'] < x_split else 'B'
-            digit_chars = sorted(
-                [c for c in chars
-                 if abs(c['top'] - img['top']) < 6
-                 and c['text'].isdigit()
-                 and img['x0'] - 3 < c['x0'] < img['x0'] + 12],
-                key=lambda c: c['x0'],
-            )
-            num = ''.join(c['text'] for c in digit_chars[:2])
+            img_center_y = (img['top'] + img['bottom']) / 2
+
+            # Le cercle encadre le numéro du capitaine : les chiffres sont
+            # à l'intérieur des bornes X de l'image (avec petite tolérance).
+            # On utilise une tolérance serrée en X pour éviter de capter
+            # les chiffres de licence de la colonne adjacente.
+            nearby_digits = [
+                c for c in chars
+                if abs(c['top'] - img_center_y) < 12
+                and c['text'].isdigit()
+                and img['x0'] - 3 < c['x0'] < img['x1'] + 3
+            ]
+
+            if not nearby_digits:
+                continue
+
+            # Grouper par ligne Y (tolérance 3px)
+            rows: dict[int, list] = defaultdict(list)
+            for c in nearby_digits:
+                row_key = round(c['top'] / 3) * 3
+                rows[row_key].append(c)
+
+            # Sélectionner la ligne la plus proche du centre du cercle
+            best_key = min(rows.keys(), key=lambda k: abs(k - img_center_y))
+            best_row = sorted(rows[best_key], key=lambda c: c['x0'])
+
+            num = ''.join(c['text'] for c in best_row[:2])
             if num:
                 if side == 'A' and not cap_a:
                     cap_a = num
@@ -911,6 +1012,55 @@ class MatchSheetParserV5(BaseParser):
 
         return cap_a, cap_b
 
+    def _capitaines_from_chars(
+        self, chars: list, words: list,
+    ) -> tuple[Optional[str], Optional[str]]:
+        """Fallback 3 : détecte les capitaines via des marqueurs 'C' ou '©'
+        dans la zone du roster (caractères spéciaux utilisés dans certains PDFs).
+        """
+        cap_a: Optional[str] = None
+        cap_b: Optional[str] = None
+
+        # Bornes Y du roster
+        n_headers = [w for w in words if w['text'] == 'N°' and w['x0'] > 500]
+        roster_y_start = min(w['top'] for w in n_headers) if n_headers else 270
+        lib_headers = [
+            w for w in words
+            if w['text'].upper() == 'LIBEROS' and w['x0'] > 500
+        ]
+        roster_y_end = min(w['top'] for w in lib_headers) if lib_headers else 400
+
+        # Chercher les caractères marqueurs de capitaine dans la zone roster
+        # Marqueurs possibles : 'C', '©', 'Ⓒ', '✪', '★'
+        captain_markers = {'C', '©', 'Ⓒ', '✪', '★'}
+        marker_chars = [
+            c for c in chars
+            if c['text'] in captain_markers
+            and c['x0'] > 550
+            and roster_y_start - 5 < c['top'] < roster_y_end + 5
+        ]
+
+        x_split = 680
+        for mc in marker_chars:
+            side = 'A' if mc['x0'] < x_split else 'B'
+            # Chercher les chiffres proches du marqueur (même ligne)
+            digit_chars = sorted(
+                [c for c in chars
+                 if abs(c['top'] - mc['top']) < 6
+                 and c['text'].isdigit()
+                 and mc['x0'] - 20 < c['x0'] < mc['x0'] + 20
+                 and c is not mc],
+                key=lambda c: c['x0'],
+            )
+            num = ''.join(c['text'] for c in digit_chars[:2])
+            if num:
+                if side == 'A' and not cap_a:
+                    cap_a = num
+                elif side == 'B' and not cap_b:
+                    cap_b = num
+
+        return cap_a, cap_b
+
     @staticmethod
     def _mark_capitaine(joueurs: list[Joueur], cap_num: Optional[str]) -> None:
         if not cap_num:
@@ -925,14 +1075,37 @@ class MatchSheetParserV5(BaseParser):
     # =====================================================================
 
     def _parse_all_sets(self, tidx: dict) -> list[dict]:
-        """Parse tous les sets depuis les tables main et secondary."""
+        """Parse tous les sets depuis les tables main et secondary.
+
+        Architecture FFVB :
+            - Table main  : Sets 1, 3, 5  (positions ~0, ~10, ~20)
+            - Table secondary : Sets 2, 4  (positions ~0, ~10)
+
+        Certains vieux PDFs (pré-2024) ont un bug d'extraction où le chiffre
+        '5' est lu comme '1' par pdfplumber.  On corrige via la position
+        ordinale dans chaque table.
+        """
+        EXPECTED_MAIN = {0: 1, 1: 3, 2: 5}       # ordinal → set number
+        EXPECTED_SEC  = {0: 2, 1: 4}
+
         sets = []
-        for key in ('main', 'secondary'):
+        for key, expected_map in [('main', EXPECTED_MAIN), ('secondary', EXPECTED_SEC)]:
             tbl = tidx.get(key)
             if not tbl:
                 continue
             sections = self._find_set_sections(tbl)
-            for set_num, start_row in sections:
+            # Sort by start row to get ordinal position
+            sections.sort(key=lambda x: x[1])
+            for ordinal, (raw_num, start_row) in enumerate(sections):
+                # Use expected number from position if available, otherwise
+                # trust the raw extraction.
+                set_num = expected_map.get(ordinal, raw_num)
+                if raw_num != set_num:
+                    logger.debug(
+                        "SET number corrected: raw=%d → expected=%d "
+                        "(table=%s, ordinal=%d, row=%d)",
+                        raw_num, set_num, key, ordinal, start_row,
+                    )
                 sd = self._parse_set_section(tbl, start_row, set_num)
                 if sd:
                     sets.append(sd)
@@ -1384,10 +1557,10 @@ class MatchSheetParserV5(BaseParser):
 
         # Détecter si la table RESULTATS a les équipes inversées par rapport
         # à l'assignation equipe_a / equipe_b du parser.
-        # On compare les sets gagnés dans la table RESULTATS avec le vainqueur.
-        # Deux cas :
-        #   - vainqueur = equipe_b mais "Equipe A" a plus de G → swap
-        #   - vainqueur = equipe_a mais "Equipe B" a plus de G → swap
+        # C'est un phénomène courant dans les PDFs FFVB (~40% des fichiers) :
+        # "Equipe A" dans la table RESULTATS ne correspond pas toujours à
+        # l'equipe_a du parser (extraite de la table joueurs).
+        # On compare les sets gagnés (colonne G) avec le vainqueur.
         results_swap = False
         vainqueur = resultat.get("vainqueur", "")
         if vainqueur and resultats:
@@ -1399,16 +1572,25 @@ class MatchSheetParserV5(BaseParser):
                 # B a gagné le match mais "Equipe A" de la table a plus de
                 # victoires → la table est inversée par rapport au parser.
                 results_swap = True
-                warnings.append(
-                    f"Table RESULTATS inversée: vainqueur '{vainqueur}' = equipe_b"
+                logger.debug(
+                    "Colonnes RESULTATS inversées (corrigé automatiquement) : "
+                    "vainqueur '%s' = equipe_b, G table: A=%d B=%d",
+                    vainqueur, total_ga, total_gb,
                 )
             elif a_wins and not b_wins and total_gb > total_ga:
                 # A a gagné le match mais "Equipe B" de la table a plus de
                 # victoires → la table est inversée par rapport au parser.
                 results_swap = True
+                logger.debug(
+                    "Colonnes RESULTATS inversées (corrigé automatiquement) : "
+                    "vainqueur '%s' = equipe_a, G table: A=%d B=%d",
+                    vainqueur, total_ga, total_gb,
+                )
+            elif not a_wins and not b_wins:
+                # Le vainqueur ne correspond à aucune équipe → erreur de matching
                 warnings.append(
-                    f"Table RESULTATS inversée: vainqueur '{vainqueur}' = equipe_a "
-                    f"mais G colonnes inversées"
+                    f"Vainqueur '{vainqueur}' ne correspond ni à "
+                    f"'{nom_a}' ni à '{nom_b}'"
                 )
 
         sets: list[Set] = []
@@ -1542,12 +1724,33 @@ class MatchSheetParserV5(BaseParser):
         return sets, warnings
 
     @staticmethod
+    def _normalize_name(name: str) -> str:
+        """Normalise un nom en supprimant les artefacts d'extraction PDF.
+
+        Certains vieux PDFs insèrent un espace après la 1ère lettre du nom :
+        'M AROMME CANTELEU' → 'MAROMME CANTELEU'
+        'A UBAGNE CARNOUX'  → 'AUBAGNE CARNOUX'
+        """
+        name = name.strip()
+        # Pattern : une seule lettre majuscule suivie d'un espace puis d'un
+        # mot qui commence par une majuscule (artefact d'extraction)
+        name = re.sub(r'^([A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ])\s+(?=[A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ])', r'\1', name)
+        return re.sub(r'\s+', ' ', name).strip()
+
+    @staticmethod
     def _team_matches(truncated: str, full_name: str) -> bool:
-        t = truncated.upper().strip()
-        f = full_name.upper().strip()
+        """Compare un nom d'équipe (potentiellement tronqué / artefacté) avec le nom complet."""
+        t = MatchSheetParserV5._normalize_name(truncated).upper()
+        f = MatchSheetParserV5._normalize_name(full_name).upper()
         if not t or not f:
             return False
-        return f.startswith(t) or t.startswith(f[:15]) or t[:10] in f
+        # Comparaison directe et par préfixe
+        if f.startswith(t) or t.startswith(f[:15]) or t[:10] in f:
+            return True
+        # Comparaison sans espaces (gère les artefacts résiduels)
+        t_compact = t.replace(' ', '').replace('-', '').replace('.', '')
+        f_compact = f.replace(' ', '').replace('-', '').replace('.', '')
+        return f_compact.startswith(t_compact[:12]) or t_compact[:12] in f_compact
 
     @staticmethod
     def _parse_time_str(val: Optional[str]) -> Optional[dt_time]:
@@ -1818,36 +2021,131 @@ class MatchSheetParserV5(BaseParser):
     # Validation
     # =====================================================================
 
-    def _validate(self, match: Match) -> list[str]:
+    def _validate(self, match: Match, *, is_modern: bool = True) -> list[str]:
+        """Valide la cohérence des données parsées.
+
+        Args:
+            match: Le match parsé.
+            is_modern: True si la saison est >= 2024-2025 (détails attendus).
+        """
         warnings: list[str] = []
 
+        # ── Informations générales obligatoires ──
+        if not match.code_match or match.code_match == "UNKNOWN":
+            warnings.append("Code match manquant ou non détecté")
+        if not match.date:
+            warnings.append("Date du match manquante")
+        if not match.saison:
+            warnings.append("Saison non déterminée")
+        if not match.competition:
+            warnings.append("Nom de compétition manquant")
+
+        # ── Équipes ──
         for label, eq in [('A', match.equipe_a), ('B', match.equipe_b)]:
-            if not eq or not eq.joueurs:
+            if not eq:
+                warnings.append(f"Équipe {label} non détectée")
+                continue
+            if not eq.nom or eq.nom in ("Équipe A", "Équipe B"):
+                warnings.append(f"Nom d'équipe {label} manquant ou générique")
+            if not eq.joueurs:
                 warnings.append(f"Aucun joueur pour l'équipe {label}")
                 continue
             if not any(j.est_capitaine for j in eq.joueurs):
                 warnings.append(f"Aucun capitaine détecté pour l'équipe {label} ({eq.nom})")
-            if not any(j.est_libero for j in eq.joueurs):
-                warnings.append(f"Aucun libéro détecté pour l'équipe {label} ({eq.nom})")
+            # Note : l'absence de libéro est normale (pas obligatoire).
             for j in eq.joueurs:
                 if j.est_capitaine and j.est_libero:
                     warnings.append(
                         f"Joueur #{j.numero} ({j.nom}) de l'équipe {label} "
                         f"est capitaine ET libéro"
                     )
-
-        # Vérifier la cohérence des scores
-        if match.score_sets and match.sets:
-            try:
-                sa, sb = match.score_sets.split('/')
-                expected_sets = int(sa) + int(sb)
-                if len(match.sets) != expected_sets:
+                if not j.licence:
                     warnings.append(
-                        f"Score final {match.score_sets} implique {expected_sets} sets, "
-                        f"mais {len(match.sets)} sets parsés"
+                        f"Licence manquante pour joueur #{j.numero} "
+                        f"({j.nom}) de l'équipe {label}"
                     )
-            except Exception:
-                pass
+
+        # ── Arbitres ──
+        if not match.arbitres:
+            warnings.append("Aucun arbitre détecté")
+
+        # ── Cohérence des scores (seulement si le match est joué) ──
+        if match.match_joue:
+            # Vainqueur vs équipes
+            if match.vainqueur_nom and match.equipe_a and match.equipe_b:
+                va = self._team_matches(match.vainqueur_nom, match.equipe_a.nom)
+                vb = self._team_matches(match.vainqueur_nom, match.equipe_b.nom)
+                if not va and not vb:
+                    warnings.append(
+                        f"Vainqueur '{match.vainqueur_nom}' ne correspond ni à "
+                        f"'{match.equipe_a.nom}' ni à '{match.equipe_b.nom}'"
+                    )
+
+            if match.has_details and match.score_final and match.sets:
+                try:
+                    sa, sb = match.score_final.split('/')
+                    expected_sets = int(sa) + int(sb)
+                    if len(match.sets) != expected_sets:
+                        warnings.append(
+                            f"Score final {match.score_final} implique {expected_sets} sets, "
+                            f"mais {len(match.sets)} sets parsés"
+                        )
+                except Exception:
+                    pass
+
+                # Déterminer le format du match : best-of-3 ou best-of-5
+                # En best-of-3 (2 sets gagnants), le set décisif (3) va en 15 pts.
+                # En best-of-5 (3 sets gagnants), le set décisif (5) va en 15 pts.
+                winning_sets = max(match.sets_a, match.sets_b)
+                if winning_sets == 2:
+                    deciding_set = 3  # best-of-3
+                else:
+                    deciding_set = 5  # best-of-5 (par défaut)
+
+                # Vérifier scores individuels des sets
+                for s in match.sets:
+                    if s.score_a is None or s.score_b is None:
+                        warnings.append(
+                            f"Set {s.numero}: score manquant "
+                            f"({s.score_a}-{s.score_b})"
+                        )
+                    elif s.score_a == 0 and s.score_b == 0:
+                        warnings.append(
+                            f"Set {s.numero}: score 0-0 (probablement non renseigné)"
+                        )
+                    elif s.numero == deciding_set:
+                        # Set décisif (set 3 ou set 5) : doit aller à 15
+                        if max(s.score_a, s.score_b) < 15:
+                            warnings.append(
+                                f"Set {s.numero}: score {s.score_a}-{s.score_b} "
+                                f"n'atteint pas 15 points"
+                            )
+                    else:
+                        # Sets normaux : doivent aller à 25
+                        if max(s.score_a, s.score_b) < 25:
+                            warnings.append(
+                                f"Set {s.numero}: score {s.score_a}-{s.score_b} "
+                                f"n'atteint pas 25 points"
+                            )
+
+                # Score final vs sets effectivement gagnés
+                if match.sets_a + match.sets_b > 0:
+                    computed_a = sum(
+                        1 for s in match.sets
+                        if s.score_a is not None and s.score_b is not None
+                        and s.score_a > s.score_b
+                    )
+                    computed_b = sum(
+                        1 for s in match.sets
+                        if s.score_a is not None and s.score_b is not None
+                        and s.score_b > s.score_a
+                    )
+                    if computed_a + computed_b > 0:
+                        if computed_a != match.sets_a or computed_b != match.sets_b:
+                            warnings.append(
+                                f"Incohérence score: final {match.sets_a}/{match.sets_b} "
+                                f"vs calculé {computed_a}/{computed_b} depuis scores de sets"
+                            )
 
         return warnings
 
@@ -1928,6 +2226,22 @@ class MatchSheetParserV5(BaseParser):
         code_match = header.get("code_match") or "UNKNOWN"
         competition_code = self._extract_competition_code(code_match)
 
+        # Déterminer les flags de statut du match
+        has_details = any(
+            s.score_a is not None and s.score_b is not None
+            and (s.score_a > 0 or s.score_b > 0)
+            for s in sets
+        )
+
+        # score_source : "pdf" si on a des scores détaillés, sinon None
+        # (sera complété plus tard par "online" via score_completion)
+        score_source: Optional[str] = None
+        if has_details:
+            score_source = "pdf"
+        elif match_joue and (sets_a + sets_b > 0):
+            # Vainqueur + score global extrait depuis la feuille
+            score_source = "pdf"
+
         return Match(
             code_match=code_match,
             ligue=header.get("ligue"),
@@ -1949,6 +2263,9 @@ class MatchSheetParserV5(BaseParser):
             sets_a=sets_a,
             sets_b=sets_b,
             duree_totale=resultat.get("duree_totale"),
+            match_joue=match_joue,
+            has_details=has_details,
+            score_source=score_source,
             arbitres=arbitres,
             sanctions=sanctions,
             remarques=full_remarks,
