@@ -32,6 +32,7 @@ Architecture du PDF FFVB (page unique) :
 import logging
 import time
 import re
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Optional
 from datetime import datetime, date as dt_date, time as dt_time
@@ -73,6 +74,22 @@ ROLE_ARBITRE_MAP = {
 
 ROWS_PER_SET = 10
 
+# Formats de score connus :
+# - 25 pts (standard) : sets normaux à 25 pts, tie-break à 15
+# - 21 pts (brassage)  : sets normaux à 21 pts, tie-break à 15
+# - 15 pts (mini)      : sets à 15 pts
+# On détecte le format automatiquement depuis la compétition et les scores.
+
+# Mots-clés dans le nom de compétition indiquant un format réduit
+COMPETITION_FORMAT_21_KEYWORDS = {
+    'BRASSAGE', 'BRASSAGES', 'COMPETFUN', 'COMPET FUN',
+    'COMPETMOUV', 'COMPET MOUV', 'LOISIR', 'LOISIRS',
+}
+
+COMPETITION_FORMAT_15_KEYWORDS = {
+    '4X4', '3X3', '2X2',
+}
+
 
 # =============================================================================
 # Parser V5
@@ -94,7 +111,7 @@ class MatchSheetParserV5(BaseParser):
 
     @property
     def version(self) -> str:
-        return "5.0.0"
+        return "5.2.0"
 
     # =====================================================================
     # Point d'entrée
@@ -242,6 +259,17 @@ class MatchSheetParserV5(BaseParser):
                 remarques = self._parse_remarques(tidx)
                 demande_nf = self._parse_demande_non_fondee(tidx)
 
+                # ── Fallback heure : utiliser le début du 1er set ──
+                if not header.get("heure_obj") and sets:
+                    first_set = next(
+                        (s for s in sets if s.debut is not None), None,
+                    )
+                    if first_set and first_set.debut:
+                        header["heure_obj"] = first_set.debut
+                        header["heure"] = first_set.debut.strftime(
+                            "%Hh%M"
+                        )
+
                 # ── Phase 6 : Construction du Match ──
 
                 match = self._build_match(
@@ -268,10 +296,11 @@ class MatchSheetParserV5(BaseParser):
                 # ── Warnings contextuels ──
                 if not match_joue:
                     result.add_warning("Match non joué ou annulé (aucun vainqueur)")
-                elif match_joue and not has_detailed_score and is_modern:
+                elif match_joue and not has_detailed_score and not has_set_scores and is_modern:
                     # Saison >= 2024 : on s'attend à des scores détaillés
+                    # Ne pas alerter si la table RESULTATS a des scores de sets
                     result.add_warning(
-                        "Match joué mais scores de sets absents "
+                        "[données] Match joué mais scores de sets absents "
                         "(attendus pour saison >= 2024-2025)"
                     )
 
@@ -368,9 +397,16 @@ class MatchSheetParserV5(BaseParser):
             if 'Salle:' in line:
                 header.update(self._parse_salle_line(line))
 
-            # Organisation / Ligue
+            # Organisation / Ligue / Comité
             if 'Compétitions' in line:
                 header["organisation"] = "Compétitions Nationales"
+            elif 'Comité' in line:
+                # Ex: "Comité du Rhône Métropole de Lyon ..."
+                cm = re.match(r'(Comité[^A-Z]*?)\s+[A-Z]', line)
+                if cm:
+                    header["organisation"] = cm.group(1).strip()
+                else:
+                    header["organisation"] = line.split('  ')[0].strip()
             if m := re.search(r'Ligue\s+(\w[\w\s-]*?)(?:\s+Match:|\s*$)', line):
                 ligue_name = m.group(1).strip()
                 if len(ligue_name) > 1:
@@ -389,6 +425,9 @@ class MatchSheetParserV5(BaseParser):
     def _parse_ville_date_line(self, line: str) -> dict:
         """Parse une ligne de type :
         'Ville: SAINT MARTIN D'HÈRES Samedi 20 Septembre 2025 à 20h30'
+
+        Gère aussi le cas où la ville est absente :
+        'Ville: Samedi 27 Septembre 2025 à 15h30'
         """
         info: dict = {}
 
@@ -397,7 +436,10 @@ class MatchSheetParserV5(BaseParser):
             r'Ville:\s*(.+?)\s+(?:' + '|'.join(JOURS_SEMAINE) + r')\s',
             line,
         ):
-            info["lieu"] = m.group(1).strip()
+            lieu = m.group(1).strip()
+            # Vérifier que le lieu n'est pas vide (cas: "Ville: Samedi...")
+            if lieu and lieu not in JOURS_SEMAINE:
+                info["lieu"] = lieu
 
         # Date
         if dm := re.search(
@@ -489,12 +531,35 @@ class MatchSheetParserV5(BaseParser):
         # Nettoyage des noms d'équipe
         for key in ("equipe_a", "equipe_b"):
             if eq[key]:
-                # Supprimer un caractère isolé en début de nom (artefact
-                # de cellule adjacente, ex: "L ISSY..." → "ISSY...")
-                eq[key] = re.sub(
-                    r'^[A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ]\s+(?=[A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ])',
-                    '', eq[key],
+                # Supprimer un caractère isolé en début de nom UNIQUEMENT s'il
+                # s'agit d'un artefact d'extraction (ex: "L ISSY...").
+                # On ne supprime PAS si la lettre fait partie d'un acronyme
+                # (ex: "C S M CLAMART" → garder tel quel).
+                # Heuristique : si le 2e mot est aussi une seule lettre,
+                # c'est un acronyme, pas un artefact.
+                first_match = re.match(
+                    r'^([A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ])\s+([A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ])',
+                    eq[key],
                 )
+                if first_match:
+                    # 2e caractère isolé → acronyme (ex: "C S M CLAMART")
+                    # On joint toutes les lettres isolées en début de nom
+                    m = re.match(
+                        r'^((?:[A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ]\s+)+)([A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ]{2,})',
+                        eq[key],
+                    )
+                    if m:
+                        # Joindre les lettres isolées : "C S M " → "CSM"
+                        prefix = m.group(1).replace(' ', '')
+                        eq[key] = prefix + ' ' + eq[key][m.end(1):].strip()
+                else:
+                    # Seule la 1ère lettre est isolée : artefact → supprimer
+                    single = re.match(
+                        r'^[A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ]\s+(?=[A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ]{2,})',
+                        eq[key],
+                    )
+                    if single:
+                        eq[key] = eq[key][single.end():]
                 eq[key] = self._clean_team_name(eq[key])
 
         # Méthode 3 fallback : mots positionnels dans la bande 55-80px
@@ -567,20 +632,34 @@ class MatchSheetParserV5(BaseParser):
 
         # Chercher dans le texte
         full_text = '\n'.join(lines)
+
+        # Regex robuste : supporte les noms mixtes (majuscules + minuscules)
+        # et extrait le score même sur une ligne polluée (Capitaines, Entraineur)
         if vm := re.search(
             r'Vainqueur:\s*'
-            r'([A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ0-9][A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ0-9\s\-\'\.\/\(\)]+?)'
+            r'([A-Za-zÀ-ÿŒœÆæ0-9][A-Za-zÀ-ÿŒœÆæ0-9\s\-\'\.\/\(\)]+?)'
             r'\s+(\d)/(\d)',
             full_text,
         ):
-            result["vainqueur"] = self._normalize_name(vm.group(1).strip())
+            raw_name = vm.group(1).strip()
+            # Nettoyer les éventuels mots parasites en fin de nom
+            raw_name = re.sub(
+                r'\s+(?:Entraineur|Capitaine|SIGNATURES?)\b.*$',
+                '', raw_name, flags=re.IGNORECASE,
+            ).strip()
+            result["vainqueur"] = self._normalize_name(raw_name)
             result["score_final"] = f"{vm.group(2)}/{vm.group(3)}"
         else:
             if v2 := re.search(
-                r'Vainqueur:\s*([A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ0-9][^\n]*)',
+                r'Vainqueur:\s*([A-Za-zÀ-ÿŒœÆæ0-9][^\n]*)',
                 full_text,
             ):
                 raw = v2.group(1).strip()
+                # Supprimer les mots parasites en fin de ligne
+                raw = re.sub(
+                    r'\s+(?:Entraineur|Capitaine|SIGNATURES?)\b.*$',
+                    '', raw, flags=re.IGNORECASE,
+                ).strip()
                 if sm := re.search(r'(\d)/(\d)\s*$', raw):
                     result["score_final"] = f"{sm.group(1)}/{sm.group(2)}"
                     result["vainqueur"] = self._normalize_name(raw[:sm.start()].strip())
@@ -637,6 +716,54 @@ class MatchSheetParserV5(BaseParser):
             return False
 
     @staticmethod
+    def _detect_set_target_score(
+        competition: Optional[str],
+        sets: list,
+    ) -> int:
+        """Détecte le score cible par set (25, 21 ou 15) en se basant sur :
+
+        1. Le nom de la compétition (mots-clés BRASSAGE, LOISIR, 4X4, etc.)
+        2. Les scores réels des sets (si la majorité des max-scores sont
+           proches de 21 → format 21 pts, sinon 25 pts standard).
+
+        Le tie-break est toujours à 15 pts, quel que soit le format.
+
+        Returns:
+            25, 21 ou 15 selon le format détecté.
+        """
+        # 1. Détection par mots-clés dans le nom de compétition
+        if competition:
+            comp_upper = competition.upper()
+            for kw in COMPETITION_FORMAT_15_KEYWORDS:
+                if kw in comp_upper:
+                    return 15
+            for kw in COMPETITION_FORMAT_21_KEYWORDS:
+                if kw in comp_upper:
+                    return 21
+
+        # 2. Détection par les scores réels des sets
+        # On regarde le maximum de chaque set : si la plupart sont <= 22
+        # (avec tolérance pour les 21-19 → gagnant à 21 + extensions),
+        # on en déduit un format 21 pts.
+        max_scores = []
+        for s in sets:
+            sa = getattr(s, 'score_a', None) or (s.get('score_a') if isinstance(s, dict) else None)
+            sb = getattr(s, 'score_b', None) or (s.get('score_b') if isinstance(s, dict) else None)
+            if sa is not None and sb is not None and (sa > 0 or sb > 0):
+                max_scores.append(max(sa, sb))
+
+        if max_scores:
+            # Si aucun set ne dépasse 16 → probable format 15 pts
+            if all(ms <= 17 for ms in max_scores):
+                return 15
+            # Si aucun set ne dépasse 23 → probable format 21 pts
+            # (21+2 extension max commune)
+            if all(ms <= 23 for ms in max_scores):
+                return 21
+
+        return 25
+
+    @staticmethod
     def _saison_year(saison: Optional[str]) -> Optional[int]:
         """Extrait l'année de début d'une saison ('2024-2025' → 2024)."""
         if not saison:
@@ -667,10 +794,23 @@ class MatchSheetParserV5(BaseParser):
             return joueurs_a, joueurs_b
 
         # Pattern : "NN NOM PRENOM LICENCE" where NN=1-2 digits, LICENCE=6-7 digits
+        # Inclut les minuscules pour gérer les accents OCR (ex: STéPHANE, CHLOé)
+        # Inclut . pour les noms composés (ex: M.NARAYANIN)
         pat = re.compile(
             r'^(\d{1,2})\s+'
-            r'([A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ\-\' ]+?)\s+'
+            r'([A-Za-zÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆàâäéèêëïîôùûüçñœæ\.\-\' ]+?)\s+'
             r'(\d{6,7})$'
+        )
+        # Pattern : nom et licence collés (pas d'espace avant le numéro)
+        pat_glued = re.compile(
+            r'^(\d{1,2})\s+'
+            r'([A-Za-zÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆàâäéèêëïîôùûüçñœæ\.\-\' ]+?)'
+            r'(\d{6,7})$'
+        )
+        # Pattern de fallback : joueur sans licence (cellule tronquée)
+        pat_no_licence = re.compile(
+            r'^(\d{1,2})\s+'
+            r'([A-Za-zÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆàâäéèêëïîôùûüçñœæ\.\-\' ]{3,})$'
         )
 
         for row in tbl:
@@ -696,6 +836,9 @@ class MatchSheetParserV5(BaseParser):
                     if not line:
                         continue
                     m = pat.match(line)
+                    if not m:
+                        # Essayer le pattern «collé» (nom+licence sans espace)
+                        m = pat_glued.match(line)
                     if m:
                         numero = m.group(1)
                         nom_prenom = m.group(2).strip()
@@ -713,6 +856,23 @@ class MatchSheetParserV5(BaseParser):
                             joueurs_a.append(joueur)
                         else:
                             joueurs_b.append(joueur)
+                    else:
+                        # Fallback : joueur tronqué (cellule coupée, pas de licence)
+                        m2 = pat_no_licence.match(line)
+                        if m2:
+                            numero = m2.group(1)
+                            nom_prenom = m2.group(2).strip()
+                            nom, prenom = self._split_nom_prenom(nom_prenom)
+                            joueur = Joueur(
+                                numero=numero,
+                                nom=nom,
+                                prenom=prenom,
+                                licence=None,
+                            )
+                            if cell_idx < mid:
+                                joueurs_a.append(joueur)
+                            else:
+                                joueurs_b.append(joueur)
 
         return joueurs_a, joueurs_b
 
@@ -1553,7 +1713,19 @@ class MatchSheetParserV5(BaseParser):
             except Exception:
                 pass
         if not nb:
-            nb = max(len(detailed), len(resultats), 0)
+            # Calculer nb à partir des sets qui ont des scores réels
+            # plutôt que de compter tous les sets (y compris le set 5 vide)
+            scored_res = sum(
+                1 for r in resultats
+                if (r.get('points_a') or 0) > 0 or (r.get('points_b') or 0) > 0
+            )
+            scored_det = sum(
+                1 for d in detailed
+                if d.get('heure_debut') or d.get('formation_left')
+            )
+            nb = scored_res or scored_det or max(len(detailed), len(resultats), 0)
+            # Sanity check : max 5 sets
+            nb = min(nb, 5)
 
         # Détecter si la table RESULTATS a les équipes inversées par rapport
         # à l'assignation equipe_a / equipe_b du parser.
@@ -1564,22 +1736,22 @@ class MatchSheetParserV5(BaseParser):
         results_swap = False
         vainqueur = resultat.get("vainqueur", "")
         if vainqueur and resultats:
-            b_wins = self._team_matches(vainqueur, nom_b)
-            a_wins = self._team_matches(vainqueur, nom_a)
+            # Utiliser le matching flou pour identifier quelle équipe est le
+            # vainqueur, même si le nom est tronqué ou légèrement différent.
+            best = self._best_team_match(vainqueur, nom_a, nom_b)
+            a_wins = best == 'A'
+            b_wins = best == 'B'
+
             total_ga = sum(r.get('sets_gagnes_a', 0) or 0 for r in resultats)
             total_gb = sum(r.get('sets_gagnes_b', 0) or 0 for r in resultats)
-            if b_wins and not a_wins and total_ga > total_gb:
-                # B a gagné le match mais "Equipe A" de la table a plus de
-                # victoires → la table est inversée par rapport au parser.
+            if b_wins and total_ga > total_gb:
                 results_swap = True
                 logger.debug(
                     "Colonnes RESULTATS inversées (corrigé automatiquement) : "
                     "vainqueur '%s' = equipe_b, G table: A=%d B=%d",
                     vainqueur, total_ga, total_gb,
                 )
-            elif a_wins and not b_wins and total_gb > total_ga:
-                # A a gagné le match mais "Equipe B" de la table a plus de
-                # victoires → la table est inversée par rapport au parser.
+            elif a_wins and total_gb > total_ga:
                 results_swap = True
                 logger.debug(
                     "Colonnes RESULTATS inversées (corrigé automatiquement) : "
@@ -1587,11 +1759,14 @@ class MatchSheetParserV5(BaseParser):
                     vainqueur, total_ga, total_gb,
                 )
             elif not a_wins and not b_wins:
-                # Le vainqueur ne correspond à aucune équipe → erreur de matching
-                warnings.append(
-                    f"Vainqueur '{vainqueur}' ne correspond ni à "
-                    f"'{nom_a}' ni à '{nom_b}'"
-                )
+                # Aucun matching → tenter _team_matches avec un seuil plus bas
+                # avant de signaler un warning
+                if not self._team_matches(vainqueur, nom_a, threshold=0.40) and \
+                   not self._team_matches(vainqueur, nom_b, threshold=0.40):
+                    warnings.append(
+                        f"Vainqueur '{vainqueur}' ne correspond ni à "
+                        f"'{nom_a}' ni à '{nom_b}'"
+                    )
 
         sets: list[Set] = []
         for i in range(nb):
@@ -1730,27 +1905,103 @@ class MatchSheetParserV5(BaseParser):
         Certains vieux PDFs insèrent un espace après la 1ère lettre du nom :
         'M AROMME CANTELEU' → 'MAROMME CANTELEU'
         'A UBAGNE CARNOUX'  → 'AUBAGNE CARNOUX'
+
+        Ne joint PAS si le 2e token est aussi une seule lettre (acronyme):
+        'C S M CLAMART' → gardé tel quel (pas un artefact).
         """
         name = name.strip()
         # Pattern : une seule lettre majuscule suivie d'un espace puis d'un
-        # mot qui commence par une majuscule (artefact d'extraction)
-        name = re.sub(r'^([A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ])\s+(?=[A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ])', r'\1', name)
+        # mot de 2+ caractères (artefact d'extraction, pas un acronyme)
+        name = re.sub(
+            r'^([A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ])\s+(?=[A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ]{2,})',
+            r'\1', name,
+        )
         return re.sub(r'\s+', ' ', name).strip()
 
     @staticmethod
-    def _team_matches(truncated: str, full_name: str) -> bool:
-        """Compare un nom d'équipe (potentiellement tronqué / artefacté) avec le nom complet."""
-        t = MatchSheetParserV5._normalize_name(truncated).upper()
-        f = MatchSheetParserV5._normalize_name(full_name).upper()
-        if not t or not f:
+    def _team_matches(name_a: str, name_b: str, threshold: float = 0.55) -> bool:
+        """Compare deux noms d'équipe avec matching robuste (préfixe + fuzzy).
+
+        Gère les troncatures, artefacts d'extraction PDF, et variations
+        mineures de nom (accents, espaces, tirets).
+
+        Args:
+            name_a: Premier nom (potentiellement tronqué/artefacté).
+            name_b: Second nom (souvent le nom complet du roster).
+            threshold: Seuil de similarité pour le fuzzy matching (0-1).
+        """
+        a = MatchSheetParserV5._normalize_name(name_a).upper()
+        b = MatchSheetParserV5._normalize_name(name_b).upper()
+        if not a or not b:
             return False
-        # Comparaison directe et par préfixe
-        if f.startswith(t) or t.startswith(f[:15]) or t[:10] in f:
+
+        # 1. Comparaison directe / par préfixe
+        if a == b or b.startswith(a) or a.startswith(b[:15]) or a[:10] in b:
             return True
-        # Comparaison sans espaces (gère les artefacts résiduels)
-        t_compact = t.replace(' ', '').replace('-', '').replace('.', '')
-        f_compact = f.replace(' ', '').replace('-', '').replace('.', '')
-        return f_compact.startswith(t_compact[:12]) or t_compact[:12] in f_compact
+
+        # 2. Comparaison sans espaces/tirets/points (artefacts résiduels)
+        strip_chars = str.maketrans('', '', ' -.\'/()') 
+        a_c = a.translate(strip_chars)
+        b_c = b.translate(strip_chars)
+        if a_c == b_c or b_c.startswith(a_c[:12]) or a_c[:12] in b_c:
+            return True
+
+        # 3. Fuzzy matching (SequenceMatcher) pour les cas difficiles
+        ratio = SequenceMatcher(None, a_c, b_c).ratio()
+        if ratio >= threshold:
+            return True
+
+        # 4. Matching par mots-clés significatifs (>= 3 chars)
+        words_a = {w for w in a.split() if len(w) >= 3}
+        words_b = {w for w in b.split() if len(w) >= 3}
+        if words_a and words_b:
+            common = words_a & words_b
+            if len(common) >= max(1, min(len(words_a), len(words_b)) // 2):
+                return True
+
+        return False
+
+    @staticmethod
+    def _best_team_match(
+        vainqueur: str, nom_a: str, nom_b: str,
+    ) -> Optional[str]:
+        """Détermine quelle équipe correspond le mieux au vainqueur.
+
+        Returns:
+            'A', 'B', ou None si aucune correspondance satisfaisante.
+        """
+        if not vainqueur:
+            return None
+
+        v = MatchSheetParserV5._normalize_name(vainqueur).upper()
+        a = MatchSheetParserV5._normalize_name(nom_a).upper()
+        b = MatchSheetParserV5._normalize_name(nom_b).upper()
+
+        strip_chars = str.maketrans('', '', ' -.\'/()') 
+        v_c = v.translate(strip_chars)
+        a_c = a.translate(strip_chars)
+        b_c = b.translate(strip_chars)
+
+        ratio_a = SequenceMatcher(None, v_c, a_c).ratio()
+        ratio_b = SequenceMatcher(None, v_c, b_c).ratio()
+
+        # On exige un minimum de similarité ET un écart suffisant
+        min_threshold = 0.35
+        if max(ratio_a, ratio_b) < min_threshold:
+            return None
+
+        if ratio_a > ratio_b + 0.05:
+            return 'A'
+        elif ratio_b > ratio_a + 0.05:
+            return 'B'
+
+        # En cas d'égalité, essayer le matching par préfixe
+        if v_c.startswith(a_c[:8]) or a_c.startswith(v_c[:8]):
+            return 'A'
+        if v_c.startswith(b_c[:8]) or b_c.startswith(v_c[:8]):
+            return 'B'
+
+        return None
 
     @staticmethod
     def _parse_time_str(val: Optional[str]) -> Optional[dt_time]:
@@ -2024,6 +2275,10 @@ class MatchSheetParserV5(BaseParser):
     def _validate(self, match: Match, *, is_modern: bool = True) -> list[str]:
         """Valide la cohérence des données parsées.
 
+        Distingue :
+        - Les problèmes de **parsing** (erreur d'extraction)
+        - Les problèmes de **données** (information absente du PDF source)
+
         Args:
             match: Le match parsé.
             is_modern: True si la saison est >= 2024-2025 (détails attendus).
@@ -2040,6 +2295,19 @@ class MatchSheetParserV5(BaseParser):
         if not match.competition:
             warnings.append("Nom de compétition manquant")
 
+        # Heure, lieu, salle (attendus surtout pour les saisons modernes)
+        if is_modern:
+            if not match.heure:
+                warnings.append("[données] Heure du match manquante")
+            if not match.lieu:
+                warnings.append("[données] Lieu (ville) du match manquant")
+            if not match.salle:
+                warnings.append("[données] Salle du match manquante")
+            if not match.genre:
+                warnings.append("[données] Genre de la compétition non détecté")
+            if not match.categorie:
+                warnings.append("[données] Catégorie d'âge non détectée")
+
         # ── Équipes ──
         for label, eq in [('A', match.equipe_a), ('B', match.equipe_b)]:
             if not eq:
@@ -2051,31 +2319,31 @@ class MatchSheetParserV5(BaseParser):
                 warnings.append(f"Aucun joueur pour l'équipe {label}")
                 continue
             if not any(j.est_capitaine for j in eq.joueurs):
-                warnings.append(f"Aucun capitaine détecté pour l'équipe {label} ({eq.nom})")
-            # Note : l'absence de libéro est normale (pas obligatoire).
+                warnings.append(
+                    f"[données] Aucun capitaine détecté pour l'équipe "
+                    f"{label} ({eq.nom})"
+                )
             for j in eq.joueurs:
-                if j.est_capitaine and j.est_libero:
-                    warnings.append(
-                        f"Joueur #{j.numero} ({j.nom}) de l'équipe {label} "
-                        f"est capitaine ET libéro"
-                    )
                 if not j.licence:
                     warnings.append(
-                        f"Licence manquante pour joueur #{j.numero} "
+                        f"[données] Licence manquante pour joueur #{j.numero} "
                         f"({j.nom}) de l'équipe {label}"
                     )
 
         # ── Arbitres ──
         if not match.arbitres:
-            warnings.append("Aucun arbitre détecté")
+            warnings.append("[données] Aucun arbitre détecté")
 
         # ── Cohérence des scores (seulement si le match est joué) ──
         if match.match_joue:
-            # Vainqueur vs équipes
+            # Vainqueur vs équipes (matching flou)
             if match.vainqueur_nom and match.equipe_a and match.equipe_b:
-                va = self._team_matches(match.vainqueur_nom, match.equipe_a.nom)
-                vb = self._team_matches(match.vainqueur_nom, match.equipe_b.nom)
-                if not va and not vb:
+                best = self._best_team_match(
+                    match.vainqueur_nom,
+                    match.equipe_a.nom,
+                    match.equipe_b.nom,
+                )
+                if best is None:
                     warnings.append(
                         f"Vainqueur '{match.vainqueur_nom}' ne correspond ni à "
                         f"'{match.equipe_a.nom}' ni à '{match.equipe_b.nom}'"
@@ -2087,20 +2355,32 @@ class MatchSheetParserV5(BaseParser):
                     expected_sets = int(sa) + int(sb)
                     if len(match.sets) != expected_sets:
                         warnings.append(
-                            f"Score final {match.score_final} implique {expected_sets} sets, "
-                            f"mais {len(match.sets)} sets parsés"
+                            f"Score final {match.score_final} implique "
+                            f"{expected_sets} sets, mais "
+                            f"{len(match.sets)} sets parsés"
                         )
                 except Exception:
                     pass
 
+                # Déterminer le format de score du match (25, 21 ou 15 pts)
+                target_score = self._detect_set_target_score(
+                    match.competition, match.sets,
+                )
+
                 # Déterminer le format du match : best-of-3 ou best-of-5
-                # En best-of-3 (2 sets gagnants), le set décisif (3) va en 15 pts.
-                # En best-of-5 (3 sets gagnants), le set décisif (5) va en 15 pts.
                 winning_sets = max(match.sets_a, match.sets_b)
-                if winning_sets == 2:
+                if winning_sets <= 1:
+                    deciding_set = 1  # best-of-1
+                elif winning_sets == 2:
                     deciding_set = 3  # best-of-3
                 else:
                     deciding_set = 5  # best-of-5 (par défaut)
+
+                # Score cible du tie-break : toujours 15 (sauf si le format
+                # de base est déjà 15 → pas de tie-break réduit)
+                tiebreak_target = 15
+                if target_score <= 15:
+                    tiebreak_target = target_score
 
                 # Vérifier scores individuels des sets
                 for s in match.sets:
@@ -2111,21 +2391,44 @@ class MatchSheetParserV5(BaseParser):
                         )
                     elif s.score_a == 0 and s.score_b == 0:
                         warnings.append(
-                            f"Set {s.numero}: score 0-0 (probablement non renseigné)"
+                            f"Set {s.numero}: score 0-0 "
+                            f"(probablement non renseigné)"
                         )
-                    elif s.numero == deciding_set:
-                        # Set décisif (set 3 ou set 5) : doit aller à 15
-                        if max(s.score_a, s.score_b) < 15:
-                            warnings.append(
-                                f"Set {s.numero}: score {s.score_a}-{s.score_b} "
-                                f"n'atteint pas 15 points"
-                            )
                     else:
-                        # Sets normaux : doivent aller à 25
-                        if max(s.score_a, s.score_b) < 25:
+                        high = max(s.score_a, s.score_b)
+                        low = min(s.score_a, s.score_b)
+
+                        if s.numero == deciding_set:
+                            # Set décisif (tie-break)
+                            expected = tiebreak_target
+                        else:
+                            expected = target_score
+
+                        # Vérification : le score gagnant doit atteindre
+                        # la cible OU être au-dessus avec 2 pts d'écart
+                        # (prolongation : 26-24, 22-20, 16-14, etc.)
+                        if high < expected:
                             warnings.append(
-                                f"Set {s.numero}: score {s.score_a}-{s.score_b} "
-                                f"n'atteint pas 25 points"
+                                f"Set {s.numero}: score "
+                                f"{s.score_a}-{s.score_b} n'atteint pas "
+                                f"{expected} points (format détecté: "
+                                f"{target_score}pts)"
+                            )
+                        elif high > expected and (high - low) < 2:
+                            # Prolongation : l'écart doit être >= 2
+                            warnings.append(
+                                f"Set {s.numero}: score "
+                                f"{s.score_a}-{s.score_b} en prolongation "
+                                f"mais écart < 2 points"
+                            )
+                        elif high == expected and (high - low) < 2:
+                            # Exactement au score cible mais pas 2 pts
+                            # d'écart : score de 25-24 est invalide,
+                            # le set devrait continuer
+                            warnings.append(
+                                f"Set {s.numero}: score "
+                                f"{s.score_a}-{s.score_b} — le gagnant "
+                                f"doit avoir 2 points d'avance"
                             )
 
                 # Score final vs sets effectivement gagnés
@@ -2141,13 +2444,70 @@ class MatchSheetParserV5(BaseParser):
                         and s.score_b > s.score_a
                     )
                     if computed_a + computed_b > 0:
-                        if computed_a != match.sets_a or computed_b != match.sets_b:
+                        if computed_a != match.sets_a or \
+                           computed_b != match.sets_b:
                             warnings.append(
-                                f"Incohérence score: final {match.sets_a}/{match.sets_b} "
-                                f"vs calculé {computed_a}/{computed_b} depuis scores de sets"
+                                f"Incohérence score: final "
+                                f"{match.sets_a}/{match.sets_b} vs calculé "
+                                f"{computed_a}/{computed_b} depuis scores "
+                                f"de sets"
                             )
 
+            # ── Formations vs effectif ──
+            if match.has_details and match.sets:
+                self._validate_formations(match, warnings)
+
         return warnings
+
+    def _validate_formations(
+        self, match: Match, warnings: list[str],
+    ) -> None:
+        """Valide que les numéros dans les formations existent dans l'effectif.
+
+        Vérifie aussi que les numéros des changements sont cohérents.
+        La comparaison normalise les zéros de tête ('04' == '4').
+        """
+
+        def _norm(n: str) -> str:
+            """Normalise un numéro de maillot (strip leading zeros)."""
+            return n.lstrip('0') or '0'
+
+        for label, eq in [('A', match.equipe_a), ('B', match.equipe_b)]:
+            if not eq or not eq.joueurs:
+                continue
+
+            # Construire l'ensemble des numéros normalisés
+            roster_nums_raw = {j.numero for j in eq.joueurs if j.numero}
+            roster_norm = {_norm(n) for n in roster_nums_raw}
+
+            for s in match.sets:
+                form = s.formation_a if label == 'A' else s.formation_b
+                if not form:
+                    continue
+
+                # Vérifier chaque position de la formation
+                for pos_idx, num in enumerate(form.as_list()):
+                    if num and _norm(num) not in roster_norm:
+                        warnings.append(
+                            f"Set {s.numero}, équipe {label}: joueur "
+                            f"#{num} en position {pos_idx + 1} absent "
+                            f"de l'effectif "
+                            f"({sorted(roster_nums_raw)})"
+                        )
+
+                # Vérifier les changements
+                team_data = (
+                    s.equipe_a if label == 'A' else s.equipe_b
+                )
+                if team_data:
+                    for ch in team_data.changements:
+                        if ch.joueur_entrant and \
+                           _norm(ch.joueur_entrant) not in roster_norm:
+                            warnings.append(
+                                f"Set {s.numero}, équipe {label}: "
+                                f"remplaçant #{ch.joueur_entrant} "
+                                f"absent de l'effectif"
+                            )
 
     # =====================================================================
     # Construction du Match
