@@ -174,7 +174,7 @@ class MatchSheetParserV5(BaseParser):
                 # ── Phase 2 : Personnes (joueurs, officiels, arbitres) ──
 
                 # 3. Joueurs
-                joueurs_a, joueurs_b = self._parse_joueurs(tidx)
+                joueurs_a, joueurs_b, duplication_detected = self._parse_joueurs(tidx)
                 fields_count += len(joueurs_a) + len(joueurs_b)
 
                 # 4. Libéros
@@ -270,7 +270,34 @@ class MatchSheetParserV5(BaseParser):
                             "%Hh%M"
                         )
 
-                # ── Phase 6 : Construction du Match ──
+                # ── Phase 6 : Récupération joueurs manquants (feuille dupliquée) ──
+
+                if duplication_detected and sets:
+                    recovered_a, recovered_b = self._recover_joueurs_from_sets(
+                        joueurs_a, joueurs_b, sets,
+                    )
+                    if recovered_a or recovered_b:
+                        joueurs_a.extend(recovered_a)
+                        joueurs_b.extend(recovered_b)
+                        nums_a = sorted(
+                            j.numero for j in recovered_a if j.numero
+                        )
+                        nums_b = sorted(
+                            j.numero for j in recovered_b if j.numero
+                        )
+                        parts: list[str] = []
+                        if nums_a:
+                            parts.append(f"A: #{', #'.join(nums_a)}")
+                        if nums_b:
+                            parts.append(f"B: #{', #'.join(nums_b)}")
+                        result.add_warning(
+                            f"[duplication] Feuille dupliquée détectée — "
+                            f"{len(recovered_a) + len(recovered_b)} joueur(s) "
+                            f"récupéré(s) depuis les formations "
+                            f"({'; '.join(parts)})"
+                        )
+
+                # ── Phase 7 : Construction du Match ──
 
                 match = self._build_match(
                     header=header,
@@ -777,7 +804,9 @@ class MatchSheetParserV5(BaseParser):
     # Joueurs (table roster)
     # =====================================================================
 
-    def _parse_joueurs(self, tidx: dict) -> tuple[list[Joueur], list[Joueur]]:
+    def _parse_joueurs(
+        self, tidx: dict,
+    ) -> tuple[list[Joueur], list[Joueur], bool]:
         """Parse les joueurs depuis la table dédiée.
 
         Structure typique :
@@ -785,43 +814,113 @@ class MatchSheetParserV5(BaseParser):
           Row 1: [N°, Nom Prénom, Licence, N°, Nom Prénom, Licence]
           Row 2: [multiline player data, ...]
           Row 3: [LIBEROS, ...]
+
+        Returns:
+            (joueurs_a, joueurs_b, duplication_detected)
+            duplication_detected est True si des lignes dupliquées ont été
+            trouvées et supprimées — signe d'une feuille PDF corrompue où
+            chaque joueur apparaît deux fois, tronquant les cellules.
         """
         joueurs_a: list[Joueur] = []
         joueurs_b: list[Joueur] = []
+        duplication_detected = False
 
         tbl = tidx.get('players')
         if not tbl:
-            return joueurs_a, joueurs_b
+            return joueurs_a, joueurs_b, False
 
-        # Pattern : "NN NOM PRENOM LICENCE" where NN=1-2 digits, LICENCE=1-7 digits
+        # Pattern : "NN NOM PRENOM LICENCE" where NN=1-2 digits, LICENCE=1-8 digits
         # Inclut les minuscules pour gérer les accents OCR (ex: STéPHANE, CHLOé)
-        # Inclut . pour les noms composés (ex: M.NARAYANIN)
+        # Inclut . , pour les noms composés (ex: M.NARAYANIN, ANDREA,-ADRIANA)
         # Licence peut être courte (ex: "0" pour non-licenciés, 4-5 digits pour anciennes licences)
+        # ou longue (8 digits pour certaines licences récentes)
+        _NAME_CHARS = r'A-Za-zÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆàâäéèêëïîôùûüçñœæ\.\-\',\( \)'
         pat = re.compile(
             r'^(\d{1,2})\s+'
-            r'([A-Za-zÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆàâäéèêëïîôùûüçñœæ\.\-\' ]+?)\s+'
-            r'(\d{1,7})$'
+            rf'([{_NAME_CHARS}]+?)\s+'
+            r'(\d{1,8})$'
         )
         # Pattern : nom et licence collés (pas d'espace avant le numéro)
         pat_glued = re.compile(
             r'^(\d{1,2})\s+'
-            r'([A-Za-zÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆàâäéèêëïîôùûüçñœæ\.\-\' ]+?)'
-            r'(\d{4,7})$'
+            rf'([{_NAME_CHARS}]+?)'
+            r'(\d{4,8})$'
         )
         # Pattern de fallback : joueur sans licence (cellule tronquée)
         pat_no_licence = re.compile(
             r'^(\d{1,2})\s+'
-            r'([A-Za-zÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆàâäéèêëïîôùûüçñœæ\.\-\' ]{3,})$'
+            rf'([{_NAME_CHARS}]{{3,}})$'
         )
 
-        for row in tbl:
+        # Collecter les noms d'équipe depuis Row 0 pour les exclure du parsing joueurs
+        team_names: set[str] = set()
+        if tbl and tbl[0]:
+            for cell in tbl[0]:
+                if cell:
+                    cs = str(cell).strip()
+                    if cs:
+                        team_names.add(cs)
+
+        def _add_joueur(line: str, target: list[Joueur]) -> bool:
+            """Tente d'extraire un joueur depuis une ligne de texte.
+
+            Returns True si un joueur a été extrait et ajouté.
+            """
+            line = line.strip()
+            if not line:
+                return False
+
+            m = pat.match(line)
+            if not m:
+                m = pat_glued.match(line)
+            if m:
+                numero = m.group(1)
+                nom_prenom = m.group(2).strip()
+                licence = m.group(3)
+                nom, prenom = self._split_nom_prenom(nom_prenom)
+                joueur = Joueur(
+                    numero=numero, nom=nom, prenom=prenom,
+                    licence=licence,
+                )
+                if not any(j.numero == numero and j.licence == licence
+                           for j in target):
+                    target.append(joueur)
+                return True
+
+            m2 = pat_no_licence.match(line)
+            if m2:
+                numero = m2.group(1)
+                nom_prenom = m2.group(2).strip()
+                nom, prenom = self._split_nom_prenom(nom_prenom)
+                joueur = Joueur(
+                    numero=numero, nom=nom, prenom=prenom,
+                    licence="0",
+                )
+                if not any(j.numero == numero for j in target):
+                    target.append(joueur)
+                return True
+
+            return False
+
+        for row_idx, row in enumerate(tbl):
             if not row:
                 continue
             row_text = ' '.join(str(c) for c in row if c)
-            if any(kw in row_text for kw in [
-                'Nom Prénom', 'Licence', 'LIBEROS', 'OFFICIELS', 'N°',
-            ]):
+
+            # Skip only pure header rows (N°, Nom Prénom, Licence)
+            if any(kw in row_text for kw in ['Nom Prénom', 'Licence', 'N°']):
+                if 'LIBEROS' not in row_text:
+                    continue
+
+            # Skip OFFICIELS row
+            if 'OFFICIELS' in row_text and 'LIBEROS' not in row_text:
                 continue
+
+            # LIBEROS-merged row: extract players from the merged text
+            # These cells can contain e.g.:
+            #   "11 NOWAK ALEXANDRA 2896047LIBEROS DUPONT MARIE 2201048"
+            # where player data and LIBEROS header are interleaved.
+            is_liberos_row = 'LIBEROS' in row_text
 
             mid = len(row) // 2
 
@@ -831,50 +930,113 @@ class MatchSheetParserV5(BaseParser):
                 cs = str(cell).strip()
                 if not cs:
                     continue
+                # Skip cells that match a team name (Row 0 team header)
+                if cs in team_names:
+                    continue
 
-                for line in cs.split('\n'):
-                    line = line.strip()
-                    if not line:
-                        continue
-                    m = pat.match(line)
-                    if not m:
-                        # Essayer le pattern «collé» (nom+licence sans espace)
-                        m = pat_glued.match(line)
-                    if m:
-                        numero = m.group(1)
-                        nom_prenom = m.group(2).strip()
-                        licence = m.group(3)
+                target = joueurs_a if cell_idx < mid else joueurs_b
 
-                        nom, prenom = self._split_nom_prenom(nom_prenom)
+                if is_liberos_row:
+                    # Try to extract players from merged LIBEROS text.
+                    # Split around LIBEROS keyword (may be garbled).
+                    # Pattern: "NN NAME LICENCE<LIBEROS>NAME LICENCE"
+                    parts = re.split(
+                        r'L\s*I\s*B\s*E\s*R\s*O\s*S',
+                        cs, flags=re.IGNORECASE,
+                    )
+                    for part in parts:
+                        part = part.strip()
+                        if not part:
+                            continue
+                        # Clean digits-letters merge at boundaries
+                        # e.g. "28960" leftover from licence merge
+                        cleaned = re.sub(r'^\d+\s*', '', part)
+                        if cleaned:
+                            _add_joueur(cleaned, target)
+                        # Also try the original part
+                        _add_joueur(part, target)
+                else:
+                    # Standard player data row — deduplicate consecutive
+                    # identical lines (some PDFs repeat every player)
+                    lines = cs.split('\n')
+                    seen_lines: set[str] = set()
+                    total_lines = 0
+                    dup_lines = 0
+                    for line in lines:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        total_lines += 1
+                        if line in seen_lines:
+                            dup_lines += 1
+                            continue
+                        seen_lines.add(line)
+                        _add_joueur(line, target)
+                    # Detect duplication pattern: if ≥40% of non-empty
+                    # lines are duplicates, the PDF likely has the
+                    # every-player-twice bug that truncates cells.
+                    if total_lines >= 6 and dup_lines >= total_lines * 0.4:
+                        duplication_detected = True
 
-                        joueur = Joueur(
-                            numero=numero,
-                            nom=nom,
-                            prenom=prenom,
-                            licence=licence,
-                        )
-                        # Avoid duplicate entries (PDF sometimes repeats players)
-                        target = joueurs_a if cell_idx < mid else joueurs_b
-                        if not any(j.numero == numero and j.licence == licence for j in target):
-                            target.append(joueur)
-                    else:
-                        # Fallback : joueur tronqué (cellule coupée, pas de licence)
-                        m2 = pat_no_licence.match(line)
-                        if m2:
-                            numero = m2.group(1)
-                            nom_prenom = m2.group(2).strip()
-                            nom, prenom = self._split_nom_prenom(nom_prenom)
-                            joueur = Joueur(
-                                numero=numero,
-                                nom=nom,
-                                prenom=prenom,
-                                licence="0",  # Placeholder for unknown licence
-                            )
-                            target = joueurs_a if cell_idx < mid else joueurs_b
-                            if not any(j.numero == numero for j in target):
-                                target.append(joueur)
+        return joueurs_a, joueurs_b, duplication_detected
 
-        return joueurs_a, joueurs_b
+    @staticmethod
+    def _recover_joueurs_from_sets(
+        joueurs_a: list[Joueur],
+        joueurs_b: list[Joueur],
+        sets: list[Set],
+    ) -> tuple[list[Joueur], list[Joueur]]:
+        """Récupère les joueurs manquants à partir des formations et changements.
+
+        Quand une feuille PDF a des joueurs dupliqués, les cellules de texte
+        sont tronquées et certains joueurs sont perdus. On peut retrouver
+        leurs numéros de maillot dans les formations de départ et les
+        changements des sets.
+
+        Crée des Joueur "placeholder" avec nom="Inconnu", licence="0".
+        """
+
+        def _norm(n: str) -> str:
+            return n.lstrip('0') or '0'
+
+        roster_a = {_norm(j.numero) for j in joueurs_a if j.numero}
+        roster_b = {_norm(j.numero) for j in joueurs_b if j.numero}
+
+        missing_a: set[str] = set()
+        missing_b: set[str] = set()
+
+        for s in sets:
+            # Formations
+            if s.formation_a:
+                for num in s.formation_a.as_list():
+                    if num and _norm(num) not in roster_a:
+                        missing_a.add(num)
+            if s.formation_b:
+                for num in s.formation_b.as_list():
+                    if num and _norm(num) not in roster_b:
+                        missing_b.add(num)
+
+            # Changements
+            if s.equipe_a:
+                for ch in s.equipe_a.changements:
+                    for num in [ch.joueur_entrant, ch.joueur_sortant]:
+                        if num and _norm(num) not in roster_a:
+                            missing_a.add(num)
+            if s.equipe_b:
+                for ch in s.equipe_b.changements:
+                    for num in [ch.joueur_entrant, ch.joueur_sortant]:
+                        if num and _norm(num) not in roster_b:
+                            missing_b.add(num)
+
+        recovered_a = [
+            Joueur(numero=num, nom="Inconnu", prenom="Inconnu", licence="0")
+            for num in sorted(missing_a)
+        ]
+        recovered_b = [
+            Joueur(numero=num, nom="Inconnu", prenom="Inconnu", licence="0")
+            for num in sorted(missing_b)
+        ]
+        return recovered_a, recovered_b
 
     @staticmethod
     def _split_nom_prenom(nom_prenom: str) -> tuple[str, str]:
@@ -2421,18 +2583,9 @@ class MatchSheetParserV5(BaseParser):
         if not match.competition:
             warnings.append("Nom de compétition manquant")
 
-        # Heure, lieu, salle (attendus surtout pour les saisons modernes)
-        if is_modern:
-            if not match.heure:
-                warnings.append("[données] Heure du match manquante")
-            if not match.lieu:
-                warnings.append("[données] Lieu (ville) du match manquant")
-            if not match.salle:
-                warnings.append("[données] Salle du match manquante")
-            if not match.genre:
-                warnings.append("[données] Genre de la compétition non détecté")
-            if not match.categorie:
-                warnings.append("[données] Catégorie d'âge non détectée")
+        # Heure, lieu, salle : données optionnelles dans la source PDF.
+        # L'absence de ces informations n'est pas un problème de parsing
+        # mais une donnée manquante dans le PDF d'origine → pas de warning.
 
         # ── Équipes ──
         for label, eq in [('A', match.equipe_a), ('B', match.equipe_b)]:
@@ -2444,17 +2597,10 @@ class MatchSheetParserV5(BaseParser):
             if not eq.joueurs:
                 warnings.append(f"Aucun joueur pour l'équipe {label}")
                 continue
-            if not any(j.est_capitaine for j in eq.joueurs):
-                warnings.append(
-                    f"[données] Aucun capitaine détecté pour l'équipe "
-                    f"{label} ({eq.nom})"
-                )
-            for j in eq.joueurs:
-                if not j.licence or j.licence == "0":
-                    warnings.append(
-                        f"[données] Licence manquante pour joueur #{j.numero} "
-                        f"({j.nom}) de l'équipe {label}"
-                    )
+            # Capitaine et licences : données optionnelles dans la source PDF.
+            # L'absence de capitaine ou de licence n'est pas un problème de
+            # parsing mais une donnée manquante dans le PDF d'origine → pas
+            # de warning.
 
         # ── Arbitres : pas de warning si absent ──
         # L'absence d'arbitre n'est pas un problème de parsing,
