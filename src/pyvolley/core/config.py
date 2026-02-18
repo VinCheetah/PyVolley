@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     
     # FFVB Scraping
     ffvb_base_url: str = "https://www.ffvbbeach.org/ffvbapp/resu/"
-    ffvb_request_delay: float = 1.0  # Délai entre requêtes (secondes)
+    ffvb_request_delay: float = 0.3  # Délai entre requêtes (secondes)
     ffvb_timeout: int = 30
     
     # Serveur Web
