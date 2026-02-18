@@ -514,7 +514,7 @@ class MatchSheetParserV5(BaseParser):
             for cell in row0:
                 if cell:
                     cs = str(cell).strip()
-                    if len(cs) > 3 and not any(
+                    if len(cs) >= 2 and not any(
                         kw in cs for kw in ['N°', 'Nom', 'Licence', 'LIBEROS']
                     ):
                         names.append(cs)
@@ -793,19 +793,20 @@ class MatchSheetParserV5(BaseParser):
         if not tbl:
             return joueurs_a, joueurs_b
 
-        # Pattern : "NN NOM PRENOM LICENCE" where NN=1-2 digits, LICENCE=6-7 digits
+        # Pattern : "NN NOM PRENOM LICENCE" where NN=1-2 digits, LICENCE=1-7 digits
         # Inclut les minuscules pour gérer les accents OCR (ex: STéPHANE, CHLOé)
         # Inclut . pour les noms composés (ex: M.NARAYANIN)
+        # Licence peut être courte (ex: "0" pour non-licenciés, 4-5 digits pour anciennes licences)
         pat = re.compile(
             r'^(\d{1,2})\s+'
             r'([A-Za-zÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆàâäéèêëïîôùûüçñœæ\.\-\' ]+?)\s+'
-            r'(\d{6,7})$'
+            r'(\d{1,7})$'
         )
         # Pattern : nom et licence collés (pas d'espace avant le numéro)
         pat_glued = re.compile(
             r'^(\d{1,2})\s+'
             r'([A-Za-zÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆàâäéèêëïîôùûüçñœæ\.\-\' ]+?)'
-            r'(\d{6,7})$'
+            r'(\d{4,7})$'
         )
         # Pattern de fallback : joueur sans licence (cellule tronquée)
         pat_no_licence = re.compile(
@@ -852,10 +853,10 @@ class MatchSheetParserV5(BaseParser):
                             prenom=prenom,
                             licence=licence,
                         )
-                        if cell_idx < mid:
-                            joueurs_a.append(joueur)
-                        else:
-                            joueurs_b.append(joueur)
+                        # Avoid duplicate entries (PDF sometimes repeats players)
+                        target = joueurs_a if cell_idx < mid else joueurs_b
+                        if not any(j.numero == numero and j.licence == licence for j in target):
+                            target.append(joueur)
                     else:
                         # Fallback : joueur tronqué (cellule coupée, pas de licence)
                         m2 = pat_no_licence.match(line)
@@ -867,12 +868,11 @@ class MatchSheetParserV5(BaseParser):
                                 numero=numero,
                                 nom=nom,
                                 prenom=prenom,
-                                licence=None,
+                                licence="0",  # Placeholder for unknown licence
                             )
-                            if cell_idx < mid:
-                                joueurs_a.append(joueur)
-                            else:
-                                joueurs_b.append(joueur)
+                            target = joueurs_a if cell_idx < mid else joueurs_b
+                            if not any(j.numero == numero for j in target):
+                                target.append(joueur)
 
         return joueurs_a, joueurs_b
 
@@ -1299,6 +1299,11 @@ class MatchSheetParserV5(BaseParser):
           +4 : Score au remplacement
           +5 : Score supplémentaire
           +6-9 : Tours au service + Timeouts
+
+        Le SET 5 a une structure spéciale «gauche-droite-gauche» :
+        les données de l'équipe de gauche sont répétées après celles de
+        l'équipe de droite. On détecte ce cas via 3 blocs de positions I-VI
+        et on ignore le 3ème bloc (duplication du gauche).
         """
         sd = {
             'numero': set_num,
@@ -1319,8 +1324,10 @@ class MatchSheetParserV5(BaseParser):
         # Row +0 : Header
         self._parse_set_header(table[start], sd, n_cols)
 
-        # Row +1 : Position columns
-        pos_left, pos_right = self._find_position_columns(table[start + 1], n_cols)
+        # Row +1 : Position columns — detect 3-block structure for set 5
+        pos_left, pos_right, pos_left_dup = self._find_position_columns_v2(
+            table[start + 1], n_cols,
+        )
 
         # Row +2 : Formations
         sd['formation_left'] = self._extract_formation(table[start + 2], pos_left)
@@ -1330,27 +1337,49 @@ class MatchSheetParserV5(BaseParser):
         self._parse_substitutions(table, start, pos_left, pos_right, sd)
 
         # Rows +6..+9 : Service & timeouts
+        # For set 5, the right-side boundary changes due to the 3-block layout.
+        # We use pos_right as-is (correct columns for right team).
         self._parse_service_timeouts(table, start, pos_left, pos_right, sd, n_cols)
 
         return sd
 
     def _parse_set_header(self, row: list, sd: dict, n_cols: int) -> None:
-        """Parse le header du set pour extraire heures, noms, service."""
+        """Parse le header du set pour extraire heures, noms, service.
+
+        Pour le SET 5, le header a 3 cellules d'équipe au lieu de 2 :
+        gauche | droite | gauche (résumé avec score). On ignore la 3ème.
+        """
         if not row:
             return
 
         time_pat = re.compile(r'(Début|Fin):\s*(\d{1,2}:\d{2})')
         time_partial = re.compile(r'(Début|Fin):\s*(\d{1,2}):?')
-        mid = n_cols // 2
 
+        # Collect team header cells (cells with "Début" or "Fin")
+        team_cells: list[tuple[int, str]] = []
         for i, cell in enumerate(row):
             if not cell:
                 continue
             cs = str(cell).strip()
-            if len(cs) < 5 or ('Début' not in cs and 'Fin' not in cs):
+            if len(cs) < 5:
                 continue
+            if 'Début' in cs or 'Fin' in cs or 'Pts' in cs:
+                team_cells.append((i, cs))
 
-            side = 'left' if i < mid else 'right'
+        # For SET 5, there are 3 team cells; we only use the first 2
+        # (left and right teams), ignoring the 3rd (left team repeated
+        # with point summary like "TEAM Pts 5:8")
+        cells_to_process = team_cells[:2] if len(team_cells) >= 2 else team_cells
+
+        # Determine mid based on actual cell positions (not n_cols/2)
+        if len(cells_to_process) >= 2:
+            # Mid is between first and second team cell
+            mid_col = (cells_to_process[0][0] + cells_to_process[1][0]) // 2
+        else:
+            mid_col = n_cols // 2
+
+        for i, cs in cells_to_process:
+            side = 'left' if i <= mid_col else 'right'
 
             # Nom d'équipe (avant "Début" ou "Fin")
             name = re.split(r'\s+(?:Début|Fin):', cs)[0].strip()
@@ -1396,14 +1425,64 @@ class MatchSheetParserV5(BaseParser):
         self, header_row: Optional[list], n_cols: int,
     ) -> tuple[list[int], list[int]]:
         """Trouve les colonnes I..VI pour gauche et droite."""
+        left, right, _ = self._find_position_columns_v2(header_row, n_cols)
+        return left, right
+
+    def _find_position_columns_v2(
+        self, header_row: Optional[list], n_cols: int,
+    ) -> tuple[list[int], list[int], list[int]]:
+        """Trouve les colonnes I..VI pour gauche, droite et éventuel 3ème bloc.
+
+        Le SET 5 a une structure «gauche-droite-gauche» avec 3 blocs de
+        positions I-VI (18 colonnes au total). On identifie les 3 blocs
+        par les 2 plus grands gaps entre colonnes consécutives.
+
+        Returns:
+            (pos_left, pos_right, pos_left_dup) — pos_left_dup est vide
+            sauf pour le set 5 (3 blocs).
+        """
         if not header_row:
-            return [], []
+            return [], [], []
 
         roman_map = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6}
         hits: list[tuple[int, int]] = []
         for i, cell in enumerate(header_row):
             if cell and str(cell).strip() in roman_map:
                 hits.append((i, roman_map[str(cell).strip()]))
+
+        if len(hits) >= 18:
+            # ── 3 blocs de I-VI : structure SET 5 «gauche-droite-gauche» ──
+            hits.sort(key=lambda x: x[0])
+            # Find the 2 largest gaps to split into 3 groups
+            gaps = [
+                (hits[k + 1][0] - hits[k][0], k)
+                for k in range(len(hits) - 1)
+            ]
+            gaps.sort(reverse=True)
+            # Take the 2 largest gaps as split points
+            split_indices = sorted([gaps[0][1], gaps[1][1]])
+            
+            block1 = hits[:split_indices[0] + 1]
+            block2 = hits[split_indices[0] + 1:split_indices[1] + 1]
+            block3 = hits[split_indices[1] + 1:]
+            
+            left = sorted(block1, key=lambda x: x[1])
+            right = sorted(block2, key=lambda x: x[1])
+            left_dup = sorted(block3, key=lambda x: x[1])
+            
+            logger.debug(
+                "SET 5 detected: 3 blocks of positions — "
+                "left=%s, right=%s, left_dup=%s (ignored)",
+                [i for i, _ in left[:6]],
+                [i for i, _ in right[:6]],
+                [i for i, _ in left_dup[:6]],
+            )
+            
+            return (
+                [i for i, _ in left[:6]],
+                [i for i, _ in right[:6]],
+                [i for i, _ in left_dup[:6]],
+            )
 
         if len(hits) >= 12:
             hits.sort(key=lambda x: x[0])
@@ -1416,14 +1495,14 @@ class MatchSheetParserV5(BaseParser):
 
             left = sorted(hits[:split_idx + 1], key=lambda x: x[1])
             right = sorted(hits[split_idx + 1:], key=lambda x: x[1])
-            return [i for i, _ in left[:6]], [i for i, _ in right[:6]]
+            return [i for i, _ in left[:6]], [i for i, _ in right[:6]], []
 
         # Fallback heuristique selon la taille de la table
         if n_cols >= 40:
-            return [13, 15, 18, 20, 22, 24], [31, 33, 35, 37, 39, 41]
+            return [13, 15, 18, 20, 22, 24], [31, 33, 35, 37, 39, 41], []
         elif n_cols >= 25:
-            return [1, 3, 5, 7, 9, 11], [14, 16, 18, 20, 22, 24]
-        return [], []
+            return [1, 3, 5, 7, 9, 11], [14, 16, 18, 20, 22, 24], []
+        return [], [], []
 
     @staticmethod
     def _extract_formation(row: Optional[list], cols: list[int]) -> Optional[Formation]:
@@ -1433,7 +1512,15 @@ class MatchSheetParserV5(BaseParser):
         for c in cols:
             if c < len(row) and row[c]:
                 v = str(row[c]).strip()
-                vals.append(v if v.isdigit() and len(v) <= 2 else None)
+                # Accept digits 1-2 chars as valid jersey numbers
+                # Reject "-1" and other negative/invalid values
+                if v.isdigit() and len(v) <= 2:
+                    vals.append(v)
+                elif v.lstrip('-').isdigit() and v.startswith('-'):
+                    # "-1" means no formation data
+                    vals.append(None)
+                else:
+                    vals.append(None)
             else:
                 vals.append(None)
         if sum(1 for v in vals if v) < 4:
@@ -1793,9 +1880,24 @@ class MatchSheetParserV5(BaseParser):
             fin_t = self._parse_time_str(det.get('heure_fin') if det else None)
 
             # Mapping left/right → A/B
+            # On compare les noms d'équipe du header du set aux noms
+            # connus (player table) pour déterminer si gauche=A ou gauche=B.
+            # Utilise les DEUX noms d'équipe pour éviter les faux positifs
+            # quand les noms sont similaires (ex: clubs sourds).
             swap = False
-            if det and det.get('left_team_name'):
-                swap = self._team_matches(det['left_team_name'], nom_b)
+            left_name = det.get('left_team_name', '') if det else ''
+            right_name = det.get('right_team_name', '') if det else ''
+            if left_name or right_name:
+                # Score for no-swap (left=A, right=B) vs swap (left=B, right=A)
+                sim_no_swap = 0.0
+                sim_swap = 0.0
+                if left_name:
+                    sim_no_swap += self._team_similarity(left_name, nom_a)
+                    sim_swap += self._team_similarity(left_name, nom_b)
+                if right_name:
+                    sim_no_swap += self._team_similarity(right_name, nom_b)
+                    sim_swap += self._team_similarity(right_name, nom_a)
+                swap = sim_swap > sim_no_swap
 
             if det:
                 if not swap:
@@ -1917,6 +2019,30 @@ class MatchSheetParserV5(BaseParser):
             r'\1', name,
         )
         return re.sub(r'\s+', ' ', name).strip()
+
+    @staticmethod
+    def _team_similarity(name_a: str, name_b: str) -> float:
+        """Retourne un score de similarité (0-1) entre deux noms d'équipe.
+
+        Utilisé pour comparer deux assignations possibles (swap/no-swap)
+        et choisir la meilleure.
+        """
+        a = MatchSheetParserV5._normalize_name(name_a).upper()
+        b = MatchSheetParserV5._normalize_name(name_b).upper()
+        if not a or not b:
+            return 0.0
+
+        # Comparaison directe / par préfixe → score parfait
+        if a == b or b.startswith(a) or a.startswith(b[:15]):
+            return 1.0
+
+        strip_chars = str.maketrans('', '', ' -.\'/()')
+        a_c = a.translate(strip_chars)
+        b_c = b.translate(strip_chars)
+        if a_c == b_c or b_c.startswith(a_c[:12]):
+            return 1.0
+
+        return SequenceMatcher(None, a_c, b_c).ratio()
 
     @staticmethod
     def _team_matches(name_a: str, name_b: str, threshold: float = 0.55) -> bool:
@@ -2324,15 +2450,15 @@ class MatchSheetParserV5(BaseParser):
                     f"{label} ({eq.nom})"
                 )
             for j in eq.joueurs:
-                if not j.licence:
+                if not j.licence or j.licence == "0":
                     warnings.append(
                         f"[données] Licence manquante pour joueur #{j.numero} "
                         f"({j.nom}) de l'équipe {label}"
                     )
 
-        # ── Arbitres ──
-        if not match.arbitres:
-            warnings.append("[données] Aucun arbitre détecté")
+        # ── Arbitres : pas de warning si absent ──
+        # L'absence d'arbitre n'est pas un problème de parsing,
+        # c'est une donnée optionnelle dans les feuilles de match.
 
         # ── Cohérence des scores (seulement si le match est joué) ──
         if match.match_joue:

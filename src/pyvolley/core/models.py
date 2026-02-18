@@ -68,7 +68,7 @@ class PyVolleyModel(BaseModel):
 
 class JoueurBase(PyVolleyModel):
     """Données de base d'un joueur."""
-    licence: str = Field(..., min_length=6, max_length=10, description="Numéro de licence FFVB")
+    licence: str = Field(..., min_length=1, max_length=10, description="Numéro de licence FFVB (peut être '0' pour joueurs non licenciés)")
     nom: str = Field(..., min_length=1, description="Nom de famille")
     prenom: str = Field(..., min_length=1, description="Prénom")
     
