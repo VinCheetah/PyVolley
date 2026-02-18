@@ -46,10 +46,10 @@ class ClubReport(Report):
         content = (
             f"[bold cyan]{c.nom}[/bold cyan]\n\n"
             f"🆔 ID: {c.id}\n"
-            f"📋 Code FFVB: {c.code_ffvb or '-'}\n"
-            f"🏙️ Ville: {c.ville or '-'}\n"
-            f"📮 Département: {c.departement or '-'}\n"
-            f"📝 Nom court: {c.nom_court or '-'}\n"
+            f"📋 Code FFVB: {self._safe(c.code_ffvb)}\n"
+            f"🏙️ Ville: {self._safe(c.ville)}\n"
+            f"📮 Département: {self._safe(c.departement)}\n"
+            f"📝 Nom court: {self._safe(c.nom_court)}\n"
             f"🔗 Aliases: {alias_str}"
         )
         self._add(ReportSection(
@@ -133,7 +133,7 @@ class ClubReport(Report):
             else:
                 defaites += 1
 
-        taux = f"{victoires / total * 100:.0f}%" if total > 0 else "-"
+        taux = self._pct(victoires, total)
         content = (
             f"🏐 Total matchs: {total}\n"
             f"✅ Victoires: {victoires}\n"

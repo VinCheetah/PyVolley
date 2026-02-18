@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Optional
 
 from sqlalchemy import select, func, or_
@@ -49,7 +50,7 @@ class JoueurReport(Report):
     def _section_profil(self, j: JoueurDB) -> None:
         content = (
             f"[bold cyan]{j.nom} {j.prenom}[/bold cyan]\n\n"
-            f"📋 Licence: {j.licence}\n"
+            f"📋 Licence: {self._safe(j.licence)}\n"
             f"🆔 ID: {j.id}"
         )
         self._add(ReportSection(
@@ -75,31 +76,51 @@ class JoueurReport(Report):
             .where(ParticipationMatchDB.joueur_id == j.id, ParticipationMatchDB.est_libero == True)
         ) or 0
 
-        # Victoires / défaites
-        participations = list(self.session.scalars(
+        # Victoires / défaites via jointure (évite N+1)
+        participations = list(self.session.execute(
+            select(
+                ParticipationMatchDB.equipe_id,
+                MatchDB.equipe_a_id,
+                MatchDB.equipe_b_id,
+                MatchDB.vainqueur,
+                MatchDB.equipe_a.has(),  # just need equipe names
+            )
+            .join(MatchDB, ParticipationMatchDB.match_id == MatchDB.id)
+            .where(ParticipationMatchDB.joueur_id == j.id)
+        ).all())
+
+        # Fall back to ORM for winner resolution
+        orm_participations = list(self.session.scalars(
             select(ParticipationMatchDB).where(ParticipationMatchDB.joueur_id == j.id)
         ))
         victoires = 0
         defaites = 0
-        for p in participations:
+        nuls = 0
+        saisons_set: set[str] = set()
+        for p in orm_participations:
             m = p.match
-            if not m or not m.vainqueur:
+            if not m:
+                continue
+            if m.saison:
+                saisons_set.add(m.saison.code)
+            if not m.vainqueur:
+                nuls += 1
                 continue
             eq_nom = p.equipe.nom if p.equipe else None
             if eq_nom and m.vainqueur == eq_nom:
                 victoires += 1
-            elif m.vainqueur:
+            else:
                 defaites += 1
-
-        taux = f"{victoires / nb_matchs * 100:.0f}%" if nb_matchs > 0 else "-"
 
         items = [
             ("🏐 Matchs joués", str(nb_matchs)),
             ("✅ Victoires", str(victoires)),
             ("❌ Défaites", str(defaites)),
-            ("📈 Taux de victoire", taux),
+            ("➖ Non décidés", str(nuls)),
+            ("📈 Taux de victoire", self._pct(victoires, nb_matchs)),
             ("©️ Capitainats", str(nb_capitaine)),
             ("🛡️ Matchs en libéro", str(nb_libero)),
+            ("📅 Saisons", str(len(saisons_set))),
         ]
         content = "\n".join(f"{label}  {val}" for label, val in items)
         self._add(ReportSection(
@@ -190,11 +211,11 @@ class JoueurReport(Report):
 
             tbl.add_row(
                 str(m.date_match) if m.date_match else "-",
-                m.code_match,
+                self._safe(m.code_match),
                 equipe_nom,
                 adversaire,
-                m.score_sets or "-",
-                p.numero_maillot or "-",
+                self._safe(m.score_sets),
+                self._safe(p.numero_maillot),
                 " ".join(roles) or "-",
             )
         self._add(ReportSection(key="matchs", title="Matchs", content=tbl, order=30))
@@ -302,9 +323,9 @@ class JoueurReport(Report):
             m = p.match
             eq = p.equipe.nom if p.equipe else "?"
             tbl.add_row(
-                str(m.date_match) if m.date_match else "-",
-                m.code_match,
+                str(m.date_match) if m and m.date_match else "-",
+                self._safe(m.code_match) if m else "-",
                 eq,
-                m.score_sets or "-",
+                self._safe(m.score_sets) if m else "-",
             )
         self._add(ReportSection(key="capitainats", title="Capitainats", content=tbl, order=60))

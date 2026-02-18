@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select, func, or_
+from collections import Counter
+from sqlalchemy import select, func, or_, case
 from rich.panel import Panel
 from rich.table import Table
 from rich import box
@@ -22,7 +23,7 @@ class EquipeReport(Report):
         effectif    – Liste des joueurs
         bilan       – V/D et statistiques
         matchs      – Liste des matchs joués
-        classement  – Joueurs par nombre de matchs
+        tendance    – Forme récente et séries
     """
 
     def __init__(self, session, equipe: EquipeDB, *, max_matchs: int = 30, **kwargs):
@@ -36,6 +37,7 @@ class EquipeReport(Report):
         self._section_bilan(e)
         self._section_effectif(e)
         self._section_matchs(e)
+        self._section_tendance(e)
 
     def _section_profil(self, e: EquipeDB) -> None:
         club_nom = e.club.nom if e.club else "-"
@@ -45,9 +47,9 @@ class EquipeReport(Report):
             f"🆔 ID: {e.id}\n"
             f"🏠 Club: {club_nom}\n"
             f"📅 Saison: {saison}\n"
-            f"👤 Genre: {e.genre or '-'}\n"
-            f"📋 Catégorie: {e.categorie or '-'}\n"
-            f"#️⃣ N° équipe: {e.numero_equipe or '-'}"
+            f"👤 Genre: {self._safe(e.genre)}\n"
+            f"📋 Catégorie: {self._safe(e.categorie)}\n"
+            f"#️⃣ N° équipe: {self._safe(e.numero_equipe)}"
         )
         self._add(ReportSection(
             key="profil", title="Profil",
@@ -64,42 +66,50 @@ class EquipeReport(Report):
         total = len(matchs)
         victoires = 0
         defaites = 0
+        nuls = 0
         sets_gagnes = 0
         sets_perdus = 0
+        domicile_v = 0
+        domicile_d = 0
+        exterieur_v = 0
+        exterieur_d = 0
 
         for m in matchs:
-            if not m.vainqueur:
-                continue
             is_a = m.equipe_a_id == e.id
-            if is_a:
-                sets_gagnes += m.sets_equipe_a
-                sets_perdus += m.sets_equipe_b
-                if m.equipe_a and m.vainqueur == m.equipe_a.nom:
-                    victoires += 1
-                else:
-                    defaites += 1
-            else:
-                sets_gagnes += m.sets_equipe_b
-                sets_perdus += m.sets_equipe_a
-                if m.equipe_b and m.vainqueur == m.equipe_b.nom:
-                    victoires += 1
-                else:
-                    defaites += 1
+            own_sets = m.sets_equipe_a if is_a else m.sets_equipe_b
+            opp_sets = m.sets_equipe_b if is_a else m.sets_equipe_a
+            sets_gagnes += own_sets or 0
+            sets_perdus += opp_sets or 0
 
-        taux = f"{victoires / total * 100:.0f}%" if total > 0 else "-"
-        content = (
-            f"🏐 Total matchs: {total}\n"
-            f"✅ Victoires: {victoires}\n"
-            f"❌ Défaites: {defaites}\n"
-            f"📈 Taux de victoire: {taux}\n"
-            f"📊 Sets: {sets_gagnes} gagnés / {sets_perdus} perdus\n"
-            f"📉 Ratio sets: {sets_gagnes / sets_perdus:.2f}" if sets_perdus > 0 else
-            f"🏐 Total matchs: {total}\n"
-            f"✅ Victoires: {victoires}\n"
-            f"❌ Défaites: {defaites}\n"
-            f"📈 Taux de victoire: {taux}\n"
-            f"📊 Sets: {sets_gagnes} gagnés / {sets_perdus} perdus"
-        )
+            if not m.vainqueur:
+                nuls += 1
+                continue
+            own_nom = (m.equipe_a.nom if m.equipe_a else "") if is_a else (m.equipe_b.nom if m.equipe_b else "")
+            if m.vainqueur == own_nom:
+                victoires += 1
+                if is_a:
+                    domicile_v += 1
+                else:
+                    exterieur_v += 1
+            else:
+                defaites += 1
+                if is_a:
+                    domicile_d += 1
+                else:
+                    exterieur_d += 1
+
+        items = [
+            ("🏐 Total matchs", str(total)),
+            ("✅ Victoires", str(victoires)),
+            ("❌ Défaites", str(defaites)),
+            ("➖ Non décidés", str(nuls)),
+            ("📈 Taux de victoire", self._pct(victoires, total)),
+            ("📊 Sets gagnés/perdus", f"{sets_gagnes}/{sets_perdus}"),
+            ("📉 Ratio sets", self._ratio(sets_gagnes, sets_perdus)),
+            ("🏠 Domicile", f"{domicile_v}V / {domicile_d}D ({self._pct(domicile_v, domicile_v + domicile_d)})"),
+            ("✈️  Extérieur", f"{exterieur_v}V / {exterieur_d}D ({self._pct(exterieur_v, exterieur_v + exterieur_d)})"),
+        ]
+        content = "\n".join(f"{label}  {val}" for label, val in items)
         self._add(ReportSection(
             key="bilan", title="Bilan",
             content=Panel(content, title="📊 Bilan", border_style="green"),
@@ -114,8 +124,14 @@ class EquipeReport(Report):
                 JoueurDB.licence,
                 func.count(ParticipationMatchDB.id).label("nb"),
                 func.max(ParticipationMatchDB.numero_maillot).label("maillot"),
-                func.sum(func.cast(ParticipationMatchDB.est_capitaine, type_=func.count().type)).label("caps"),
-                func.sum(func.cast(ParticipationMatchDB.est_libero, type_=func.count().type)).label("libs"),
+                func.sum(case(
+                    (ParticipationMatchDB.est_capitaine == True, 1),
+                    else_=0,
+                )).label("caps"),
+                func.sum(case(
+                    (ParticipationMatchDB.est_libero == True, 1),
+                    else_=0,
+                )).label("libs"),
             )
             .join(ParticipationMatchDB, ParticipationMatchDB.joueur_id == JoueurDB.id)
             .where(ParticipationMatchDB.equipe_id == e.id)
@@ -188,3 +204,64 @@ class EquipeReport(Report):
                 f"{m.lieu or '-'} ({domicile})",
             )
         self._add(ReportSection(key="matchs", title="Matchs", content=tbl, order=30))
+
+    def _section_tendance(self, e: EquipeDB) -> None:
+        """Forme récente et séries de l'équipe."""
+        matchs = list(self.session.scalars(
+            select(MatchDB).where(
+                or_(MatchDB.equipe_a_id == e.id, MatchDB.equipe_b_id == e.id),
+                MatchDB.vainqueur.isnot(None),
+            )
+            .order_by(MatchDB.date_match.desc().nullslast())
+        ))
+        if not matchs:
+            self._add(ReportSection(key="tendance", title="Tendance", content="", order=35, empty=True))
+            return
+
+        # Compute results
+        results = []
+        for m in matchs:
+            is_a = m.equipe_a_id == e.id
+            own_nom = (m.equipe_a.nom if m.equipe_a else "") if is_a else (m.equipe_b.nom if m.equipe_b else "")
+            won = m.vainqueur == own_nom
+            results.append(won)
+
+        # Current streak
+        if results:
+            streak_type = results[0]
+            streak_count = 0
+            for r in results:
+                if r == streak_type:
+                    streak_count += 1
+                else:
+                    break
+            streak_str = f"{'🟢' * min(streak_count, 10)} {streak_count} {'victoire' if streak_type else 'défaite'}{'s' if streak_count > 1 else ''}"
+        else:
+            streak_str = "-"
+
+        # Last 5 form
+        last5 = results[:5]
+        form_str = " ".join("🟢" if w else "🔴" for w in last5)
+        last5_wins = sum(1 for w in last5 if w)
+
+        # Best winning streak
+        best_win_streak = 0
+        current = 0
+        for r in results:
+            if r:
+                current += 1
+                best_win_streak = max(best_win_streak, current)
+            else:
+                current = 0
+
+        items = [
+            ("🔥 Série actuelle", streak_str),
+            ("📊 Forme (5 derniers)", f"{form_str}  ({last5_wins}V / {len(last5) - last5_wins}D)"),
+            ("🏆 Meilleure série V", f"{best_win_streak} victoire{'s' if best_win_streak > 1 else ''}"),
+        ]
+        content = "\n".join(f"{label}  {val}" for label, val in items)
+        self._add(ReportSection(
+            key="tendance", title="Tendance",
+            content=Panel(content, title="📈 Forme & tendance", border_style="yellow"),
+            order=35,
+        ))

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from sqlalchemy import select, func
 
+from rich.panel import Panel
 from rich.table import Table
 from rich import box
 
@@ -19,11 +20,12 @@ class CompetitionReport(Report):
     """Rapport complet pour une compétition.
 
     Sections :
-        profil    – Identité de la compétition
-        poules    – Liste des poules
-        classement – Classement des équipes (V/D)
-        matchs    – Liste des matchs
-        joueurs   – Statistiques joueurs
+        profil       – Identité de la compétition
+        poules       – Liste des poules
+        classement   – Classement des équipes (V/D)
+        statistiques – Statistiques globales
+        matchs       – Liste des matchs
+        joueurs      – Statistiques joueurs
     """
 
     def __init__(self, session, competition: CompetitionDB, *, max_matchs: int = 50, **kwargs):
@@ -36,19 +38,20 @@ class CompetitionReport(Report):
         self._section_profil(c)
         self._section_poules(c)
         self._section_classement(c)
+        self._section_statistiques(c)
         self._section_matchs(c)
         self._section_joueurs(c)
 
     def _section_profil(self, c: CompetitionDB) -> None:
         entries = [
             ("Nom", c.nom),
-            ("Code", c.code_competition or "-"),
+            ("Code", self._safe(c.code_competition)),
             ("Saison", c.saison.code if c.saison else "-"),
             ("Entité", f"{c.entite.nom} ({c.entite.code})" if c.entite else "-"),
-            ("Genre", c.genre or "-"),
-            ("Catégorie", c.categorie or "-"),
-            ("Division", c.division or "-"),
-            ("Niveau", c.niveau or "-"),
+            ("Genre", self._safe(c.genre)),
+            ("Catégorie", self._safe(c.categorie)),
+            ("Division", self._safe(c.division)),
+            ("Niveau", self._safe(c.niveau)),
             ("Nb poules", str(len(c.poules))),
             ("Nb matchs", str(len(c.matchs))),
         ]
@@ -122,6 +125,51 @@ class CompetitionReport(Report):
 
         self._add(ReportSection(key="classement", title="Classement", content=tbl, order=20))
 
+    def _section_statistiques(self, c: CompetitionDB) -> None:
+        """Statistiques globales de la compétition."""
+        matchs = c.matchs
+        if not matchs:
+            self._add(ReportSection(key="statistiques", title="Statistiques", content="", order=25, empty=True))
+            return
+
+        joues = [m for m in matchs if m.is_played]
+        nb_joues = len(joues)
+
+        # Score 3-0, 3-1, 3-2 distribution
+        score_distrib: Counter[str] = Counter()
+        total_sets = 0
+        for m in joues:
+            if m.score_sets:
+                score_distrib[m.score_sets] += 1
+            total_sets += (m.sets_equipe_a or 0) + (m.sets_equipe_b or 0)
+
+        avg_sets = total_sets / nb_joues if nb_joues else 0
+
+        # Matchs les plus serrés (3/2)
+        nb_5sets = score_distrib.get("3/2", 0) + score_distrib.get("2/3", 0)
+        # Matchs expéditifs (3/0)
+        nb_3_0 = score_distrib.get("3/0", 0) + score_distrib.get("0/3", 0)
+
+        entries = [
+            ("📊 Matchs programmés", str(len(matchs))),
+            ("✅ Matchs joués", str(nb_joues)),
+            ("📋 Sets joués", str(total_sets)),
+            ("📐 Moyenne sets/match", f"{avg_sets:.1f}"),
+            ("🔥 Matchs en 5 sets", f"{nb_5sets} ({self._pct(nb_5sets, nb_joues)})"),
+            ("💨 Matchs en 3-0", f"{nb_3_0} ({self._pct(nb_3_0, nb_joues)})"),
+        ]
+
+        # Score distribution table
+        if score_distrib:
+            dist_lines = [f"  • {score}: {count}" for score, count in score_distrib.most_common()]
+            entries.append(("🎯 Distribution scores", "\n" + "\n".join(dist_lines)))
+
+        self._add(ReportSection(
+            key="statistiques", title="Statistiques",
+            content=self._kv_panel(entries, title="📈 Statistiques", border_style="green"),
+            order=25,
+        ))
+
     def _section_matchs(self, c: CompetitionDB) -> None:
         matchs = sorted(c.matchs, key=lambda m: (m.date_match or "", m.heure_match or ""), reverse=True)
         if not matchs:
@@ -139,10 +187,10 @@ class CompetitionReport(Report):
             eq_a = m.equipe_a.nom[:20] if m.equipe_a else "?"
             eq_b = m.equipe_b.nom[:20] if m.equipe_b else "?"
             tbl.add_row(
-                m.date_match or "-",
-                m.journee or "-",
+                self._safe(m.date_match),
+                self._safe(m.journee),
                 eq_a,
-                m.score_sets or "-",
+                self._safe(m.score_sets),
                 eq_b,
             )
         if len(matchs) > self.max_matchs:

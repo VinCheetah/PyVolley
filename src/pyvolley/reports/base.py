@@ -16,6 +16,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 from rich import box
+from rich.columns import Columns
 
 
 @dataclass
@@ -151,8 +152,34 @@ class Report(ABC):
 
     @staticmethod
     def _kv_panel(items: list[tuple[str, str]], *, title: str = "", border_style: str = "blue") -> Panel:
-        """Panel avec des paires clé-valeur."""
+        """Panel avec des paires clé-valeur, alignées proprement."""
+        if not items:
+            return Panel("[dim]Aucune donnée[/dim]", title=title, border_style=border_style)
+        max_label = max(len(label) for label, _ in items)
         lines = []
         for label, value in items:
-            lines.append(f"{label}: {value}")
+            lines.append(f"[bold]{label:<{max_label}}[/bold]  {value}")
         return Panel("\n".join(lines), title=title, border_style=border_style)
+
+    # ── Helpers utilitaires ─────────────────────────────────────
+
+    @staticmethod
+    def _safe(value: Any, default: str = "-") -> str:
+        """Retourne la valeur en string, ou un défaut si None/vide."""
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return default
+        return str(value)
+
+    @staticmethod
+    def _pct(numerator: int, denominator: int, *, decimals: int = 0) -> str:
+        """Calcule un pourcentage avec gestion du division par zéro."""
+        if denominator == 0:
+            return "-"
+        return f"{numerator / denominator * 100:.{decimals}f}%"
+
+    @staticmethod
+    def _ratio(a: int, b: int, *, decimals: int = 2) -> str:
+        """Calcule un ratio avec gestion du division par zéro."""
+        if b == 0:
+            return "-"
+        return f"{a / b:.{decimals}f}"

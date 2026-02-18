@@ -54,15 +54,15 @@ class MatchReport(Report):
         eq_a = m.equipe_a.nom if m.equipe_a else "?"
         eq_b = m.equipe_b.nom if m.equipe_b else "?"
         content = (
-            f"[bold cyan]{m.code_match}[/bold cyan]\n\n"
-            f"[bold]{eq_a}[/bold]  [bold green]{m.score_sets or '?'}[/bold green]  [bold]{eq_b}[/bold]\n\n"
-            f"📅 Date: {m.date_match or '?'}  🕐 Heure: {m.heure_match or '?'}\n"
-            f"📍 Lieu: {m.lieu or '?'}  |  Salle: {m.salle or '?'}\n"
+            f"[bold cyan]{self._safe(m.code_match)}[/bold cyan]\n\n"
+            f"[bold]{eq_a}[/bold]  [bold green]{self._safe(m.score_sets, '?')}[/bold green]  [bold]{eq_b}[/bold]\n\n"
+            f"📅 Date: {self._safe(m.date_match, '?')}  🕐 Heure: {self._safe(m.heure_match, '?')}\n"
+            f"📍 Lieu: {self._safe(m.lieu, '?')}  |  Salle: {self._safe(m.salle, '?')}\n"
             f"🏆 Compétition: {m.competition.nom if m.competition else '?'}\n"
             f"📅 Saison: {m.saison.code if m.saison else '?'}\n"
-            f"📆 Journée: {m.journee or '?'}\n"
-            f"🏆 Vainqueur: {m.vainqueur or '?'}\n"
-            f"⏱️ Durée: {m.duree_totale or '?'}"
+            f"📆 Journée: {self._safe(m.journee, '?')}\n"
+            f"🏆 Vainqueur: {self._safe(m.vainqueur, '?')}\n"
+            f"⏱️ Durée: {self._safe(m.duree_totale, '?')}"
         )
         self._add(ReportSection(
             key="infos", title="Informations",
@@ -254,11 +254,11 @@ class MatchReport(Report):
 
     def _section_metadata(self, m: MatchDB) -> None:
         content = (
-            f"📄 Source PDF: {m.source_pdf or '-'}\n"
-            f"🕐 Parsé le: {m.parsed_at or '-'}\n"
-            f"📅 Créé le: {m.created_at}\n"
-            f"📅 MàJ le: {m.updated_at}\n"
-            f"📝 Remarques: {m.remarques or '-'}"
+            f"📄 Source PDF: {self._safe(m.source_pdf)}\n"
+            f"🕐 Parsé le: {self._safe(m.parsed_at)}\n"
+            f"📅 Créé le: {self._safe(m.created_at)}\n"
+            f"📅 MàJ le: {self._safe(m.updated_at)}\n"
+            f"📝 Remarques: {self._safe(m.remarques)}"
         )
         self._add(ReportSection(
             key="metadata", title="Métadonnées",

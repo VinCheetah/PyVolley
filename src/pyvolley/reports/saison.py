@@ -43,7 +43,7 @@ class SaisonReport(Report):
     def _section_profil(self, s: SaisonDB) -> None:
         entries = [
             ("Code", s.code),
-            ("Nom", s.nom or "-"),
+            ("Nom", self._safe(s.nom)),
             ("Début", str(s.date_debut) if s.date_debut else "-"),
             ("Fin", str(s.date_fin) if s.date_fin else "-"),
             ("Compétitions", str(len(s.competitions))),
@@ -93,28 +93,40 @@ class SaisonReport(Report):
         # Nombre de joueurs uniques
         match_ids = [m.id for m in matchs]
         if match_ids:
-            nb_joueurs_stmt = (
+            nb_joueurs = self.session.scalar(
                 select(func.count(func.distinct(ParticipationMatchDB.joueur_id)))
                 .where(ParticipationMatchDB.match_id.in_(match_ids))
-            )
-            nb_joueurs = self.session.execute(nb_joueurs_stmt).scalar() or 0
+            ) or 0
 
-            nb_arbitres_stmt = (
+            nb_arbitres = self.session.scalar(
                 select(func.count(func.distinct(ArbitreMatchDB.arbitre_id)))
                 .where(ArbitreMatchDB.match_id.in_(match_ids))
-            )
-            nb_arbitres = self.session.execute(nb_arbitres_stmt).scalar() or 0
+            ) or 0
         else:
             nb_joueurs = 0
             nb_arbitres = 0
 
+        # Score distribution
+        from collections import Counter
+        score_distrib: Counter[str] = Counter()
+        total_sets = 0
+        for m in matchs:
+            if m.is_played:
+                if m.score_sets:
+                    score_distrib[m.score_sets] += 1
+                total_sets += (m.sets_equipe_a or 0) + (m.sets_equipe_b or 0)
+
+        avg_sets = f"{total_sets / nb_joues:.1f}" if nb_joues else "-"
+
         entries = [
             ("Matchs total", str(nb_matchs)),
-            ("Matchs joués", str(nb_joues)),
+            ("Matchs joués", f"{nb_joues} ({self._pct(nb_joues, nb_matchs)})"),
             ("Compétitions", str(nb_competitions)),
             ("Équipes", str(nb_equipes)),
             ("Joueurs uniques", str(nb_joueurs)),
             ("Arbitres", str(nb_arbitres)),
+            ("Sets joués", str(total_sets)),
+            ("Moy. sets/match", avg_sets),
         ]
         self._add(ReportSection(
             key="bilan", title="Bilan",
@@ -201,7 +213,8 @@ class SaisonReport(Report):
 
         stmt = (
             select(
-                ArbitreDB.nom_complet,
+                ArbitreDB.nom,
+                ArbitreDB.prenom,
                 ArbitreDB.licence,
                 ArbitreDB.ligue,
                 func.count(ArbitreMatchDB.id).label("nb_matchs"),
@@ -224,7 +237,8 @@ class SaisonReport(Report):
         tbl.add_column("Ligue", style="dim", width=10)
         tbl.add_column("Matchs", justify="right", width=7)
 
-        for i, (nom, licence, ligue, nb) in enumerate(rows, 1):
-            tbl.add_row(str(i), nom, licence or "-", ligue or "-", str(nb))
+        for i, (nom, prenom, licence, ligue, nb) in enumerate(rows, 1):
+            nom_complet = f"{nom} {prenom}" if prenom else nom
+            tbl.add_row(str(i), nom_complet, self._safe(licence), self._safe(ligue), str(nb))
 
         self._add(ReportSection(key="arbitres", title="Arbitres", content=tbl, order=50))
