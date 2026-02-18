@@ -549,6 +549,11 @@ def parse(
         "--clear-cache",
         help="Vide le cache de parsing avant de commencer"
     ),
+    collect_problems: Optional[Path] = typer.Option(
+        None,
+        "--collect-problems", "-C",
+        help="Copie les PDFs problématiques dans ce dossier, classés par type de warning"
+    ),
     verbose: bool = typer.Option(
         False,
         "--verbose", "-v",
@@ -798,6 +803,7 @@ def parse(
             pass
     
     # ── Résumé ─────────────────────────────────────────────────────────
+    total_parsed = successful + failed  # fichiers effectivement traités (hors cache)
     console.print("\n" + "=" * 60)
     console.print(Panel(
         f"[green]✓ Parsés avec succès: {successful}[/green]\n"
@@ -806,6 +812,14 @@ def parse(
         f"[dim]⚠ Warnings: {warnings_count}[/dim]",
         title="Résumé du parsing"
     ))
+
+    # ── Récapitulatif des warnings par catégorie ───────────────────────
+    if results or error_details:
+        _display_warning_summary(results, error_details, total_parsed, console)
+
+    # ── Collection des fichiers problématiques ─────────────────────────
+    if collect_problems and (results or error_details):
+        _collect_problem_files(results, error_details, collect_problems, console)
     
     # ── Exporter en JSON ───────────────────────────────────────────────
     if output and results:
@@ -923,6 +937,296 @@ def parse(
         console.print(f"\n[blue]📊 Rapport généré: {report_path}[/blue]")
         if report_data["successful_files_with_warnings"]:
             console.print(f"[yellow]⚠ {len(report_data['successful_files_with_warnings'])} fichiers avec avertissements[/yellow]")
+
+
+# ============== Helpers : récapitulatif warnings & collecte ==============
+
+# Catégories de warnings avec nom court pour les dossiers
+_WARNING_CATEGORIES = [
+    ("capitaine", "capitaine_non_detecte", "Capitaine non détecté"),
+    ("arbitre", "arbitre_non_detecte", "Arbitre non détecté"),
+    ("joueur", "aucun_joueur", "Aucun joueur détecté"),
+    ("licence manquante", "licence_manquante", "Licence manquante"),
+    ("n'atteint pas", "score_invalide", "Score de set invalide"),
+    ("score manquant", "score_manquant", "Score de set manquant"),
+    ("score 0-0", "score_zero", "Score 0-0"),
+    ("incohérence score", "incoherence_score", "Incohérence de score"),
+    ("vainqueur", "vainqueur_mismatch", "Vainqueur non reconnu"),
+    ("code match", "code_match_manquant", "Code match manquant"),
+    ("date", "date_manquante", "Date manquante"),
+    ("saison", "saison_manquante", "Saison non déterminée"),
+    ("compétition", "competition_manquante", "Compétition manquante"),
+    ("nom d'équipe", "nom_equipe_generique", "Nom d'équipe générique"),
+    ("match non joué", "match_non_joue", "Match non joué"),
+    ("scores de sets absents", "scores_absents", "Scores détaillés absents"),
+]
+
+
+def _categorize_warning(warning: str) -> tuple[str, str]:
+    """Retourne (nom_dossier, label_affichage) pour un warning donné."""
+    wl = warning.lower()
+    for keyword, folder, label in _WARNING_CATEGORIES:
+        if keyword in wl:
+            return folder, label
+    return "autre", "Autre"
+
+
+def _display_warning_summary(
+    results: list[dict],
+    error_details: list[dict],
+    total_parsed: int,
+    console: Console,
+) -> None:
+    """Affiche un récapitulatif des warnings par catégorie."""
+    from collections import Counter
+
+    # Collecter tous les warnings et compter les fichiers par catégorie
+    category_files: dict[str, set] = {}  # label → set de fichiers
+    category_count: Counter = Counter()   # label → nombre de warnings
+
+    for r in results:
+        for w in r.get('warnings', []):
+            _, label = _categorize_warning(w)
+            category_count[label] += 1
+            category_files.setdefault(label, set()).add(r['file'])
+
+    for r in error_details:
+        for w in r.get('warnings', []):
+            _, label = _categorize_warning(w)
+            category_count[label] += 1
+            category_files.setdefault(label, set()).add(r['file'])
+        # Les erreurs elles-mêmes comptent comme catégorie
+        if r.get('errors'):
+            label = "Erreur de parsing"
+            category_count[label] += len(r['errors'])
+            category_files.setdefault(label, set()).add(r['file'])
+
+    if not category_count:
+        console.print("\n[green]✨ Aucun warning détecté — parsing parfait ![/green]")
+        return
+
+    table = Table(title="📊 Récapitulatif des warnings par catégorie")
+    table.add_column("Catégorie", style="white")
+    table.add_column("Warnings", justify="right", style="yellow")
+    table.add_column("Fichiers", justify="right", style="cyan")
+    table.add_column("%", justify="right", style="dim")
+
+    for label, count in category_count.most_common():
+        n_files = len(category_files.get(label, set()))
+        pct = f"{n_files / total_parsed * 100:.1f}" if total_parsed > 0 else "—"
+        table.add_row(label, str(count), str(n_files), pct)
+
+    total_files_with_warnings = len(
+        {f for files in category_files.values() for f in files}
+    )
+    table.add_section()
+    table.add_row(
+        "[bold]Total fichiers avec warnings[/bold]",
+        str(sum(category_count.values())),
+        str(total_files_with_warnings),
+        f"{total_files_with_warnings / total_parsed * 100:.1f}" if total_parsed > 0 else "—",
+    )
+
+    console.print()
+    console.print(table)
+
+
+def _collect_problem_files(
+    results: list[dict],
+    error_details: list[dict],
+    dest_dir: Path,
+    console: Console,
+) -> None:
+    """Copie les PDFs problématiques dans dest_dir, classés par catégorie."""
+    import shutil
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    copied = 0
+
+    # Fichiers avec warnings
+    for r in results:
+        for w in r.get('warnings', []):
+            folder, _ = _categorize_warning(w)
+            _copy_to_category(r['file'], dest_dir / folder)
+            copied += 1
+
+    # Fichiers en erreur
+    for r in error_details:
+        if r.get('errors'):
+            _copy_to_category(r['file'], dest_dir / "erreur_parsing")
+            copied += 1
+        for w in r.get('warnings', []):
+            folder, _ = _categorize_warning(w)
+            _copy_to_category(r['file'], dest_dir / folder)
+
+    # Dédupliquer le comptage (un fichier copié = 1 même s'il a 3 catégories)
+    all_copied = set()
+    if dest_dir.exists():
+        for sub in dest_dir.iterdir():
+            if sub.is_dir():
+                for f in sub.iterdir():
+                    all_copied.add(f.name)
+
+    # Afficher résumé
+    table = Table(title=f"📂 Fichiers problématiques → {dest_dir}")
+    table.add_column("Catégorie", style="white")
+    table.add_column("Fichiers", justify="right", style="cyan")
+
+    for sub in sorted(dest_dir.iterdir()):
+        if sub.is_dir():
+            count = len(list(sub.glob("*.pdf")))
+            if count > 0:
+                table.add_row(sub.name, str(count))
+
+    console.print()
+    console.print(table)
+    console.print(f"[dim]Total: {len(all_copied)} fichiers uniques copiés dans {dest_dir}[/dim]")
+
+
+def _copy_to_category(src_file: str, dest_folder: Path) -> None:
+    """Copie un PDF dans un dossier de catégorie (sans écraser)."""
+    import shutil
+
+    src = Path(src_file)
+    if not src.exists() or not src.suffix.lower() == '.pdf':
+        return
+    dest_folder.mkdir(parents=True, exist_ok=True)
+    dest = dest_folder / src.name
+    if not dest.exists():
+        shutil.copy2(str(src), str(dest))
+
+
+# ============== Commande complétion de scores ==============
+
+@app.command("complete-scores")
+def complete_scores(
+    saison: str = typer.Argument(
+        ...,
+        help="Saison à compléter (ex: 2022-2023)"
+    ),
+    entity: Optional[List[str]] = typer.Option(
+        None,
+        "--entity", "-e",
+        help="Restreindre à certaines entités. Répétable: -e ABCCS -e LIRA"
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Affiche ce qui serait mis à jour sans modifier la base"
+    ),
+    summary_only: bool = typer.Option(
+        False,
+        "--summary",
+        help="Affiche uniquement l'état de complétion sans rien modifier"
+    ),
+):
+    """
+    🔄 Complète les scores manquants depuis le site FFVB.
+
+    Interroge la base de données pour trouver les matchs joués sans détails
+    de score, puis récupère les scores en ligne depuis les calendriers FFVB.
+
+    Utile principalement pour les saisons avant 2024-2025, dont les feuilles
+    de match ne contiennent pas les scores détaillés par set.
+
+    Exemples:
+
+        # Voir l'état de complétion pour une saison
+        pyvolley complete-scores 2022-2023 --summary
+
+        # Compléter les scores (dry-run d'abord)
+        pyvolley complete-scores 2022-2023 --dry-run
+
+        # Compléter effectivement
+        pyvolley complete-scores 2022-2023
+
+        # Restreindre à une entité
+        pyvolley complete-scores 2022-2023 -e ABCCS
+    """
+    from pyvolley.database.connection import DatabaseSession, init_db
+    from pyvolley.database.score_completion import ScoreCompletionService
+
+    init_db()
+
+    with DatabaseSession() as session:
+        service = ScoreCompletionService(session)
+
+        # ── Mode summary : juste afficher l'état ──
+        if summary_only:
+            summary = service.get_completion_summary(saison)
+            if "error" in summary:
+                console.print(f"[red]Erreur: {summary['error']}[/red]")
+                raise typer.Exit(1)
+
+            console.print(Panel(
+                f"[bold blue]Saison: {summary['saison']}[/bold blue]\n\n"
+                f"Total matchs:        [cyan]{summary['total_matches']}[/cyan]\n"
+                f"Matchs joués:        [cyan]{summary['match_joue']}[/cyan]\n"
+                f"Avec détails:        [green]{summary['with_details']}[/green]\n"
+                f"Sans détails:        [yellow]{summary['without_details']}[/yellow]\n"
+                f"Complétion:          [{'green' if summary['completion_pct'] > 80 else 'yellow'}]"
+                f"{summary['completion_pct']:.1f}%[/{'green' if summary['completion_pct'] > 80 else 'yellow'}]",
+                title="📊 État de complétion des scores"
+            ))
+
+            if summary['by_source']:
+                table = Table(title="Sources des scores")
+                table.add_column("Source", style="cyan")
+                table.add_column("Matchs", justify="right", style="white")
+                for src, count in sorted(summary['by_source'].items()):
+                    label = {
+                        "pdf": "📄 PDF (feuille de match)",
+                        "online": "🌐 En ligne (FFVB)",
+                        "manual": "✏️ Manuel",
+                        "none": "❌ Pas de score",
+                    }.get(src, src)
+                    table.add_row(label, str(count))
+                console.print(table)
+
+            raise typer.Exit(0)
+
+        # ── Mode complétion ──
+        mode = "[yellow]DRY-RUN[/yellow]" if dry_run else "[green]MISE À JOUR[/green]"
+        entity_display = ", ".join(entity) if entity else "toutes"
+
+        console.print(Panel(
+            f"[bold blue]🔄 Complétion des scores[/bold blue]\n\n"
+            f"Saison:   [cyan]{saison}[/cyan]\n"
+            f"Entités:  [cyan]{entity_display}[/cyan]\n"
+            f"Mode:     {mode}",
+            title="Configuration"
+        ))
+
+        with console.status("[bold blue]Récupération et complétion des scores en cours..."):
+            stats = service.complete_scores_for_saison(
+                saison,
+                entity_codes=entity,
+                dry_run=dry_run,
+            )
+
+        # ── Afficher les résultats ──
+        console.print()
+        console.print(Panel(
+            f"Matchs sans détails:       [cyan]{stats['total_without_details']}[/cyan]\n"
+            f"Scores trouvés en ligne:   [green]{stats['scores_found_online']}[/green]\n"
+            f"Matchs mis à jour:         [green]{stats['updated']}[/green]\n"
+            f"Sans données en ligne:     [yellow]{stats['skipped_no_online_data']}[/yellow]\n"
+            f"Déjà détaillés (ignorés):  [dim]{stats['skipped_already_detailed']}[/dim]",
+            title=f"{'🔍 Résultats (dry-run)' if dry_run else '✅ Résultats'}"
+        ))
+
+        if stats['errors']:
+            console.print(f"\n[red]Erreurs ({len(stats['errors'])}):[/red]")
+            for err in stats['errors'][:10]:
+                console.print(f"  [red]• {err}[/red]")
+            if len(stats['errors']) > 10:
+                console.print(f"  [dim]... et {len(stats['errors']) - 10} autres[/dim]")
+
+        if dry_run and stats['updated'] > 0:
+            console.print(
+                f"\n[blue]💡 {stats['updated']} matchs peuvent être complétés. "
+                f"Relancez sans --dry-run pour appliquer.[/blue]"
+            )
 
 
 @app.command()
@@ -1105,9 +1409,9 @@ app.add_typer(db_app, name="db")
 from pyvolley.cli.db_explorer import explore_app
 db_app.add_typer(explore_app, name="explore")
 
-# Sous-commandes de rapports
+# Sous-commandes de rapports (accessible via `pyvolley report` directement)
 from pyvolley.cli.reports import report_app
-db_app.add_typer(report_app, name="report")
+app.add_typer(report_app, name="report")
 
 
 @db_app.command("status")

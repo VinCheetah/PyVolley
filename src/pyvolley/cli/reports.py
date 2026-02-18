@@ -4,6 +4,15 @@ Commandes CLI pour générer des rapports d'entités PyVolley.
 Chaque commande charge une entité par identifiant (id, licence, code…)
 et délègue la construction au module ``pyvolley.reports``.
 
+Usage :
+    pyvolley report joueur "Dupont"
+    pyvolley report club "PARIS VOLLEY"
+    pyvolley report equipe 42
+    pyvolley report match "ABC123"
+    pyvolley report arbitre "Martin"
+    pyvolley report competition "N2M"
+    pyvolley report saison "2025-2026"
+
 Options communes :
     --include / -i  : sections à inclure (exclusif)
     --exclude / -e  : sections à exclure
@@ -24,7 +33,7 @@ console = Console()
 
 report_app = typer.Typer(
     name="report",
-    help="📝 Générer des rapports détaillés (joueur, club, équipe…)",
+    help="📝 Générer des rapports détaillés (joueur, club, équipe, match, arbitre, compétition, saison)",
 )
 
 
@@ -74,23 +83,26 @@ def report_joueur(
     from pyvolley.database.models import JoueurDB
 
     session = _get_session()
-    joueur = _find_joueur(session, identifier)
-    if not joueur:
-        console.print(f"[red]Joueur introuvable : {identifier}[/red]")
-        raise typer.Exit(1)
+    try:
+        joueur = _find_joueur(session, identifier)
+        if not joueur:
+            console.print(f"[red]Joueur introuvable : {identifier}[/red]")
+            raise typer.Exit(1)
 
-    if sections:
-        _list_sections(JoueurReport, session, joueur, max_matchs=max_matchs)
-        return
+        if sections:
+            _list_sections(JoueurReport, session, joueur, max_matchs=max_matchs)
+            return
 
-    rpt = JoueurReport(
-        session, joueur,
-        max_matchs=max_matchs,
-        exclude=_parse_set(exclude) or set(),
-        include=_parse_set(include),
-        hide_empty=not show_empty,
-    )
-    rpt.render(console)
+        rpt = JoueurReport(
+            session, joueur,
+            max_matchs=max_matchs,
+            exclude=_parse_set(exclude) or set(),
+            include=_parse_set(include),
+            hide_empty=not show_empty,
+        )
+        rpt.render(console)
+    finally:
+        session.close()
 
 
 def _find_joueur(session, identifier: str):
@@ -134,22 +146,25 @@ def report_club(
     from pyvolley.database.models import ClubDB, ClubAliasDB
 
     session = _get_session()
-    club = _find_club(session, identifier)
-    if not club:
-        console.print(f"[red]Club introuvable : {identifier}[/red]")
-        raise typer.Exit(1)
+    try:
+        club = _find_club(session, identifier)
+        if not club:
+            console.print(f"[red]Club introuvable : {identifier}[/red]")
+            raise typer.Exit(1)
 
-    if sections:
-        _list_sections(ClubReport, session, club)
-        return
+        if sections:
+            _list_sections(ClubReport, session, club)
+            return
 
-    rpt = ClubReport(
-        session, club,
-        exclude=_parse_set(exclude) or set(),
-        include=_parse_set(include),
-        hide_empty=not show_empty,
-    )
-    rpt.render(console)
+        rpt = ClubReport(
+            session, club,
+            exclude=_parse_set(exclude) or set(),
+            include=_parse_set(include),
+            hide_empty=not show_empty,
+        )
+        rpt.render(console)
+    finally:
+        session.close()
 
 
 def _find_club(session, identifier: str):
@@ -195,22 +210,25 @@ def report_equipe(
     from pyvolley.database.models import EquipeDB
 
     session = _get_session()
-    equipe = _find_equipe(session, identifier)
-    if not equipe:
-        console.print(f"[red]Équipe introuvable : {identifier}[/red]")
-        raise typer.Exit(1)
+    try:
+        equipe = _find_equipe(session, identifier)
+        if not equipe:
+            console.print(f"[red]Équipe introuvable : {identifier}[/red]")
+            raise typer.Exit(1)
 
-    if sections:
-        _list_sections(EquipeReport, session, equipe)
-        return
+        if sections:
+            _list_sections(EquipeReport, session, equipe)
+            return
 
-    rpt = EquipeReport(
-        session, equipe,
-        exclude=_parse_set(exclude) or set(),
-        include=_parse_set(include),
-        hide_empty=not show_empty,
-    )
-    rpt.render(console)
+        rpt = EquipeReport(
+            session, equipe,
+            exclude=_parse_set(exclude) or set(),
+            include=_parse_set(include),
+            hide_empty=not show_empty,
+        )
+        rpt.render(console)
+    finally:
+        session.close()
 
 
 def _find_equipe(session, identifier: str):
@@ -240,22 +258,25 @@ def report_match(
     from pyvolley.database.models import MatchDB
 
     session = _get_session()
-    match = _find_match(session, identifier)
-    if not match:
-        console.print(f"[red]Match introuvable : {identifier}[/red]")
-        raise typer.Exit(1)
+    try:
+        match = _find_match(session, identifier)
+        if not match:
+            console.print(f"[red]Match introuvable : {identifier}[/red]")
+            raise typer.Exit(1)
 
-    if sections:
-        _list_sections(MatchReport, session, match)
-        return
+        if sections:
+            _list_sections(MatchReport, session, match)
+            return
 
-    rpt = MatchReport(
-        session, match,
-        exclude=_parse_set(exclude) or set(),
-        include=_parse_set(include),
-        hide_empty=not show_empty,
-    )
-    rpt.render(console)
+        rpt = MatchReport(
+            session, match,
+            exclude=_parse_set(exclude) or set(),
+            include=_parse_set(include),
+            hide_empty=not show_empty,
+        )
+        rpt.render(console)
+    finally:
+        session.close()
 
 
 def _find_match(session, identifier: str):
@@ -285,23 +306,26 @@ def report_arbitre(
     from pyvolley.database.models import ArbitreDB
 
     session = _get_session()
-    arbitre = _find_arbitre(session, identifier)
-    if not arbitre:
-        console.print(f"[red]Arbitre introuvable : {identifier}[/red]")
-        raise typer.Exit(1)
+    try:
+        arbitre = _find_arbitre(session, identifier)
+        if not arbitre:
+            console.print(f"[red]Arbitre introuvable : {identifier}[/red]")
+            raise typer.Exit(1)
 
-    if sections:
-        _list_sections(ArbitreReport, session, arbitre, max_matchs=max_matchs)
-        return
+        if sections:
+            _list_sections(ArbitreReport, session, arbitre, max_matchs=max_matchs)
+            return
 
-    rpt = ArbitreReport(
-        session, arbitre,
-        max_matchs=max_matchs,
-        exclude=_parse_set(exclude) or set(),
-        include=_parse_set(include),
-        hide_empty=not show_empty,
-    )
-    rpt.render(console)
+        rpt = ArbitreReport(
+            session, arbitre,
+            max_matchs=max_matchs,
+            exclude=_parse_set(exclude) or set(),
+            include=_parse_set(include),
+            hide_empty=not show_empty,
+        )
+        rpt.render(console)
+    finally:
+        session.close()
 
 
 def _find_arbitre(session, identifier: str):
@@ -316,7 +340,13 @@ def _find_arbitre(session, identifier: str):
 
     term = f"%{identifier}%"
     return session.scalar(
-        select(ArbitreDB).where(func.lower(ArbitreDB.nom_complet).like(func.lower(term)))
+        select(ArbitreDB).where(
+            or_(
+                func.lower(ArbitreDB.nom).like(func.lower(term)),
+                func.lower(ArbitreDB.prenom).like(func.lower(term)),
+                func.lower(ArbitreDB.nom + " " + ArbitreDB.prenom).like(func.lower(term)),
+            )
+        )
     )
 
 
@@ -336,23 +366,26 @@ def report_competition(
     from pyvolley.database.models import CompetitionDB
 
     session = _get_session()
-    competition = _find_competition(session, identifier)
-    if not competition:
-        console.print(f"[red]Compétition introuvable : {identifier}[/red]")
-        raise typer.Exit(1)
+    try:
+        competition = _find_competition(session, identifier)
+        if not competition:
+            console.print(f"[red]Compétition introuvable : {identifier}[/red]")
+            raise typer.Exit(1)
 
-    if sections:
-        _list_sections(CompetitionReport, session, competition, max_matchs=max_matchs)
-        return
+        if sections:
+            _list_sections(CompetitionReport, session, competition, max_matchs=max_matchs)
+            return
 
-    rpt = CompetitionReport(
-        session, competition,
-        max_matchs=max_matchs,
-        exclude=_parse_set(exclude) or set(),
-        include=_parse_set(include),
-        hide_empty=not show_empty,
-    )
-    rpt.render(console)
+        rpt = CompetitionReport(
+            session, competition,
+            max_matchs=max_matchs,
+            exclude=_parse_set(exclude) or set(),
+            include=_parse_set(include),
+            hide_empty=not show_empty,
+        )
+        rpt.render(console)
+    finally:
+        session.close()
 
 
 def _find_competition(session, identifier: str):
@@ -386,22 +419,25 @@ def report_saison(
     from pyvolley.database.models import SaisonDB
 
     session = _get_session()
-    saison = _find_saison(session, identifier)
-    if not saison:
-        console.print(f"[red]Saison introuvable : {identifier}[/red]")
-        raise typer.Exit(1)
+    try:
+        saison = _find_saison(session, identifier)
+        if not saison:
+            console.print(f"[red]Saison introuvable : {identifier}[/red]")
+            raise typer.Exit(1)
 
-    if sections:
-        _list_sections(SaisonReport, session, saison)
-        return
+        if sections:
+            _list_sections(SaisonReport, session, saison)
+            return
 
-    rpt = SaisonReport(
-        session, saison,
-        exclude=_parse_set(exclude) or set(),
-        include=_parse_set(include),
-        hide_empty=not show_empty,
-    )
-    rpt.render(console)
+        rpt = SaisonReport(
+            session, saison,
+            exclude=_parse_set(exclude) or set(),
+            include=_parse_set(include),
+            hide_empty=not show_empty,
+        )
+        rpt.render(console)
+    finally:
+        session.close()
 
 
 def _find_saison(session, identifier: str):
