@@ -1346,8 +1346,8 @@ function stripLeadingZeros(val) {
 function buildTimeline(setData) {
   var events = [];
   var serviceInitial = setData.service_initial;
-  var formA = setData.formation_a;
-  var formB = setData.formation_b;
+  var formA = (setData.equipe_a && setData.equipe_a.formation) || setData.formation_a;
+  var formB = (setData.equipe_b && setData.equipe_b.formation) || setData.formation_b;
 
   // Set start event
   events.push({
@@ -1438,13 +1438,13 @@ function buildTimeline(setData) {
     });
   });
 
-  (setData.timeouts_a || []).forEach(function(t) {
+  ((setData.equipe_a && setData.equipe_a.timeouts) || setData.timeouts_a || []).forEach(function(t) {
     otherEvents.push({
       type: 'timeout', team: 'A',
       scoreA: t.score_a, scoreB: t.score_b
     });
   });
-  (setData.timeouts_b || []).forEach(function(t) {
+  ((setData.equipe_b && setData.equipe_b.timeouts) || setData.timeouts_b || []).forEach(function(t) {
     otherEvents.push({
       type: 'timeout', team: 'B',
       scoreA: t.score_a, scoreB: t.score_b

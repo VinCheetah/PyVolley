@@ -11,7 +11,7 @@ from datetime import date as datetime_date, datetime, time as datetime_time
 from typing import Optional
 from enum import Enum
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ============== Enums ==============
@@ -230,7 +230,14 @@ class SetTeamData(PyVolleyModel):
 
 
 class Set(PyVolleyModel):
-    """Données d'un set de volleyball."""
+    """Données d'un set de volleyball.
+
+    Les formations et timeouts sont stockés uniquement dans
+    ``equipe_a`` / ``equipe_b`` (``SetTeamData``).
+    Les propriétés ``formation_a``, ``formation_b``, ``timeouts_a``,
+    ``timeouts_b`` sont des raccourcis en lecture seule qui délèguent
+    vers les ``SetTeamData`` correspondants.
+    """
     id: Optional[int] = None
     numero: int = Field(..., ge=1, le=5)
     score_a: Optional[int] = Field(None, ge=0)
@@ -239,13 +246,50 @@ class Set(PyVolleyModel):
     fin: Optional[datetime_time] = None
     duree_minutes: Optional[int] = None
     service_initial: Optional[str] = None  # 'A' ou 'B'
-    formation_a: Optional[Formation] = None
-    formation_b: Optional[Formation] = None
-    timeouts_a: list[TimeOut] = Field(default_factory=list)
-    timeouts_b: list[TimeOut] = Field(default_factory=list)
     equipe_a: Optional[SetTeamData] = None
     equipe_b: Optional[SetTeamData] = None
-    
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_fields(cls, data):
+        """Absorbe les anciens champs formation_a/b, timeouts_a/b
+        lors de la construction depuis un dict (JSON rétrocompatible)."""
+        if not isinstance(data, dict):
+            return data
+        for side in ("a", "b"):
+            key_form = f"formation_{side}"
+            key_to = f"timeouts_{side}"
+            eq_key = f"equipe_{side}"
+            form_val = data.pop(key_form, None)
+            to_val = data.pop(key_to, None)
+            if form_val is not None or to_val is not None:
+                eq = data.get(eq_key) or {}
+                if isinstance(eq, dict):
+                    if form_val is not None and not eq.get("formation"):
+                        eq["formation"] = form_val
+                    if to_val is not None and not eq.get("timeouts"):
+                        eq["timeouts"] = to_val
+                    data[eq_key] = eq
+        return data
+
+    # ── Raccourcis (lecture seule) ──
+
+    @property
+    def formation_a(self) -> Optional[Formation]:
+        return self.equipe_a.formation if self.equipe_a else None
+
+    @property
+    def formation_b(self) -> Optional[Formation]:
+        return self.equipe_b.formation if self.equipe_b else None
+
+    @property
+    def timeouts_a(self) -> list[TimeOut]:
+        return self.equipe_a.timeouts if self.equipe_a else []
+
+    @property
+    def timeouts_b(self) -> list[TimeOut]:
+        return self.equipe_b.timeouts if self.equipe_b else []
+
     @property
     def vainqueur(self) -> Optional[str]:
         if self.score_a is not None and self.score_b is not None:

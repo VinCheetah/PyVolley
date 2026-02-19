@@ -500,9 +500,9 @@ def parse(
         help="Fichier JSON de sortie pour les résultats"
     ),
     parser_version: str = typer.Option(
-        "v5",
+        "auto",
         "--parser", "-p",
-        help="Version du parser (v2, v3, v4, v5)"
+        help="Parser à utiliser (auto = défaut)"
     ),
     recursive: bool = typer.Option(
         True,
@@ -659,7 +659,7 @@ def parse(
         f"Fichiers: [cyan]{len(pdf_files)}[/cyan]\n"
         f"Saison(s): [cyan]{saison_display}[/cyan]\n"
         f"Entité(s): [cyan]{entity_display}[/cyan]\n"
-        f"Parser: [cyan]{parser_version.upper()}[/cyan]\n"
+        f"Parser: [cyan]auto[/cyan]\n"
         f"Mode: [cyan]{'Aperçu (dry-run)' if dry_run else 'Parsing'}[/cyan]\n"
         f"Sauvegarde DB: [cyan]{'Oui' if save_db else 'Non'}[/cyan]",
         title="Configuration"
@@ -691,8 +691,10 @@ def parse(
     
     # ── Créer le parser ────────────────────────────────────────────────
     try:
-        parser_name = f"MatchSheetParser{parser_version.upper()}"
-        parser = ParserFactory.get(parser_name)
+        if parser_version == "auto":
+            parser = ParserFactory.get_default()
+        else:
+            parser = ParserFactory.get(parser_version)
     except KeyError:
         console.print(f"[red]Parser '{parser_version}' non trouvé[/red]")
         console.print(f"[blue]Parsers disponibles: {ParserFactory.list_parsers()}[/blue]")
@@ -741,6 +743,7 @@ def parse(
                         'match': result.match,
                         'parse_time_ms': result.parse_time_ms,
                         'warnings': result.warnings,
+                        'diagnostics': result.diagnostics,
                     })
                     
                     if result.warnings:
@@ -774,6 +777,7 @@ def parse(
                         'file': str(pdf_file),
                         'errors': result.errors,
                         'warnings': result.warnings,
+                        'diagnostics': result.diagnostics,
                     })
                     if verbose:
                         msg = result.errors[0][:50] if result.errors else 'Erreur inconnue'
@@ -941,8 +945,12 @@ def parse(
 
 # ============== Helpers : récapitulatif warnings & collecte ==============
 
-# Catégories de warnings avec nom court pour les dossiers
-_WARNING_CATEGORIES = [
+from pyvolley.parsers.diagnostics import (
+    Diagnostic, DiagnosticCategory, CATEGORY_FOLDERS,
+)
+
+# Fallback pour les warnings string sans diagnostic structuré
+_LEGACY_WARNING_CATEGORIES = [
     ("capitaine", "capitaine_non_detecte", "Capitaine non détecté"),
     ("arbitre", "arbitre_non_detecte", "Arbitre non détecté"),
     ("joueur", "aucun_joueur", "Aucun joueur détecté"),
@@ -962,13 +970,35 @@ _WARNING_CATEGORIES = [
 ]
 
 
-def _categorize_warning(warning: str) -> tuple[str, str]:
-    """Retourne (nom_dossier, label_affichage) pour un warning donné."""
+def _categorize_warning(warning) -> tuple[str, str]:
+    """Retourne (nom_dossier, label_affichage) pour un warning.
+
+    Accepte un Diagnostic structuré ou une string legacy.
+    """
+    if isinstance(warning, Diagnostic):
+        folder, label = CATEGORY_FOLDERS.get(
+            warning.category, ("autre", "Autre"),
+        )
+        return folder, label
+
+    # Fallback legacy string
     wl = warning.lower()
-    for keyword, folder, label in _WARNING_CATEGORIES:
+    for keyword, folder, label in _LEGACY_WARNING_CATEGORIES:
         if keyword in wl:
             return folder, label
     return "autre", "Autre"
+
+
+def _iter_diagnostics(record: dict):
+    """Itère sur les diagnostics d'un enregistrement.
+
+    Utilise les Diagnostic structurés si disponibles, sinon les strings.
+    """
+    diags = record.get('diagnostics')
+    if diags:
+        yield from diags
+    else:
+        yield from record.get('warnings', [])
 
 
 def _display_warning_summary(
@@ -985,13 +1015,13 @@ def _display_warning_summary(
     category_count: Counter = Counter()   # label → nombre de warnings
 
     for r in results:
-        for w in r.get('warnings', []):
+        for w in _iter_diagnostics(r):
             _, label = _categorize_warning(w)
             category_count[label] += 1
             category_files.setdefault(label, set()).add(r['file'])
 
     for r in error_details:
-        for w in r.get('warnings', []):
+        for w in _iter_diagnostics(r):
             _, label = _categorize_warning(w)
             category_count[label] += 1
             category_files.setdefault(label, set()).add(r['file'])
@@ -1045,7 +1075,7 @@ def _collect_problem_files(
 
     # Fichiers avec warnings
     for r in results:
-        for w in r.get('warnings', []):
+        for w in _iter_diagnostics(r):
             folder, _ = _categorize_warning(w)
             _copy_to_category(r['file'], dest_dir / folder)
             copied += 1
@@ -1055,7 +1085,7 @@ def _collect_problem_files(
         if r.get('errors'):
             _copy_to_category(r['file'], dest_dir / "erreur_parsing")
             copied += 1
-        for w in r.get('warnings', []):
+        for w in _iter_diagnostics(r):
             folder, _ = _categorize_warning(w)
             _copy_to_category(r['file'], dest_dir / folder)
 
@@ -1248,7 +1278,7 @@ def simulate(
     parser: Optional[str] = typer.Option(
         None,
         "--parser", "-p",
-        help="Parser à utiliser (v5 par défaut)"
+        help="Parser à utiliser (auto = défaut)"
     ),
 ):
     """

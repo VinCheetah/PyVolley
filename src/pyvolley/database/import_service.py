@@ -444,11 +444,11 @@ class MatchImportService:
             self.session.flush()
 
             # Formations
-            for label, team_data, formation in [
-                ("A", set_data.equipe_a, set_data.formation_a),
-                ("B", set_data.equipe_b, set_data.formation_b),
+            for label, team_data in [
+                ("A", set_data.equipe_a),
+                ("B", set_data.equipe_b),
             ]:
-                f = formation or (team_data.formation if team_data else None)
+                f = team_data.formation if team_data else None
                 if f:
                     form_db = FormationDB(
                         set_id=set_db.id,

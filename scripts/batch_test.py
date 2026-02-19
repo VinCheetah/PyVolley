@@ -7,7 +7,7 @@ import glob
 from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
-from pyvolley.parsers.v5 import MatchSheetParserV5
+from pyvolley.parsers import MatchSheetParser
 
 
 class TimeoutErr(Exception):
@@ -16,7 +16,7 @@ class TimeoutErr(Exception):
 def alarm_handler(signum, frame):
     raise TimeoutErr()
 
-parser = MatchSheetParserV5()
+parser = MatchSheetParser()
 base = os.path.join(os.path.dirname(__file__), '..', 'data', 'pdfs')
 
 for season in ['2025-2026', '2024-2025']:
