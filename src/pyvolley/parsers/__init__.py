@@ -28,14 +28,10 @@ from pyvolley.parsers.diagnostics import (
     CATEGORY_FOLDERS,
 )
 
-# Rétro-compatibilité : l'ancien nom pointe vers le nouveau parser
-MatchSheetParserV5 = MatchSheetParser
-
 __all__ = [
     "BaseParser",
     "ParseResult",
     "MatchSheetParser",
-    "MatchSheetParserV5",
     "ParserFactory",
     "get_parser",
     "Diagnostic",

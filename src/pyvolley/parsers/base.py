@@ -20,7 +20,6 @@ class ParseResult:
     success: bool
     match: Optional[Match] = None
     errors: list[str] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
     diagnostics: list["Diagnostic"] = field(default_factory=list)
     parse_time_ms: float = 0.0
     
@@ -37,9 +36,15 @@ class ParseResult:
     
     def add_error(self, message: str):
         self.errors.append(message)
-        
-    def add_warning(self, message: str):
-        self.warnings.append(message)
+
+    @property
+    def warnings_count(self) -> int:
+        """Nombre de diagnostics de niveau WARNING ou ERROR."""
+        from pyvolley.parsers.diagnostics import DiagnosticLevel
+        return sum(
+            1 for d in self.diagnostics
+            if d.level in (DiagnosticLevel.WARNING, DiagnosticLevel.ERROR)
+        )
 
 
 @dataclass

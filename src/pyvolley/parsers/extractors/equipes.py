@@ -139,7 +139,13 @@ def extract_joueurs(
         if 'OFFICIELS' in row_text and 'LIBEROS' not in row_text:
             continue
 
-        is_liberos_row = 'LIBEROS' in row_text
+        # Détection de la ligne LIBEROS : propre ou garbled
+        is_liberos_row = bool(
+            re.search(
+                r'L\s*I\s*B\s*E\s*R\s*O\s*S|L\d*I\d*B\d*E?\d*R\d*O\d*S',
+                row_text, re.IGNORECASE,
+            )
+        )
         mid = len(row) // 2
 
         for cell_idx, cell in enumerate(row):
@@ -152,9 +158,10 @@ def extract_joueurs(
                 continue
 
             target = joueurs_a if cell_idx < mid else joueurs_b
+            cross_target = joueurs_b if cell_idx < mid else joueurs_a
 
             if is_liberos_row:
-                _parse_liberos_merged_cell(cs, target)
+                _parse_liberos_merged_cell(cs, target, cross_target)
             else:
                 dup_count = _parse_player_cell(cs, target)
                 if dup_count > 0:
@@ -163,20 +170,100 @@ def extract_joueurs(
     return joueurs_a, joueurs_b, duplication_detected
 
 
-def _parse_liberos_merged_cell(cs: str, target: list[Joueur]) -> None:
-    """Extrait les joueurs depuis une cellule fusionnée LIBEROS."""
-    parts = re.split(
+def _parse_liberos_merged_cell(
+    cs: str,
+    target: list[Joueur],
+    cross_target: list[Joueur] | None = None,
+) -> None:
+    """Extrait les joueurs depuis une cellule fusionnée LIBEROS.
+
+    Gère :
+    - Le texte propre ``LIBEROS  09 DUPONT JEAN 1234567``
+    - Le texte garbled ``23128L3I1BER1O2S DEBEAUMOREL CLAIRE 1796348``
+      où les derniers chiffres de la licence précédente et le numéro
+      du libéro sont intercalés avec les lettres de LIBEROS.
+
+    Parameters:
+        cs: Le texte de la cellule.
+        target: Liste des joueurs de l'équipe associée à cette cellule.
+        cross_target: Liste des joueurs de l'AUTRE équipe (pour les cas
+            garbled de type 2 où le libéro après le marqueur appartient
+            à l'équipe adverse).
+    """
+    if cross_target is None:
+        cross_target = target
+
+    # ── Détection du marqueur LIBEROS (propre ou garbled) ──
+    # Pattern propre : L I B E R O S éventuellement espacé
+    clean_split = re.split(
         r'L\s*I\s*B\s*E\s*R\s*O\s*S',
         cs, flags=re.IGNORECASE,
     )
-    for part in parts:
-        part = part.strip()
-        if not part:
-            continue
-        cleaned = re.sub(r'^\d+\s*', '', part)
-        if cleaned:
-            _add_joueur(cleaned, target)
-        _add_joueur(part, target)
+    if len(clean_split) > 1:
+        # Cas propre : traiter les parties avant/après LIBEROS
+        for part in clean_split:
+            part = part.strip()
+            if not part:
+                continue
+            cleaned = re.sub(r'^\d+\s*', '', part)
+            if cleaned:
+                _add_joueur(cleaned, target, est_libero=True)
+            _add_joueur(part, target, est_libero=True)
+        return
+
+    # ── Cas garbled : chiffres intercalés avec LIBEROS ──
+    # Ex: "LIBER2O9S CARMONA LUBIN 2777789"
+    # Ex: "23128L3I1BER1O2S DEBEAUMOREL CLAIRE 1796348"
+    # Ex: "10 ROCHET JULIEN 22425L4I5BER0O9S CHAREYRON LUCAS 1837707"
+    garbled_match = re.search(
+        r'(\d*)L\d*I\d*B\d*E?\d*R\d*O\d*S',
+        cs, flags=re.IGNORECASE,
+    )
+    if garbled_match:
+        leading_digits = garbled_match.group(1)
+        before = cs[:garbled_match.start()].strip()
+        after = cs[garbled_match.end():].strip()
+
+        # Partie avant : potentiel dernier joueur normal (non-libéro)
+        if before:
+            _add_joueur(before, target)
+
+        # Déterminer l'équipe du libéro « after » :
+        # Type 2 : chiffres de tête >= 5 (fragment de licence) →
+        #          le libéro après le garble appartient à l'AUTRE équipe
+        # Type 1 : pas de chiffres de tête → même équipe
+        is_type2 = len(leading_digits) >= 5
+        libero_target = cross_target if is_type2 else target
+
+        # Partie après : libéro(s)
+        if after:
+            # Tenter d'extraire le numéro du libéro depuis le garble
+            # Les chiffres dans le garble peuvent contenir le numéro
+            garble_text = garbled_match.group(0)
+            # Chiffres APRÈS les leading_digits (dans le corps du garble)
+            body = garble_text[len(leading_digits):]
+            digits_in_body = re.findall(r'\d', body)
+            libero_num = None
+            if digits_in_body:
+                if len(digits_in_body) >= 2:
+                    libero_num = ''.join(digits_in_body[-2:])
+                    libero_num = libero_num.lstrip('0') or '0'
+                else:
+                    libero_num = digits_in_body[-1]
+
+            # Essayer de parser la partie après comme un joueur complet
+            if not _add_joueur(after, libero_target, est_libero=True):
+                # Sinon, ajouter le numéro extrait + nom après
+                if libero_num:
+                    full_line = f"{libero_num} {after}"
+                    _add_joueur(full_line, libero_target, est_libero=True)
+        return
+
+    # ── Fallback : traiter comme une cellule de joueurs quelconque ──
+    for line in cs.split('\n'):
+        line = line.strip()
+        if line and 'LIBEROS' not in line.upper():
+            _add_joueur(line, target, est_libero=True)
 
 
 def _parse_player_cell(cs: str, target: list[Joueur]) -> int:
@@ -205,7 +292,12 @@ def _parse_player_cell(cs: str, target: list[Joueur]) -> int:
     return 0
 
 
-def _add_joueur(line: str, target: list[Joueur]) -> bool:
+def _add_joueur(
+    line: str,
+    target: list[Joueur],
+    *,
+    est_libero: bool = False,
+) -> bool:
     """Tente d'extraire un joueur depuis une ligne de texte."""
     line = line.strip()
     if not line:
@@ -219,9 +311,16 @@ def _add_joueur(line: str, target: list[Joueur]) -> bool:
         nom, prenom = split_nom_prenom(nom_prenom)
         joueur = Joueur(
             numero=numero, nom=nom, prenom=prenom, licence=licence,
+            est_libero=est_libero,
         )
         if not any(j.numero == numero and j.licence == licence for j in target):
             target.append(joueur)
+        elif est_libero:
+            # Marquer le joueur existant comme libéro
+            for j in target:
+                if j.numero == numero and j.licence == licence:
+                    j.est_libero = True
+                    break
         return True
 
     m2 = JOUEUR_NO_LICENCE_PATTERN.match(line)
@@ -231,9 +330,15 @@ def _add_joueur(line: str, target: list[Joueur]) -> bool:
         nom, prenom = split_nom_prenom(nom_prenom)
         joueur = Joueur(
             numero=numero, nom=nom, prenom=prenom, licence="0",
+            est_libero=est_libero,
         )
         if not any(j.numero == numero for j in target):
             target.append(joueur)
+        elif est_libero:
+            for j in target:
+                if j.numero == numero:
+                    j.est_libero = True
+                    break
         return True
 
     return False
@@ -298,20 +403,211 @@ def recover_joueurs_from_sets(
     return recovered_a, recovered_b
 
 
+def correct_team_assignment(
+    joueurs_a: list[Joueur],
+    joueurs_b: list[Joueur],
+    sets: list[Set],
+) -> None:
+    """Corrige l'affectation d'équipe des joueurs à partir des formations.
+
+    Les feuilles dupliquées/garbled peuvent assigner un joueur à la
+    mauvaise équipe (tout le contenu du LIBEROS row finit dans cell 0
+    → équipe A). Cette fonction utilise les formations de chaque set
+    pour détecter et corriger ces erreurs.
+
+    Limitations :
+    - Ne déplace PAS les joueurs marqués ``est_libero=True`` (les
+      libéros n'apparaissent souvent pas dans les formations).
+    - Ne déplace PAS si le numéro existe dans les formations des
+      DEUX équipes (ambiguïté, ex: même numéro dans les 2 équipes).
+    - Requiert au moins 2 sets avec formation pour être fiable.
+
+    Modifie les listes en place.
+    """
+
+    def _norm(n: str) -> str:
+        return n.lstrip('0') or '0'
+
+    # Construire les ensembles de numéros réellement utilisés par chaque équipe
+    used_a: set[str] = set()
+    used_b: set[str] = set()
+    for s in sets:
+        if s.formation_a:
+            for num in s.formation_a.as_list():
+                if num:
+                    used_a.add(_norm(num))
+        if s.formation_b:
+            for num in s.formation_b.as_list():
+                if num:
+                    used_b.add(_norm(num))
+        if s.equipe_a:
+            for ch in s.equipe_a.changements:
+                for num in [ch.joueur_entrant, ch.joueur_sortant]:
+                    if num:
+                        used_a.add(_norm(num))
+        if s.equipe_b:
+            for ch in s.equipe_b.changements:
+                for num in [ch.joueur_entrant, ch.joueur_sortant]:
+                    if num:
+                        used_b.add(_norm(num))
+
+    if not used_a and not used_b:
+        return
+
+    # Collecter les numéros présents dans les DEUX rosters
+    nums_in_a = {_norm(j.numero) for j in joueurs_a if j.numero}
+    nums_in_b = {_norm(j.numero) for j in joueurs_b if j.numero}
+
+    # Déplacer les joueurs mal assignés
+    to_move_a_to_b: list[Joueur] = []
+    to_move_b_to_a: list[Joueur] = []
+
+    for j in joueurs_a:
+        if j.est_libero:
+            continue  # Les libéros ne sont pas dans les formations
+        n = _norm(j.numero) if j.numero else ''
+        if not n:
+            continue
+        # Ne pas déplacer si le numéro existe déjà dans l'autre équipe
+        if n in nums_in_b:
+            continue
+        in_a = n in used_a
+        in_b = n in used_b
+        if in_b and not in_a:
+            to_move_a_to_b.append(j)
+
+    for j in joueurs_b:
+        if j.est_libero:
+            continue
+        n = _norm(j.numero) if j.numero else ''
+        if not n:
+            continue
+        if n in nums_in_a:
+            continue
+        in_a = n in used_a
+        in_b = n in used_b
+        if in_a and not in_b:
+            to_move_b_to_a.append(j)
+
+    for j in to_move_a_to_b:
+        joueurs_a.remove(j)
+        joueurs_b.append(j)
+        logger.debug(
+            "Joueur #%s %s réassigné A→B (formation)",
+            j.numero, j.nom,
+        )
+
+    for j in to_move_b_to_a:
+        joueurs_b.remove(j)
+        joueurs_a.append(j)
+        logger.debug(
+            "Joueur #%s %s réassigné B→A (formation)",
+            j.numero, j.nom,
+        )
+
+
+# =====================================================================
+# Helpers pour la gestion de duplication
+# =====================================================================
+
+
+def _is_garbled_word(text: str) -> bool:
+    """Détecte un mot garbled (superposition de deux lignes dupliquées).
+
+    Les feuilles dupliquées produisent des mots comme ``CJUALRIMA``,
+    ``AELMICOEREL``, ``22787478768897`` qui sont le résultat de la
+    superposition de deux lignes de texte identiques décalées.
+    """
+    if not text or len(text) < 4:
+        return False
+    # Texte purement numérique très long (2 licences superposées)
+    if text.isdigit() and len(text) > 9:
+        return True
+    # Texte alphanumérique mixte suspect (début ou fin avec des chiffres intercalés)
+    if re.match(r'^\d{4,}[A-Z]', text) and len(text) > 10:
+        return True
+    # Noms garbled : ratio voyelles/consonnes anormal, alternance inhabituelles
+    alpha = re.sub(r'[^A-Za-z]', '', text)
+    if len(alpha) >= 8:
+        # Si plus de 60% de caractères uniques sont des lettres majuscules
+        # et la longueur est suspecte vs un nom normal
+        upper = sum(1 for c in alpha if c.isupper())
+        if upper == len(alpha) and len(alpha) > 12:
+            # Vérifier si c'est un motif de superposition (AABB)
+            # Les mots garbled ont souvent des paires de lettres : CCHHEENN
+            pairs = sum(1 for i in range(len(alpha) - 1) if alpha[i] == alpha[i + 1])
+            if pairs >= len(alpha) * 0.3:
+                return True
+    return False
+
+
+def _dedup_word_lines(
+    lines: dict[int, list],
+) -> dict[int, list]:
+    """Déduplique les lignes de mots qui ont le même contenu textuel.
+
+    Les feuilles dupliquées produisent deux lignes identiques à des
+    positions y très proches. On garde la première occurrence.
+    """
+    seen_content: set[str] = set()
+    result: dict[int, list] = {}
+    for key in sorted(lines):
+        content = ' '.join(
+            w['text'] for w in sorted(lines[key], key=lambda w: w['x0'])
+        )
+        if content in seen_content:
+            continue
+        seen_content.add(content)
+        result[key] = lines[key]
+    return result
+
+
 # =====================================================================
 # Libéros (positionnement spatial)
 # =====================================================================
 
 
-def extract_liberos(words: list) -> tuple[list[Joueur], list[Joueur]]:
-    """Extrait les libéros depuis la section LIBEROS du PDF."""
+def extract_liberos(
+    words: list,
+) -> tuple[list[Joueur], list[Joueur]]:
+    """Extrait les libéros depuis la section LIBEROS du PDF.
+
+    Détecte le header LIBEROS même garbled (ex: ``LIBER2O9S``,
+    ``23128L3I1BER1O2S``) et utilise les positions spatiales pour
+    séparer équipe A / équipe B.
+
+    Pour les feuilles garbled/dupliquées, utilise une stratégie de
+    restriction par colonne :
+    - Type 1 (LIBER…S sans chiffres de tête) : le libéro Team A
+      est déjà extrait par la table → on cherche seulement Team B.
+    - Type 2 (chiffres+L…S) : le libéro Team B est déjà extrait
+      par la table → on cherche seulement Team A.
+    """
     liberos_a: list[Joueur] = []
     liberos_b: list[Joueur] = []
 
-    lib_header = next(
-        (w for w in words if w['text'].upper() == 'LIBEROS' and w['x0'] > 500),
-        None,
-    )
+    # Chercher le header LIBEROS — propre ou garbled
+    lib_header = None
+    garbled = False
+    for w in words:
+        if w['x0'] <= 500:
+            continue
+        text_up = w['text'].upper()
+        # Propre
+        if text_up == 'LIBEROS':
+            lib_header = w
+            break
+        # Garbled : commence par LIBER et finit par S, avec chiffres intercalés
+        if re.match(r'^LIBER\d*O?\d*S$', text_up):
+            lib_header = w
+            garbled = True
+            break
+        # Garbled type 2 : chiffres de licence + LIBEROS intercalé
+        if re.search(r'\d{3,}L\d*I\d*B\d*E?\d*R\d*O\d*S$', text_up):
+            lib_header = w
+            garbled = True
+            break
+
     if not lib_header:
         return liberos_a, liberos_b
 
@@ -319,57 +615,145 @@ def extract_liberos(words: list) -> tuple[list[Joueur], list[Joueur]]:
         (w for w in words if w['text'].upper() == 'OFFICIELS' and w['x0'] > 500),
         None,
     )
-    y_start = lib_header['bottom']
-    y_end = off_header['top'] if off_header else y_start + 35
 
-    zone_words = [
-        w for w in words
-        if y_start - 2 <= w['top'] <= y_end and w['x0'] > 500
-    ]
-    zone_words.sort(key=lambda w: (w['top'], w['x0']))
+    if not garbled:
+        # ── Cas propre : extraction normale par zone spatiale ──
+        y_start = lib_header['bottom']
+        y_end = off_header['top'] if off_header else y_start + 35
 
-    x_thresh = 700
-    lines_a: dict[int, list] = defaultdict(list)
-    lines_b: dict[int, list] = defaultdict(list)
-    for w in zone_words:
-        key = round(w['top'] / 3) * 3
-        if w['x0'] < x_thresh:
-            lines_a[key].append(w)
-        else:
-            lines_b[key].append(w)
+        zone_words = [
+            w for w in words
+            if y_start - 2 <= w['top'] <= y_end and w['x0'] > 500
+        ]
+        zone_words.sort(key=lambda w: (w['top'], w['x0']))
 
-    def _build_joueur(line_words: list) -> Optional[Joueur]:
-        if not line_words:
-            return None
-        texts = [w['text'] for w in sorted(line_words, key=lambda w: w['x0'])]
-        numero, licence = None, None
-        name_parts: list[str] = []
-        for t in texts:
-            t = t.strip()
-            if not t:
+        x_thresh = 700
+        lines_a: dict[int, list] = defaultdict(list)
+        lines_b: dict[int, list] = defaultdict(list)
+        for w in zone_words:
+            if _is_garbled_word(w['text']):
                 continue
-            if t.isdigit() and len(t) <= 2 and numero is None:
-                numero = t
-            elif t.isdigit() and len(t) >= 6:
-                licence = t
-            elif t.upper() not in ('LIBEROS',):
-                name_parts.append(t)
-        if not numero or not licence or not name_parts:
-            return None
-        nom, prenom = split_nom_prenom(' '.join(name_parts))
-        return Joueur(
-            numero=numero, nom=nom, prenom=prenom,
-            licence=licence, est_libero=True,
-        )
+            key = round(w['top'] / 3) * 3
+            if w['x0'] < x_thresh:
+                lines_a[key].append(w)
+            else:
+                lines_b[key].append(w)
 
-    for key in sorted(lines_a):
-        if j := _build_joueur(lines_a[key]):
-            liberos_a.append(j)
-    for key in sorted(lines_b):
-        if j := _build_joueur(lines_b[key]):
-            liberos_b.append(j)
+        lines_a = _dedup_word_lines(lines_a)
+        lines_b = _dedup_word_lines(lines_b)
+
+        for key in sorted(lines_a):
+            if j := _build_libero(lines_a[key]):
+                liberos_a.append(j)
+        for key in sorted(lines_b):
+            if j := _build_libero(lines_b[key]):
+                liberos_b.append(j)
+
+    else:
+        # ── Cas garbled : extraction sélective par colonne ──
+        # La ligne du header est traitée par _parse_liberos_merged_cell.
+        # On cherche les lignes PROPRES en dessous pour les libéros
+        # non encore trouvés.
+        #
+        # Stratégie : déterminer le « type » du garble pour choisir
+        # quelle colonne (Team A / Team B) contient les données fiables.
+        #
+        # Type 1 (LIBER2O9S) : pas de chiffres avant LIBER
+        #   → le libéro de Team A est déjà extrait par la table
+        #   → on cherche seulement Team B (x > 700) dans la zone
+        #
+        # Type 2 (23128L3I1BER1O2S) : chiffres de licence avant LIBER
+        #   → le libéro de Team B est déjà extrait par la table
+        #   → on cherche seulement Team A (x < 700) dans la zone
+        header_y = lib_header['top']
+        y_end = off_header['top'] if off_header else header_y + 35
+
+        # Déterminer le type de garble
+        garble_text = lib_header['text'].upper()
+        garble_m = re.search(
+            r'(\d*)L\d*I\d*B\d*E?\d*R\d*O\d*S', garble_text,
+        )
+        leading_digits = garble_m.group(1) if garble_m else ''
+        is_type2 = len(leading_digits) >= 5
+
+        zone_words = [
+            w for w in words
+            if header_y + 1 <= w['top'] <= y_end and w['x0'] > 500
+        ]
+
+        x_thresh = 700
+        lines_a: dict[int, list] = defaultdict(list)
+        lines_b: dict[int, list] = defaultdict(list)
+
+        for w in zone_words:
+            # Exclure les mots garbled
+            if _is_garbled_word(w['text']):
+                continue
+            # Exclure les fragments char-par-char
+            if len(w['text']) == 1 and w['text'].isalpha():
+                continue
+
+            key = round(w['top'] / 3) * 3
+            if w['x0'] < x_thresh:
+                lines_a[key].append(w)
+            else:
+                lines_b[key].append(w)
+
+        lines_a = _dedup_word_lines(lines_a)
+        lines_b = _dedup_word_lines(lines_b)
+
+        if is_type2:
+            # Type 2 : Team B libéro extrait par table, chercher Team A
+            for key in sorted(lines_a):
+                if j := _build_libero(lines_a[key]):
+                    liberos_a.append(j)
+            # Aussi extraire Team B si la ligne contient les DEUX côtés
+            # (ligne propre avec données complètes des deux équipes)
+            for key in sorted(lines_b):
+                if key in lines_a:
+                    # Ligne qui a aussi des données Team A → ligne propre
+                    if j := _build_libero(lines_b[key]):
+                        liberos_b.append(j)
+        else:
+            # Type 1 : Team A libéro extrait par table, chercher Team B
+            for key in sorted(lines_b):
+                if j := _build_libero(lines_b[key]):
+                    liberos_b.append(j)
+            # Aussi extraire Team A si la ligne contient les DEUX côtés
+            for key in sorted(lines_a):
+                if key in lines_b:
+                    if j := _build_libero(lines_a[key]):
+                        liberos_a.append(j)
 
     return liberos_a, liberos_b
+
+
+def _build_libero(line_words: list) -> Optional[Joueur]:
+    """Construit un Joueur libéro depuis une liste de mots spatiaux."""
+    if not line_words:
+        return None
+    texts = [w['text'] for w in sorted(line_words, key=lambda w: w['x0'])]
+    numero, licence = None, None
+    name_parts: list[str] = []
+    for t in texts:
+        t = t.strip()
+        if not t:
+            continue
+        if t.isdigit() and len(t) <= 2 and numero is None:
+            numero = t
+        elif t.isdigit() and len(t) >= 6:
+            licence = t
+        elif t.upper() not in ('LIBEROS',) and not re.match(
+            r'^LIBER\d*O?\d*S$', t, re.IGNORECASE,
+        ):
+            name_parts.append(t)
+    if not numero or not licence or not name_parts:
+        return None
+    nom, prenom = split_nom_prenom(' '.join(name_parts))
+    return Joueur(
+        numero=numero, nom=nom, prenom=prenom,
+        licence=licence, est_libero=True,
+    )
 
 
 def mark_liberos(joueurs: list[Joueur], liberos: list[Joueur]) -> None:
@@ -382,13 +766,42 @@ def mark_liberos(joueurs: list[Joueur], liberos: list[Joueur]) -> None:
 
 
 def merge_liberos(joueurs: list[Joueur], liberos: list[Joueur]) -> list[Joueur]:
-    """Fusionne les libéros dans la liste des joueurs, sans doublons."""
+    """Fusionne les libéros dans la liste des joueurs, sans doublons.
+
+    Gère les cas de chevauchement entre joueurs, libéros et entraîneurs
+    en utilisant le couple (numéro, licence) comme clé d'unicité.
+    Les joueurs « placeholder » (licence=0, nom=Inconnu) sont remplacés
+    par les vraies données du libéro si disponibles.
+    """
     existing_ids = {(j.numero, j.licence) for j in joueurs}
+    existing_nums = {j.numero for j in joueurs}
     merged = list(joueurs)
+
     for lib in liberos:
-        if (lib.numero, lib.licence) not in existing_ids:
+        if (lib.numero, lib.licence) in existing_ids:
+            # Le joueur existe déjà — juste marquer comme libéro
+            for j in merged:
+                if j.numero == lib.numero and j.licence == lib.licence:
+                    j.est_libero = True
+                    break
+        elif lib.numero in existing_nums:
+            # Même numéro mais licence différente : vérifier si c'est un placeholder
+            for j in merged:
+                if j.numero == lib.numero and j.licence == '0' and j.nom == 'Inconnu':
+                    # Remplacer le placeholder par les vraies données
+                    j.nom = lib.nom
+                    j.prenom = lib.prenom
+                    j.licence = lib.licence
+                    j.est_libero = True
+                    break
+            else:
+                # Numéro identique mais données différentes : garder les deux
+                lib.est_libero = True
+                merged.append(lib)
+        else:
             lib.est_libero = True
             merged.append(lib)
+
     return merged
 
 

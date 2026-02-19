@@ -158,11 +158,6 @@ class Diagnostic:
         tag = f"[{self.origin.value}]" if self.origin == DiagnosticOrigin.DATA else ""
         return f"{tag} {self.message}".strip()
 
-    @property
-    def as_legacy_warning(self) -> str:
-        """Format rétrocompatible pour les anciens warnings string."""
-        return str(self)
-
 
 @dataclass
 class DiagnosticCollector:
@@ -229,19 +224,6 @@ class DiagnosticCollector:
     @property
     def has_warnings(self) -> bool:
         return any(d.level == DiagnosticLevel.WARNING for d in self._items)
-
-    # ── Rétrocompatibilité ──
-
-    def as_legacy_warnings(self) -> list[str]:
-        """Convertit tous les diagnostics en liste de strings
-        (format rétrocompatible avec ParseResult.warnings)."""
-        return [d.as_legacy_warning for d in self._items
-                if d.level in (DiagnosticLevel.WARNING, DiagnosticLevel.ERROR)]
-
-    def as_legacy_errors(self) -> list[str]:
-        """Convertit les erreurs en liste de strings."""
-        return [d.message for d in self._items
-                if d.level == DiagnosticLevel.ERROR]
 
     # ── Résumé ──
 

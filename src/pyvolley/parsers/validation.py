@@ -64,11 +64,6 @@ def validate_match(
                 Cat.EQUIPE, f"Nom d'équipe {label} manquant ou générique",
                 equipe=label,
             ))
-        if not eq.joueurs:
-            diags.append(Diagnostic.data_warning(
-                Cat.JOUEUR, f"Aucun joueur pour l'équipe {label}",
-                equipe=label,
-            ))
 
     # ── Cohérence des scores (match joué uniquement) ──
     if match.match_joue:

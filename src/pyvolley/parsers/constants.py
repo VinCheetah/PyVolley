@@ -42,8 +42,8 @@ COMPETITION_FORMAT_15_KEYWORDS = frozenset({
 })
 
 # ── Regex : joueurs ──
-# Caractères autorisés dans les noms (accents, tirets, apostrophes, etc.)
-NAME_CHARS = r'A-Za-zÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆàâäéèêëïîôùûüçñœæ\.\-\',\( \)'
+# Caractères autorisés dans les noms (accents, tirets, apostrophes, ?, etc.)
+NAME_CHARS = r'A-Za-zÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆàâäéèêëïîôùûüçñœæ\.\-\',\( \)\?'
 
 JOUEUR_PATTERN = re.compile(
     r'^(\d{1,2})\s+'

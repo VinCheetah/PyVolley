@@ -42,7 +42,7 @@ from pyvolley.parsers.extractors.equipes import (
     extract_equipes, extract_joueurs, extract_liberos,
     extract_officiels, detect_capitaines,
     mark_capitaine, mark_liberos, merge_liberos,
-    recover_joueurs_from_sets,
+    recover_joueurs_from_sets, correct_team_assignment,
 )
 from pyvolley.parsers.extractors.sets import (
     extract_all_sets, extract_resultats_table, build_sets,
@@ -211,6 +211,9 @@ class MatchSheetParser(BaseParser):
                 # ── Phase 6 : Récupération joueurs manquants ──
 
                 if duplication_detected and sets:
+                    # Corriger les joueurs mal assignés (garbled cells)
+                    correct_team_assignment(joueurs_a, joueurs_b, sets)
+
                     recovered_a, recovered_b = recover_joueurs_from_sets(
                         joueurs_a, joueurs_b, sets,
                     )
@@ -278,7 +281,6 @@ class MatchSheetParser(BaseParser):
 
                 # ── Peupler le résultat ──
                 result.diagnostics = diag.all
-                result.warnings = diag.as_legacy_warnings()
 
         except Exception as e:
             result.add_error(f"Erreur de parsing: {e}")
