@@ -63,6 +63,11 @@ def download(
         "--type", "-t",
         help="Filtrer par type d'entité: nationale, ligue, comite"
     ),
+    pro: bool = typer.Option(
+        False,
+        "--pro",
+        help="Télécharge uniquement les matchs pro (Marmara SpikeLigue, Saforelle Power 6, Ligue B)"
+    ),
     limit: Optional[int] = typer.Option(
         None,
         "--limit", "-n",
@@ -112,12 +117,22 @@ def download(
         # Télécharger TOUT (attention: très long!)
         pyvolley download --all --dry-run
         
+        # Télécharger uniquement les matchs pro (LNV)
+        pyvolley download --pro
+        
         # Limiter à 10 téléchargements avec aperçu
         pyvolley download -e ABCCS -p EFA -n 10 --dry-run
     """
     from pyvolley.scrapers.ffvb import FFVBScraper
+    from pyvolley.scrapers.lnv import PRO_COMPETITIONS, PRO_ENTITY_CODE
     
     scraper = FFVBScraper()
+    
+    # Mode --pro : ne télécharger que les compétitions professionnelles
+    if pro:
+        if not entity:
+            entity = [PRO_ENTITY_CODE]
+        pro_poule_codes = [c.code for c in PRO_COMPETITIONS]
     
     # Déterminer les saisons à traiter
     if saison is None or len(saison) == 0:
@@ -176,8 +191,12 @@ def download(
             console.print(f"\n[blue]📂 {current_entity} - Saison {current_saison}[/blue]")
             
             # Récupérer les poules
-            with console.status(f"[bold blue]Récupération des poules pour {current_entity}..."):
-                poules_list = scraper.get_poules_for_entity(current_entity, current_saison)
+            try:
+                with console.status(f"[bold blue]Récupération des poules pour {current_entity}..."):
+                    poules_list = scraper.get_poules_for_entity(current_entity, current_saison)
+            except Exception as e:
+                console.print(f"  [red]Erreur lors de la récupération des poules: {e}[/red]")
+                continue
             
             if not poules_list:
                 console.print(f"  [yellow]Aucune poule trouvée[/yellow]")
@@ -190,10 +209,18 @@ def download(
                     console.print(f"  [yellow]Poule {poule} non trouvée[/yellow]")
                     continue
             
+            # Filtrer pour le mode --pro (seulement les compétitions LNV)
+            if pro:
+                poules_list = [p for p in poules_list if p.code in pro_poule_codes]
+                if not poules_list:
+                    console.print(f"  [yellow]Aucune poule pro trouvée[/yellow]")
+                    continue
+            
             total_poules += len(poules_list)
             console.print(f"  [green]✓ {len(poules_list)} poule(s) trouvée(s)[/green]")
             
             # Collecter les matchs
+            poule_errors = 0
             with Progress(
                 SpinnerColumn(),
                 TextColumn("[progress.description]{task.description}"),
@@ -205,13 +232,20 @@ def download(
                 task = progress.add_task("Récupération des matchs...", total=len(poules_list))
                 
                 for p in poules_list:
-                    matches = list(scraper.get_matches_for_poule(current_entity, p.code, current_saison))
-                    for m in matches:
-                        m.poule_nom = p.nom
-                        m.entity_code = current_entity  # Ajouter le code entité
-                        m.saison = current_saison       # Ajouter la saison
-                    all_matches.extend(matches)
-                    progress.update(task, advance=1, description=f"  {p.code}: {len(matches)} match(s)")
+                    try:
+                        matches = list(scraper.get_matches_for_poule(current_entity, p.code, current_saison))
+                        for m in matches:
+                            m.poule_nom = p.nom
+                            m.entity_code = current_entity  # Ajouter le code entité
+                            m.saison = current_saison       # Ajouter la saison
+                        all_matches.extend(matches)
+                        progress.update(task, advance=1, description=f"  {p.code}: {len(matches)} match(s)")
+                    except Exception as e:
+                        poule_errors += 1
+                        progress.update(task, advance=1, description=f"  [red]{p.code}: erreur ({e})[/red]")
+
+            if poule_errors:
+                console.print(f"  [yellow]⚠ {poule_errors} poule(s) avec erreurs (ignorées)[/yellow]")
             
             # Si on a atteint la limite globale, on s'arrête
             if limit and len(all_matches) >= limit:
@@ -251,6 +285,8 @@ def download(
     skipped = 0
     errors = 0
     error_list = []
+    consecutive_errors = 0
+    MAX_CONSECUTIVE_ERRORS = 10  # Pause longue après N erreurs d'affilée
     
     with Progress(
         SpinnerColumn(),
@@ -260,6 +296,7 @@ def download(
         "[",
         TextColumn("{task.completed}/{task.total}"),
         "]",
+        TimeRemainingColumn(),
         console=console,
     ) as progress:
         task = progress.add_task("Téléchargement...", total=len(all_matches))
@@ -293,19 +330,29 @@ def download(
                 
                 if result.success:
                     downloaded += 1
+                    consecutive_errors = 0
                     progress.update(task, advance=1, description=f"[green]✓ {match.code}[/green]")
                 else:
                     errors += 1
+                    consecutive_errors += 1
                     error_list.append({"code": match.code, "error": result.message})
                     progress.update(task, advance=1, description=f"[red]✗ {match.code}: {result.message}[/red]")
                     
             except Exception as e:
                 errors += 1
+                consecutive_errors += 1
                 error_list.append({"code": match.code, "error": str(e)})
                 progress.update(task, advance=1, description=f"[red]✗ {match.code}: {e}[/red]")
             
-            # Délai pour éviter de surcharger le serveur
-            if delay > 0:
+            # Si trop d'erreurs consécutives, faire une pause plus longue
+            # (probablement un blocage temporaire type 403)
+            if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                pause_time = 30.0
+                progress.update(task, description=f"[yellow]⏸ Pause de {pause_time:.0f}s après {consecutive_errors} erreurs consécutives...[/yellow]")
+                time.sleep(pause_time)
+                consecutive_errors = 0
+            elif delay > 0:
+                # Délai normal pour éviter de surcharger le serveur
                 time.sleep(delay)
     
     # Résumé
@@ -472,21 +519,7 @@ def _sanitize_filename(name: str) -> str:
     return name[:100].strip()
 
 
-# ============== Commandes Scrape (Legacy) ==============
-
-@app.command("scrape", hidden=True)
-def scrape(
-    output_dir: Path = typer.Option(Path("data/pdfs"), "--output", "-o"),
-    competition: Optional[str] = typer.Option(None, "--competition", "-c"),
-    limit: int = typer.Option(10, "--limit", "-n"),
-):
-    """
-    📥 [Déprécié] Utiliser 'download' à la place.
-    """
-    console.print("[yellow]⚠ La commande 'scrape' est dépréciée. Utilisez 'download' à la place.[/yellow]")
-    console.print("[blue]Exemple: pyvolley download -e ABCCS -p EFA[/blue]")
-    raise typer.Exit(0)
-
+# ============== Commande Parse ==============
 
 @app.command()
 def parse(
@@ -513,6 +546,11 @@ def parse(
         None,
         "--limit", "-n",
         help="Nombre maximum de fichiers à parser"
+    ),
+    random_order: bool = typer.Option(
+        False,
+        "--random",
+        help="Parser les fichiers dans un ordre aléatoire (utile pour les tests)"
     ),
     skip_parsed: bool = typer.Option(
         True,
@@ -622,8 +660,12 @@ def parse(
         console.print("[yellow]Aucun fichier PDF après filtres[/yellow]")
         raise typer.Exit(0)
 
-    # Tri déterministe
-    pdf_files.sort()
+    # Tri déterministe ou aléatoire
+    if random_order:
+        import random
+        random.shuffle(pdf_files)
+    else:
+        pdf_files.sort()
     
     if limit:
         pdf_files = pdf_files[:limit]
@@ -742,12 +784,11 @@ def parse(
                         'file': str(pdf_file),
                         'match': result.match,
                         'parse_time_ms': result.parse_time_ms,
-                        'warnings': result.warnings,
                         'diagnostics': result.diagnostics,
                     })
                     
-                    if result.warnings:
-                        warnings_count += len(result.warnings)
+                    if result.diagnostics:
+                        warnings_count += result.warnings_count
                     
                     # Mettre en cache
                     if skip_parsed and cache_file:
@@ -765,9 +806,9 @@ def parse(
                             f"  [green]✓[/green] {pdf_file.name}: {m.code_match} "
                             f"({m.equipe_a.nom[:20] if m.equipe_a else '?'} vs {m.equipe_b.nom[:20] if m.equipe_b else '?'})"
                         )
-                        if result.warnings:
-                            for warn in result.warnings:
-                                progress.console.print(f"      [yellow]⚠ {warn}[/yellow]")
+                        if result.diagnostics:
+                            for diag_item in result.diagnostics:
+                                progress.console.print(f"      [yellow]⚠ {diag_item}[/yellow]")
                         progress.update(task, advance=1)
                     else:
                         progress.update(task, advance=1, description=f"[green]✓ {pdf_file.name[:30]}[/green]")
@@ -776,15 +817,14 @@ def parse(
                     error_details.append({
                         'file': str(pdf_file),
                         'errors': result.errors,
-                        'warnings': result.warnings,
                         'diagnostics': result.diagnostics,
                     })
                     if verbose:
                         msg = result.errors[0][:50] if result.errors else 'Erreur inconnue'
                         progress.console.print(f"  [red]✗[/red] {pdf_file.name}: {msg}...")
-                        if result.warnings:
-                            for warn in result.warnings:
-                                progress.console.print(f"      [yellow]⚠ {warn}[/yellow]")
+                        if result.diagnostics:
+                            for diag_item in result.diagnostics:
+                                progress.console.print(f"      [yellow]⚠ {diag_item}[/yellow]")
                         progress.update(task, advance=1)
                     else:
                         progress.update(task, advance=1, description=f"[red]✗ {pdf_file.name[:30]}[/red]")
@@ -909,7 +949,7 @@ def parse(
                 'file': r['file'],
                 'match_code': r['match'].code_match if r.get('match') else None,
                 'parse_time_ms': r['parse_time_ms'],
-                'warnings': r.get('warnings', []),
+                'diagnostics': [str(d) for d in r.get('diagnostics', [])],
             })
         
         report_data = {
@@ -931,74 +971,38 @@ def parse(
                 "avg_parse_time_ms": sum(r['parse_time_ms'] for r in results) / len(results) if results else 0,
             },
             "errors": error_details[:50],
-            "successful_files_with_warnings": [r for r in detailed_results if r['warnings']],
+            "successful_files_with_diagnostics": [r for r in detailed_results if r['diagnostics']],
         }
         
-        report_path = Path(f"parse_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+        report_dir = Path("data/reports")
+        report_dir.mkdir(parents=True, exist_ok=True)
+        report_path = report_dir / f"parse_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         with open(report_path, "w", encoding="utf-8") as f:
             json.dump(report_data, f, ensure_ascii=False, indent=2)
         
         console.print(f"\n[blue]📊 Rapport généré: {report_path}[/blue]")
-        if report_data["successful_files_with_warnings"]:
-            console.print(f"[yellow]⚠ {len(report_data['successful_files_with_warnings'])} fichiers avec avertissements[/yellow]")
+        if report_data["successful_files_with_diagnostics"]:
+            console.print(f"[yellow]⚠ {len(report_data['successful_files_with_diagnostics'])} fichiers avec avertissements[/yellow]")
 
 
 # ============== Helpers : récapitulatif warnings & collecte ==============
 
 from pyvolley.parsers.diagnostics import (
-    Diagnostic, DiagnosticCategory, CATEGORY_FOLDERS,
+    Diagnostic, DiagnosticCategory, DiagnosticOrigin, DiagnosticLevel, CATEGORY_FOLDERS,
 )
 
-# Fallback pour les warnings string sans diagnostic structuré
-_LEGACY_WARNING_CATEGORIES = [
-    ("capitaine", "capitaine_non_detecte", "Capitaine non détecté"),
-    ("arbitre", "arbitre_non_detecte", "Arbitre non détecté"),
-    ("joueur", "aucun_joueur", "Aucun joueur détecté"),
-    ("licence manquante", "licence_manquante", "Licence manquante"),
-    ("n'atteint pas", "score_invalide", "Score de set invalide"),
-    ("score manquant", "score_manquant", "Score de set manquant"),
-    ("score 0-0", "score_zero", "Score 0-0"),
-    ("incohérence score", "incoherence_score", "Incohérence de score"),
-    ("vainqueur", "vainqueur_mismatch", "Vainqueur non reconnu"),
-    ("code match", "code_match_manquant", "Code match manquant"),
-    ("date", "date_manquante", "Date manquante"),
-    ("saison", "saison_manquante", "Saison non déterminée"),
-    ("compétition", "competition_manquante", "Compétition manquante"),
-    ("nom d'équipe", "nom_equipe_generique", "Nom d'équipe générique"),
-    ("match non joué", "match_non_joue", "Match non joué"),
-    ("scores de sets absents", "scores_absents", "Scores détaillés absents"),
-]
 
-
-def _categorize_warning(warning) -> tuple[str, str]:
-    """Retourne (nom_dossier, label_affichage) pour un warning.
-
-    Accepte un Diagnostic structuré ou une string legacy.
-    """
-    if isinstance(warning, Diagnostic):
-        folder, label = CATEGORY_FOLDERS.get(
-            warning.category, ("autre", "Autre"),
-        )
-        return folder, label
-
-    # Fallback legacy string
-    wl = warning.lower()
-    for keyword, folder, label in _LEGACY_WARNING_CATEGORIES:
-        if keyword in wl:
-            return folder, label
-    return "autre", "Autre"
+def _categorize_warning(warning: Diagnostic) -> tuple[str, str]:
+    """Retourne (nom_dossier, label_affichage) pour un diagnostic."""
+    folder, label = CATEGORY_FOLDERS.get(
+        warning.category, ("autre", "Autre"),
+    )
+    return folder, label
 
 
 def _iter_diagnostics(record: dict):
-    """Itère sur les diagnostics d'un enregistrement.
-
-    Utilise les Diagnostic structurés si disponibles, sinon les strings.
-    """
-    diags = record.get('diagnostics')
-    if diags:
-        yield from diags
-    else:
-        yield from record.get('warnings', [])
+    """Itère sur les diagnostics d'un enregistrement."""
+    yield from record.get('diagnostics', [])
 
 
 def _display_warning_summary(
@@ -1007,58 +1011,85 @@ def _display_warning_summary(
     total_parsed: int,
     console: Console,
 ) -> None:
-    """Affiche un récapitulatif des warnings par catégorie."""
+    """Affiche un récapitulatif des diagnostics, séparé par origine."""
     from collections import Counter
 
-    # Collecter tous les warnings et compter les fichiers par catégorie
-    category_files: dict[str, set] = {}  # label → set de fichiers
-    category_count: Counter = Counter()   # label → nombre de warnings
+    # Collecter les diagnostics par origine
+    parsing_files: dict[str, set] = {}
+    parsing_count: Counter = Counter()
+    data_files: dict[str, set] = {}
+    data_count: Counter = Counter()
 
     for r in results:
         for w in _iter_diagnostics(r):
             _, label = _categorize_warning(w)
-            category_count[label] += 1
-            category_files.setdefault(label, set()).add(r['file'])
+            if w.origin == DiagnosticOrigin.PARSING:
+                parsing_count[label] += 1
+                parsing_files.setdefault(label, set()).add(r['file'])
+            else:
+                data_count[label] += 1
+                data_files.setdefault(label, set()).add(r['file'])
 
     for r in error_details:
         for w in _iter_diagnostics(r):
             _, label = _categorize_warning(w)
-            category_count[label] += 1
-            category_files.setdefault(label, set()).add(r['file'])
-        # Les erreurs elles-mêmes comptent comme catégorie
+            if w.origin == DiagnosticOrigin.PARSING:
+                parsing_count[label] += 1
+                parsing_files.setdefault(label, set()).add(r['file'])
+            else:
+                data_count[label] += 1
+                data_files.setdefault(label, set()).add(r['file'])
         if r.get('errors'):
             label = "Erreur de parsing"
-            category_count[label] += len(r['errors'])
-            category_files.setdefault(label, set()).add(r['file'])
+            parsing_count[label] += len(r['errors'])
+            parsing_files.setdefault(label, set()).add(r['file'])
 
-    if not category_count:
+    if not parsing_count and not data_count:
         console.print("\n[green]✨ Aucun warning détecté — parsing parfait ![/green]")
         return
 
-    table = Table(title="📊 Récapitulatif des warnings par catégorie")
-    table.add_column("Catégorie", style="white")
-    table.add_column("Warnings", justify="right", style="yellow")
-    table.add_column("Fichiers", justify="right", style="cyan")
-    table.add_column("%", justify="right", style="dim")
+    # Table des problèmes de parsing
+    if parsing_count:
+        table = Table(title="⚠️  Problèmes de parsing")
+        table.add_column("Catégorie", style="white")
+        table.add_column("Occurrences", justify="right", style="red")
+        table.add_column("Fichiers", justify="right", style="cyan")
+        table.add_column("%", justify="right", style="dim")
 
-    for label, count in category_count.most_common():
-        n_files = len(category_files.get(label, set()))
-        pct = f"{n_files / total_parsed * 100:.1f}" if total_parsed > 0 else "—"
-        table.add_row(label, str(count), str(n_files), pct)
+        for label, count in parsing_count.most_common():
+            n_files = len(parsing_files.get(label, set()))
+            pct = f"{n_files / total_parsed * 100:.1f}" if total_parsed > 0 else "—"
+            table.add_row(label, str(count), str(n_files), pct)
 
-    total_files_with_warnings = len(
-        {f for files in category_files.values() for f in files}
+        console.print()
+        console.print(table)
+
+    # Table des données manquantes / incomplètes
+    if data_count:
+        table = Table(title="📋 Données absentes ou incomplètes (source PDF)")
+        table.add_column("Catégorie", style="white")
+        table.add_column("Occurrences", justify="right", style="yellow")
+        table.add_column("Fichiers", justify="right", style="cyan")
+        table.add_column("%", justify="right", style="dim")
+
+        for label, count in data_count.most_common():
+            n_files = len(data_files.get(label, set()))
+            pct = f"{n_files / total_parsed * 100:.1f}" if total_parsed > 0 else "—"
+            table.add_row(label, str(count), str(n_files), pct)
+
+        console.print()
+        console.print(table)
+
+    # Résumé global
+    total_files_with_issues = len(
+        {f for files in {**parsing_files, **data_files}.values() for f in files}
     )
-    table.add_section()
-    table.add_row(
-        "[bold]Total fichiers avec warnings[/bold]",
-        str(sum(category_count.values())),
-        str(total_files_with_warnings),
-        f"{total_files_with_warnings / total_parsed * 100:.1f}" if total_parsed > 0 else "—",
+    console.print(
+        f"\n[dim]Total: {total_files_with_issues} fichier(s) avec "
+        f"diagnostics sur {total_parsed} parsé(s) "
+        f"({total_files_with_issues / total_parsed * 100:.1f}%)[/dim]"
+        if total_parsed > 0 else ""
     )
-
-    console.print()
-    console.print(table)
 
 
 def _collect_problem_files(

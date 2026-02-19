@@ -11,7 +11,7 @@ from datetime import date as datetime_date, datetime, time as datetime_time
 from typing import Optional
 from enum import Enum
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 # ============== Enums ==============
@@ -248,29 +248,6 @@ class Set(PyVolleyModel):
     service_initial: Optional[str] = None  # 'A' ou 'B'
     equipe_a: Optional[SetTeamData] = None
     equipe_b: Optional[SetTeamData] = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def _migrate_legacy_fields(cls, data):
-        """Absorbe les anciens champs formation_a/b, timeouts_a/b
-        lors de la construction depuis un dict (JSON rétrocompatible)."""
-        if not isinstance(data, dict):
-            return data
-        for side in ("a", "b"):
-            key_form = f"formation_{side}"
-            key_to = f"timeouts_{side}"
-            eq_key = f"equipe_{side}"
-            form_val = data.pop(key_form, None)
-            to_val = data.pop(key_to, None)
-            if form_val is not None or to_val is not None:
-                eq = data.get(eq_key) or {}
-                if isinstance(eq, dict):
-                    if form_val is not None and not eq.get("formation"):
-                        eq["formation"] = form_val
-                    if to_val is not None and not eq.get("timeouts"):
-                        eq["timeouts"] = to_val
-                    data[eq_key] = eq
-        return data
 
     # ── Raccourcis (lecture seule) ──
 
