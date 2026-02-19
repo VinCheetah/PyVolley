@@ -103,7 +103,7 @@ class FFVBScoreScraper:
         )
 
         try:
-            soup = self._scraper._get_soup(url)
+            soup = self._scraper.client.get_soup(url)
         except Exception as e:
             logger.warning(
                 "Impossible de récupérer le calendrier %s/%s %s : %s",
