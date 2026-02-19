@@ -5,10 +5,13 @@ Interface abstraite pour les parsers de feuilles de match.
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Any
+from typing import Optional, Any, TYPE_CHECKING
 from datetime import datetime
 
 from pyvolley.core.models import Match
+
+if TYPE_CHECKING:
+    from pyvolley.parsers.diagnostics import Diagnostic
 
 
 @dataclass
@@ -18,6 +21,7 @@ class ParseResult:
     match: Optional[Match] = None
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    diagnostics: list["Diagnostic"] = field(default_factory=list)
     parse_time_ms: float = 0.0
     
     # Métriques de qualité

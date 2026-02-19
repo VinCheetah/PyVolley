@@ -6,10 +6,7 @@ from pathlib import Path
 from typing import Type, Optional
 
 from pyvolley.parsers.base import BaseParser
-from pyvolley.parsers.v2 import MatchSheetParserV2
-from pyvolley.parsers.v3 import MatchSheetParserV3
-from pyvolley.parsers.v4 import MatchSheetParserV4
-from pyvolley.parsers.v5 import MatchSheetParserV5
+from pyvolley.parsers.parser import MatchSheetParser
 
 
 class ParserFactory:
@@ -61,10 +58,9 @@ class ParserFactory:
     
     @classmethod
     def get_default(cls) -> BaseParser:
-        """Retourne le parser par défaut (V5 - le plus complet)."""
+        """Retourne le parser par défaut (MatchSheetParser)."""
         if cls._default_parser is None:
-            # Enregistrer le parser par défaut (V5)
-            cls.register(MatchSheetParserV5)
+            cls.register(MatchSheetParser)
         if cls._default_parser is None:
             raise RuntimeError("Aucun parser par défaut configuré")
         return cls.get(cls._default_parser)
@@ -99,7 +95,6 @@ class ParserFactory:
             if parser.can_parse(pdf_path):
                 return parser
         
-        # Fallback au parser par défaut
         return cls.get_default()
 
 
@@ -118,12 +113,5 @@ def get_parser(name: Optional[str] = None) -> BaseParser:
     return ParserFactory.get_default()
 
 
-# Enregistrer les parsers par défaut
-# V5 est le parser principal (extraction complète et robuste)
-# V4 conservé pour référence (pdfplumber optimisé)
-# V3 conservé pour référence (pdfplumber, 100% succès mais incomplet)
-# V2 conservé pour référence (PyMuPDF, plus rapide mais bugs de validation)
-ParserFactory.register(MatchSheetParserV5)
-ParserFactory.register(MatchSheetParserV4)
-ParserFactory.register(MatchSheetParserV3)
-ParserFactory.register(MatchSheetParserV2)
+# Enregistrer le parser principal
+ParserFactory.register(MatchSheetParser)
