@@ -74,9 +74,10 @@ def download(
         help="Nombre maximum de feuilles à télécharger (aucune limite par défaut)"
     ),
     delay: float = typer.Option(
-        0.5,
+        0.3,
         "--delay", "-d",
-        help="Délai entre chaque téléchargement (en secondes)"
+        help="Délai minimum entre chaque requête HTTP (en secondes). "
+             "Gère le rate limiting côté serveur."
     ),
     dry_run: bool = typer.Option(
         False,
@@ -126,7 +127,9 @@ def download(
     from pyvolley.scrapers.ffvb import FFVBScraper
     from pyvolley.scrapers.lnv import PRO_COMPETITIONS, PRO_ENTITY_CODE
     
-    scraper = FFVBScraper()
+    # Le délai CLI est passé au scraper pour éviter le double-delay :
+    # HttpClient.rate_limit() gère déjà l'espacement entre requêtes.
+    scraper = FFVBScraper(request_delay=delay)
     
     # Mode --pro : ne télécharger que les compétitions professionnelles
     if pro:
@@ -233,7 +236,10 @@ def download(
                 
                 for p in poules_list:
                     try:
-                        matches = list(scraper.get_matches_for_poule(current_entity, p.code, current_saison))
+                        matches = list(scraper.get_matches_for_poule(
+                            current_entity, p.code, current_saison,
+                            is_division=p.is_division,
+                        ))
                         for m in matches:
                             m.poule_nom = p.nom
                             m.entity_code = current_entity  # Ajouter le code entité
@@ -351,9 +357,8 @@ def download(
                 progress.update(task, description=f"[yellow]⏸ Pause de {pause_time:.0f}s après {consecutive_errors} erreurs consécutives...[/yellow]")
                 time.sleep(pause_time)
                 consecutive_errors = 0
-            elif delay > 0:
-                # Délai normal pour éviter de surcharger le serveur
-                time.sleep(delay)
+            # NOTE : pas de time.sleep(delay) ici – le rate limiting est
+            # géré par HttpClient.rate_limit() dans download_match_pdf().
     
     # Résumé
     console.print("\n" + "=" * 50)
@@ -372,6 +377,373 @@ def download(
             "saisons": saisons,
             "entities": entities_to_process,
             "poule_filter": poule,
+            "downloaded": downloaded,
+            "skipped": skipped,
+            "errors": errors,
+            "error_details": error_list,
+            "output_dir": str(output_dir.absolute()),
+        }
+        report_path = output_dir / f"download_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        with open(report_path, "w", encoding="utf-8") as f:
+            json.dump(report_data, f, ensure_ascii=False, indent=2)
+        console.print(f"\n[blue]📊 Rapport généré: {report_path}[/blue]")
+
+
+    # Générer le rapport si demandé
+    if report:
+        report_data = {
+            "timestamp": datetime.now().isoformat(),
+            "saisons": saisons,
+            "entities": entities_to_process,
+            "poule_filter": poule,
+            "downloaded": downloaded,
+            "skipped": skipped,
+            "errors": errors,
+            "error_details": error_list,
+            "output_dir": str(output_dir.absolute()),
+        }
+        report_path = output_dir / f"download_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        with open(report_path, "w", encoding="utf-8") as f:
+            json.dump(report_data, f, ensure_ascii=False, indent=2)
+        console.print(f"\n[blue]📊 Rapport généré: {report_path}[/blue]")
+
+
+@app.command("download-fast")
+def download_fast(
+    output_dir: Path = typer.Option(
+        Path("data/pdfs"),
+        "--output", "-o",
+        help="Dossier de sortie pour les PDFs"
+    ),
+    entity: Optional[List[str]] = typer.Option(
+        None,
+        "--entity", "-e",
+        help="Code de l'entité (ex: ABCCS, LIRA). Répétable."
+    ),
+    poule: Optional[str] = typer.Option(
+        None,
+        "--poule", "-p",
+        help="Code de la poule (ex: EFA, PMA)"
+    ),
+    saison: Optional[List[str]] = typer.Option(
+        None,
+        "--saison", "-s",
+        help="Saison au format YYYY/YYYY. Répétable."
+    ),
+    all_entities: bool = typer.Option(
+        False, "--all",
+        help="Télécharge pour TOUTES les entités"
+    ),
+    entity_type: Optional[str] = typer.Option(
+        None, "--type", "-t",
+        help="Filtrer par type d'entité: nationale, ligue, comite"
+    ),
+    pro: bool = typer.Option(
+        False, "--pro",
+        help="Télécharge uniquement les matchs pro (LNV)"
+    ),
+    limit: Optional[int] = typer.Option(
+        None, "--limit", "-n",
+        help="Nombre maximum de feuilles à télécharger"
+    ),
+    delay: float = typer.Option(
+        0.15,
+        "--delay", "-d",
+        help="Délai minimum entre chaque requête (secondes)"
+    ),
+    concurrent: int = typer.Option(
+        5,
+        "--concurrent", "-c",
+        help="Nombre de téléchargements simultanés (1-20)"
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run",
+        help="Affiche les matchs sans télécharger"
+    ),
+    organize: bool = typer.Option(
+        True, "--organize/--flat",
+        help="Organise les fichiers par saison/compétition"
+    ),
+    report: bool = typer.Option(
+        False, "--report",
+        help="Génère un rapport JSON"
+    ),
+):
+    """
+    ⚡ Téléchargement rapide et concurrent des feuilles de match.
+
+    Utilise des requêtes HTTP/2 concurrentes pour une vitesse bien
+    supérieure à la commande `download` classique.
+
+    Exemples:
+
+        # Télécharger rapidement avec 10 requêtes parallèles
+        pyvolley download-fast -e ABCCS -c 10
+
+        # Télécharger toutes les ligues avec concurrence modérée
+        pyvolley download-fast --type ligue -c 5
+    """
+    import asyncio
+    from pyvolley.scrapers.ffvb import FFVBScraper
+    from pyvolley.scrapers.lnv import PRO_COMPETITIONS, PRO_ENTITY_CODE
+
+    concurrent = max(1, min(concurrent, 20))
+
+    scraper = FFVBScraper(request_delay=delay)
+
+    if pro:
+        if not entity:
+            entity = [PRO_ENTITY_CODE]
+        pro_poule_codes = [c.code for c in PRO_COMPETITIONS]
+
+    if saison is None or len(saison) == 0:
+        saisons = [scraper._get_current_saison()]
+    else:
+        saisons = list(saison)
+
+    # Déterminer les entités
+    entities_to_process = []
+    if all_entities:
+        all_ents = scraper.get_entities()
+        if entity_type:
+            all_ents = [e for e in all_ents if e.type == entity_type.lower()]
+        entities_to_process = [e.code for e in all_ents]
+    elif entity_type and not entity:
+        all_ents = scraper.get_entities()
+        entities_to_process = [e.code for e in all_ents if e.type == entity_type.lower()]
+    elif entity:
+        entities_to_process = list(entity)
+
+    entities_display = ', '.join(entities_to_process[:5])
+    if len(entities_to_process) > 5:
+        entities_display += f"... (+{len(entities_to_process) - 5})"
+
+    console.print(Panel(
+        f"[bold blue]⚡ PyVolley - Téléchargement rapide concurrent[/bold blue]\n\n"
+        f"Saison(s): [cyan]{', '.join(saisons)}[/cyan]\n"
+        f"Entité(s): [cyan]{entities_display or 'Aucune'}[/cyan] ({len(entities_to_process)} au total)\n"
+        f"Poule: [cyan]{poule or 'Toutes'}[/cyan]\n"
+        f"Concurrence: [cyan]{concurrent} requêtes parallèles[/cyan]\n"
+        f"Délai: [cyan]{delay}s[/cyan]\n"
+        f"Sortie: [cyan]{output_dir}[/cyan]\n"
+        f"Mode: [cyan]{'Aperçu (dry-run)' if dry_run else 'Téléchargement'}[/cyan]",
+        title="Configuration"
+    ))
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if not entities_to_process:
+        console.print("\n[yellow]Aucune entité spécifiée.[/yellow]")
+        _list_entities(scraper)
+        raise typer.Exit(0)
+
+    # Phase 1 : collecte des matchs (séquentiel, rapide)
+    all_matches = []
+    for current_saison in saisons:
+        for current_entity in entities_to_process:
+            console.print(f"\n[blue]📂 {current_entity} - Saison {current_saison}[/blue]")
+            try:
+                with console.status(f"[bold blue]Récupération des poules pour {current_entity}..."):
+                    poules_list = scraper.get_poules_for_entity(current_entity, current_saison)
+            except Exception as e:
+                console.print(f"  [red]Erreur: {e}[/red]")
+                continue
+
+            if not poules_list:
+                console.print(f"  [yellow]Aucune poule trouvée[/yellow]")
+                continue
+
+            if poule:
+                poules_list = [p for p in poules_list if p.code == poule]
+            if pro:
+                poules_list = [p for p in poules_list if p.code in pro_poule_codes]
+
+            with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"),
+                          BarColumn(), TaskProgressColumn(), console=console, transient=True) as progress:
+                task_id = progress.add_task("Récupération des matchs...", total=len(poules_list))
+                for p in poules_list:
+                    try:
+                        matches = list(scraper.get_matches_for_poule(
+                            current_entity, p.code, current_saison,
+                            is_division=p.is_division,
+                        ))
+                        for m in matches:
+                            m.poule_nom = p.nom
+                            m.entity_code = current_entity
+                            m.saison = current_saison
+                        all_matches.extend(matches)
+                        progress.update(task_id, advance=1, description=f"  {p.code}: {len(matches)} match(s)")
+                    except Exception:
+                        progress.update(task_id, advance=1, description=f"  [red]{p.code}: erreur[/red]")
+
+            if limit and len(all_matches) >= limit:
+                all_matches = all_matches[:limit]
+                break
+        if limit and len(all_matches) >= limit:
+            break
+
+    console.print(f"\n[green]✓ Total: {len(all_matches)} match(s) à traiter[/green]")
+
+    if not all_matches:
+        console.print("[yellow]Aucun match trouvé[/yellow]")
+        raise typer.Exit(0)
+
+    if dry_run:
+        from collections import Counter
+        entity_counts = Counter(getattr(m, 'entity_code', 'unknown') for m in all_matches)
+        console.print("\n[bold]Résumé par entité:[/bold]")
+        for ent, count in sorted(entity_counts.items()):
+            console.print(f"  {ent}: {count} match(s)")
+        console.print(f"\n[yellow]Mode dry-run: aucun fichier téléchargé[/yellow]")
+        raise typer.Exit(0)
+
+    # Phase 2 : téléchargement concurrent
+    async def _run_downloads():
+        from pyvolley.scrapers.async_http_client import AsyncHttpClient
+
+        async with AsyncHttpClient(
+            request_delay=delay,
+            max_concurrent=concurrent,
+        ) as client:
+            downloaded = 0
+            skipped = 0
+            errors = 0
+            error_list = []
+
+            # Préparer la liste des tâches de téléchargement
+            download_tasks = []
+            for match in all_matches:
+                match_entity = getattr(match, 'entity_code', entity[0] if entity else 'unknown')
+                match_saison = getattr(match, 'saison', saisons[0])
+
+                if organize:
+                    saison_folder = match_saison.replace("/", "-")
+                    poule_nom_safe = _sanitize_filename(
+                        getattr(match, 'poule_nom', match.competition_code or 'autres'))
+                    match_dir = output_dir / saison_folder / match_entity / poule_nom_safe
+                else:
+                    match_dir = output_dir
+
+                match_dir.mkdir(parents=True, exist_ok=True)
+                filepath = match_dir / match.filename
+
+                if filepath.exists():
+                    skipped += 1
+                    continue
+
+                download_tasks.append((match, filepath))
+
+            console.print(f"[blue]⏭ {skipped} fichier(s) déjà existant(s) ignoré(s)[/blue]")
+            console.print(f"[blue]⬇ {len(download_tasks)} fichier(s) à télécharger[/blue]")
+
+            if not download_tasks:
+                return downloaded, skipped, errors, error_list
+
+            # Télécharger par lots
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                "[", TextColumn("{task.completed}/{task.total}"), "]",
+                TimeRemainingColumn(),
+                console=console,
+            ) as progress:
+                task_id = progress.add_task("Téléchargement concurrent...", total=len(download_tasks))
+
+                semaphore = asyncio.Semaphore(concurrent)
+
+                async def _download_one(match, filepath):
+                    nonlocal downloaded, errors
+
+                    async with semaphore:
+                        if not match.pdf_url:
+                            from pyvolley.scrapers.ffvb.utils import build_pdf_url
+                            match.pdf_url = build_pdf_url(
+                                scraper.base_url, match.ligue_code,
+                                match.code, match.saison,
+                            )
+                        try:
+                            pdf_url = match.pdf_url
+                            is_external = "lnv.fr" in pdf_url or "datavolley" in pdf_url.lower()
+                            response = None
+
+                            if is_external:
+                                # LNV externe : tenter puis fallback FFVB
+                                try:
+                                    skip_verify = "datavolley.lnv.fr" in pdf_url
+                                    if skip_verify:
+                                        # Certificat invalide → httpx brut
+                                        import httpx as _httpx
+                                        async with _httpx.AsyncClient(verify=False, timeout=30) as raw:
+                                            raw_resp = await raw.get(pdf_url)
+                                            raw_resp.raise_for_status()
+                                        if raw_resp.content.startswith(b"%PDF"):
+                                            response = raw_resp
+                                    else:
+                                        response = await client.get(pdf_url)
+                                        if not response.content.startswith(b"%PDF"):
+                                            response = None
+                                except Exception:
+                                    response = None
+
+                                if response is None:
+                                    from pyvolley.scrapers.ffvb.utils import build_pdf_url
+                                    ffvb_url = build_pdf_url(
+                                        scraper.base_url, match.ligue_code,
+                                        match.code, match.saison,
+                                    )
+                                    response = await client.get(ffvb_url)
+                            else:
+                                response = await client.get(pdf_url)
+
+                            content = response.content
+
+                            content_type = response.headers.get("Content-Type", "")
+                            if "pdf" not in content_type.lower() and not content.startswith(b"%PDF"):
+                                errors += 1
+                                error_list.append({"code": match.code, "error": "Not a PDF"})
+                                progress.update(task_id, advance=1,
+                                                description=f"[red]✗ {match.code}: Not PDF[/red]")
+                                return
+
+                            filepath.parent.mkdir(parents=True, exist_ok=True)
+                            with open(filepath, "wb") as f:
+                                f.write(content)
+
+                            downloaded += 1
+                            progress.update(task_id, advance=1,
+                                            description=f"[green]✓ {match.code}[/green]")
+                        except Exception as e:
+                            errors += 1
+                            error_list.append({"code": match.code, "error": str(e)})
+                            progress.update(task_id, advance=1,
+                                            description=f"[red]✗ {match.code}[/red]")
+
+                await asyncio.gather(
+                    *[_download_one(m, fp) for m, fp in download_tasks]
+                )
+
+            return downloaded, skipped, errors, error_list
+
+    downloaded, skipped, errors, error_list = asyncio.run(_run_downloads())
+
+    console.print("\n" + "=" * 50)
+    console.print(Panel(
+        f"[green]✓ Téléchargés: {downloaded}[/green]\n"
+        f"[yellow]⏭ Skippés (existants): {skipped}[/yellow]\n"
+        f"[red]✗ Erreurs: {errors}[/red]\n\n"
+        f"📁 Fichiers dans: {output_dir.absolute()}",
+        title="Résumé du téléchargement rapide"
+    ))
+
+    if report:
+        report_data = {
+            "timestamp": datetime.now().isoformat(),
+            "mode": "concurrent",
+            "concurrent_workers": concurrent,
+            "saisons": saisons,
+            "entities": entities_to_process,
             "downloaded": downloaded,
             "skipped": skipped,
             "errors": errors,
@@ -445,7 +817,10 @@ def list_matches(
         saison = scraper._get_current_saison()
     
     with console.status(f"[bold blue]Récupération des matchs pour {entity}/{poule}..."):
-        matches = list(scraper.get_matches_for_poule(entity, poule, saison))
+        # Chercher si la poule est une division pour utiliser le bon paramètre URL
+        poules_info = scraper.get_poules_for_entity(entity, saison)
+        is_division = any(p.code == poule and p.is_division for p in poules_info)
+        matches = list(scraper.get_matches_for_poule(entity, poule, saison, is_division=is_division))
     
     if not matches:
         console.print(f"[yellow]Aucun match trouvé[/yellow]")

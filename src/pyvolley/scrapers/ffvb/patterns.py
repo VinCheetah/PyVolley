@@ -3,9 +3,17 @@ Patterns de poules connus pour les compétitions nationales FFVB.
 
 Utilisés en dernier recours lorsque la découverte dynamique (scraping
 des pages home / calendrier) ne renvoie rien.
+
+Chaque pattern est un tuple ``(code, nom)`` ou ``(code, nom, is_division)``.
+Si ``is_division`` est omis, il vaut ``False`` (poule classique).
 """
 
+from __future__ import annotations
+
 from pyvolley.scrapers.ffvb.models import PouleInfo
+
+# Type d'un pattern : (code, nom) ou (code, nom, is_division)
+_PatternEntry = tuple[str, str] | tuple[str, str, bool]
 
 
 def get_known_poules(entity_code: str, saison: str) -> list[PouleInfo]:
@@ -20,8 +28,14 @@ def get_known_poules(entity_code: str, saison: str) -> list[PouleInfo]:
     if patterns is None:
         return []
     return [
-        PouleInfo(code=code, nom=nom, entity_code=entity_code, saison=saison)
-        for code, nom in patterns
+        PouleInfo(
+            code=entry[0],
+            nom=entry[1],
+            entity_code=entity_code,
+            saison=saison,
+            is_division=entry[2] if len(entry) > 2 else False,
+        )
+        for entry in patterns
     ]
 
 
@@ -31,7 +45,7 @@ PATTERN_ENTITY_CODES = frozenset({"ABCCS", "ACJEUNES", "AALNV"})
 
 # ── Patterns ───────────────────────────────────────────────────────────────
 
-_ABCCS_PATTERNS: list[tuple[str, str]] = [
+_ABCCS_PATTERNS: list[_PatternEntry] = [
     # Matches internationaux
     ("INT", "Matches Internationaux"),
     # Supercoupes
@@ -148,40 +162,40 @@ _ABCCS_PATTERNS: list[tuple[str, str]] = [
     ("CDM", "Coupe de France Fédérale Masculine"),
 ]
 
-_ACJEUNES_PATTERNS: list[tuple[str, str]] = [
-    # Poules réelles découvertes depuis la page home ACJEUNES (division=)
-    # Les codes changent peu d'une saison à l'autre
-    ("JFA", "CdF Jeunes Juniors Féminine"),
-    ("JMA", "CdF Jeunes Juniors Masculine"),
-    ("JFX", "CdF Jeunes Juniors Féminine - Tours"),
-    ("JMX", "CdF Jeunes Juniors Masculine - Tours"),
-    ("CFX", "CdF Jeunes Cadettes Féminine"),
-    ("CMX", "CdF Jeunes Cadets Masculine"),
-    ("RFX", "CdF Jeunes M15 Féminine"),
-    ("RMX", "CdF Jeunes M15 Masculine"),
-    ("MFX", "CdF Jeunes Minimes Féminine"),
-    ("MMX", "CdF Jeunes Minimes Masculine"),
-    ("BFX", "CdF Jeunes Benjamines Féminine"),
-    ("BMX", "CdF Jeunes Benjamins Masculine"),
-    # Poules additionnelles présentes certaines saisons
-    ("PFX", "CdF Jeunes Poussines Féminine"),
-    ("PMX", "CdF Jeunes Poussins Masculine"),
-    ("MVF", "CdF Jeunes Micro-Volley Féminine"),
-    ("MVM", "CdF Jeunes Micro-Volley Masculine"),
-    ("VYF", "CdF Jeunes VY Féminine"),
-    ("VYM", "CdF Jeunes VY Masculine"),
-    # Poules historiques (pré-2024)
+_ACJEUNES_PATTERNS: list[_PatternEntry] = [
+    # ── Divisions principales (division=, actives 2024+) ──────────────
+    ("JFX", "CdF Jeunes M21 Féminine", True),
+    ("JMX", "CdF Jeunes M21 Masculine", True),
+    ("CFX", "CdF Jeunes M18 Féminine", True),
+    ("CMX", "CdF Jeunes M18 Masculine", True),
+    ("RFX", "CdF Jeunes M15 Féminine", True),
+    ("RMX", "CdF Jeunes M15 Masculine", True),
+    ("MFX", "CdF Jeunes M13 Féminine", True),
+    ("MMX", "CdF Jeunes M13 Masculine", True),
+    ("BFX", "CdF Jeunes Benjamines Féminine", True),
+    ("BMX", "CdF Jeunes Benjamins Masculine", True),
+    # ── Divisions additionnelles (certaines saisons 2021-2025) ────────
+    ("PFX", "CdF Jeunes Poussines Féminine", True),
+    ("PMX", "CdF Jeunes Poussins Masculine", True),
+    ("MVF", "CdF Jeunes Micro-Volley Féminine", True),
+    ("MVM", "CdF Jeunes Micro-Volley Masculine", True),
+    ("VYF", "CdF Jeunes VY Féminine", True),
+    ("VYM", "CdF Jeunes VY Masculine", True),
+    ("XVF", "CdF Jeunes XV Féminine", True),
+    ("XVM", "CdF Jeunes XV Masculine", True),
+    # ── Phases finales (poule=, anciennes saisons) ────────────────────
+    ("JFA", "CdF Jeunes Juniors Féminine Finale"),
+    ("JMA", "CdF Jeunes Juniors Masculine Finale"),
+    # ── Poules historiques (poule=, pré-2024) ─────────────────────────
     ("CLA", "CdF Jeunes Cadets Poule A"),
     ("CLB", "CdF Jeunes Cadets Poule B"),
     ("CLC", "CdF Jeunes Cadets Poule C"),
     ("CLD", "CdF Jeunes Cadets Poule D"),
     ("CRA", "CdF Jeunes Cadets CRA"),
     ("CRB", "CdF Jeunes Cadets CRB"),
-    ("XVF", "CdF Jeunes XV Féminine"),
-    ("XVM", "CdF Jeunes XV Masculine"),
 ]
 
-_AALNV_PATTERNS: list[tuple[str, str]] = [
+_AALNV_PATTERNS: list[_PatternEntry] = [
     ("MSL", "Marmara SpikeLigue"),
     ("SPS", "Saforelle Power 6"),
     ("LBM", "Ligue B Masculine"),
@@ -193,7 +207,7 @@ _AALNV_PATTERNS: list[tuple[str, str]] = [
     ("PBZ", "Ligue B Masculine - Playoffs"),
 ]
 
-_PATTERNS: dict[str, list[tuple[str, str]]] = {
+_PATTERNS: dict[str, list[_PatternEntry]] = {
     "ABCCS": _ABCCS_PATTERNS,
     "ACJEUNES": _ACJEUNES_PATTERNS,
     "AALNV": _AALNV_PATTERNS,

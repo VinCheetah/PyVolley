@@ -11,6 +11,13 @@ from unittest.mock import Mock, patch, MagicMock
 import tempfile
 
 from pyvolley.scrapers.ffvb import FFVBScraper, EntityInfo, PouleInfo
+from pyvolley.scrapers.ffvb.entities import detect_entity_type
+from pyvolley.scrapers.ffvb.utils import (
+    build_pdf_url,
+    detect_categorie,
+    detect_genre,
+    get_current_saison,
+)
 from pyvolley.scrapers.base import MatchInfo, CompetitionInfo, ScrapeResult
 
 
@@ -24,10 +31,10 @@ def scraper():
 
 @pytest.fixture
 def mock_scraper():
-    """Crée un scraper avec des méthodes mockées."""
-    with patch.object(FFVBScraper, '_get_soup') as mock_soup:
+    """Crée un scraper avec un client HTTP mocké."""
+    with patch.object(FFVBScraper, 'client', new_callable=lambda: property(lambda self: Mock())) as _:
         scraper = FFVBScraper(request_delay=0)
-        yield scraper, mock_soup
+        yield scraper
 
 
 # ============== Tests unitaires ==============
@@ -49,62 +56,62 @@ class TestFFVBScraperInit:
             timeout=60
         )
         assert scraper.base_url == "https://custom.url/"
-        assert scraper._delay == 2.0
-        assert scraper._timeout == 60
+        assert scraper.client.delay == 2.0
+        assert scraper.client.timeout == 60
 
 
 class TestEntityTypeDetection:
     """Tests de détection du type d'entité."""
     
-    def test_detect_nationale(self, scraper):
+    def test_detect_nationale(self):
         """Détecte les compétitions nationales."""
-        assert scraper._detect_entity_type("ABCCS", "Compétitions Nationales") == "nationale"
-        assert scraper._detect_entity_type("ACJEUNES", "Nationales Jeunes") == "nationale"
+        assert detect_entity_type("ABCCS", "Compétitions Nationales") == "nationale"
+        assert detect_entity_type("ACJEUNES", "Nationales Jeunes") == "nationale"
     
-    def test_detect_ligue(self, scraper):
+    def test_detect_ligue(self):
         """Détecte les ligues régionales."""
-        assert scraper._detect_entity_type("LIIDF", "Ligue Ile-de-France") == "ligue"
-        assert scraper._detect_entity_type("LIPL", "Ligue Pays de la Loire") == "ligue"
+        assert detect_entity_type("LIIDF", "Ligue Ile-de-France") == "ligue"
+        assert detect_entity_type("LIPL", "Ligue Pays de la Loire") == "ligue"
     
-    def test_detect_comite(self, scraper):
+    def test_detect_comite(self):
         """Détecte les comités départementaux."""
-        assert scraper._detect_entity_type("PTPL44", "CD44 - Loire-Atlantique") == "comite"
-        assert scraper._detect_entity_type("PTIDF75", "Comité Paris") == "comite"
+        assert detect_entity_type("PTPL44", "CD44 - Loire-Atlantique") == "comite"
+        assert detect_entity_type("PTIDF75", "Comité Paris") == "comite"
 
 
 class TestGenreCategorie:
     """Tests de détection du genre et de la catégorie."""
     
-    def test_detect_genre_masculin(self, scraper):
+    def test_detect_genre_masculin(self):
         """Détecte le genre masculin."""
-        assert scraper._detect_genre("Elite Masculine") == "MASCULIN"
-        assert scraper._detect_genre("N2 MASC Poule A") == "MASCULIN"
+        assert detect_genre("Elite Masculine") == "MASCULIN"
+        assert detect_genre("N2 MASC Poule A") == "MASCULIN"
     
-    def test_detect_genre_feminin(self, scraper):
+    def test_detect_genre_feminin(self):
         """Détecte le genre féminin."""
-        assert scraper._detect_genre("Elite Féminine") == "FEMININ"
-        assert scraper._detect_genre("N2 FEM Poule A") == "FEMININ"
+        assert detect_genre("Elite Féminine") == "FEMININ"
+        assert detect_genre("N2 FEM Poule A") == "FEMININ"
     
-    def test_detect_genre_inconnu(self, scraper):
+    def test_detect_genre_inconnu(self):
         """Retourne None si genre inconnu."""
-        assert scraper._detect_genre("Poule A") is None
+        assert detect_genre("Poule A") is None
     
-    def test_detect_categorie_senior(self, scraper):
+    def test_detect_categorie_senior(self):
         """Détecte la catégorie senior."""
-        assert scraper._detect_categorie("Seniors Masculins") == "SENIOR"
+        assert detect_categorie("Seniors Masculins") == "SENIOR"
     
-    def test_detect_categorie_jeunes(self, scraper):
+    def test_detect_categorie_jeunes(self):
         """Détecte les catégories jeunes."""
-        assert scraper._detect_categorie("M18 Masculins") == "M18"
-        assert scraper._detect_categorie("M15 Féminines") == "M15"
+        assert detect_categorie("M18 Masculins") == "M18"
+        assert detect_categorie("M15 Féminines") == "M15"
 
 
 class TestSaisonCalculation:
     """Tests de calcul de la saison."""
     
-    def test_get_current_saison(self, scraper):
+    def test_get_current_saison(self):
         """Vérifie le format de la saison."""
-        saison = scraper._get_current_saison()
+        saison = get_current_saison()
         assert "/" in saison
         parts = saison.split("/")
         assert len(parts) == 2
@@ -114,9 +121,10 @@ class TestSaisonCalculation:
 class TestBuildPdfUrl:
     """Tests de construction des URLs PDF."""
     
-    def test_build_pdf_url(self, scraper):
+    def test_build_pdf_url(self):
         """Vérifie la construction de l'URL du PDF."""
-        url = scraper._build_pdf_url("ABCCS", "EFA001", "2025/2026")
+        base = "https://www.ffvbbeach.org/ffvbapp/resu/"
+        url = build_pdf_url(base, "ABCCS", "EFA001", "2025/2026")
         assert "ffvolley_fdme.php" in url
         assert "saison=2025%2F2026" in url
         assert "codent=ABCCS" in url
