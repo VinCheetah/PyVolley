@@ -1,65 +1,108 @@
 {% extends "base.html" %}
-
 {% block title %}Équipes - PyVolley{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
-    <div class="flex justify-between items-center">
-        <h1 class="text-3xl font-bold">👥 Équipes</h1>
-        <span class="text-gray-500">{{ total }} équipes au total</span>
-    </div>
-    
-    <!-- Search -->
-    <form action="/equipes" method="get" class="max-w-md">
-        <div class="flex">
-            <input 
-                type="text" 
-                name="q" 
-                value="{{ query or '' }}"
-                placeholder="Rechercher une équipe..."
-                class="flex-1 px-4 py-2 border rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-            <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded-r-lg hover:bg-blue-700">
-                🔍
+
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+            <h1 class="text-2xl font-bold">
+                <i data-lucide="shield" class="w-6 h-6 inline-block mr-2" style="color: var(--accent-green);"></i>
+                Équipes
+            </h1>
+            <p style="color: var(--text-muted);">{{ total }} équipes enregistrées</p>
+        </div>
+        <form action="/equipes" method="get" class="flex gap-2 max-w-md w-full">
+            <input type="text" name="q" value="{{ query or '' }}" placeholder="Rechercher une équipe..."
+                   class="search-input flex-1">
+            <button type="submit" class="pagination-btn" style="background: var(--accent-green); color: white; border-color: var(--accent-green);">
+                <i data-lucide="search" class="w-4 h-4"></i>
             </button>
-        </div>
-    </form>
-    
-    <!-- Cards -->
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {% for equipe in equipes %}
-        <a href="/equipes/{{ equipe.id }}" class="bg-white rounded-lg shadow p-6 hover:shadow-lg transition group">
-            <h3 class="text-xl font-semibold group-hover:text-blue-600">{{ equipe.nom }}</h3>
-            {% if equipe.categorie or equipe.genre %}
-            <p class="text-gray-600 mt-2">
-                {{ equipe.categorie or '' }} {{ equipe.genre or '' }}
-            </p>
+            {% if query %}
+            <a href="/equipes" class="pagination-btn">
+                <i data-lucide="x" class="w-4 h-4"></i>
+            </a>
             {% endif %}
-        </a>
-        {% else %}
-        <div class="col-span-full text-center py-12 text-gray-500">
-            Aucune équipe trouvée
-        </div>
-        {% endfor %}
+        </form>
     </div>
-    
+
+    <!-- Table -->
+    <div class="card overflow-hidden">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Nom</th>
+                    <th>Club</th>
+                    <th>Saison</th>
+                    <th>Genre</th>
+                    <th class="text-right">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for eq in equipes %}
+                <tr>
+                    <td class="font-semibold text-white">{{ eq.nom }}</td>
+                    <td>
+                        {% if eq.club %}
+                        <a href="/clubs/{{ eq.club.id }}" class="hover:text-white transition" style="color: var(--accent-blue);">
+                            {{ eq.club.nom|truncate_name(25) }}
+                        </a>
+                        {% else %}
+                        <span style="color: var(--text-muted);">—</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if eq.saison %}
+                        <span class="badge badge-purple">{{ eq.saison.code }}</span>
+                        {% else %}
+                        <span style="color: var(--text-muted);">—</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if eq.genre %}
+                        <span class="badge">{{ eq.genre }}</span>
+                        {% else %}
+                        <span style="color: var(--text-muted);">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-right">
+                        <a href="/equipes/{{ eq.id }}" class="badge badge-green">
+                            Voir <i data-lucide="arrow-right" class="w-3 h-3 inline-block ml-1"></i>
+                        </a>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5" class="text-center py-8" style="color: var(--text-muted);">
+                        {% if query %}
+                        Aucune équipe trouvée pour « {{ query }} »
+                        {% else %}
+                        Aucune équipe enregistrée
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
     <!-- Pagination -->
-    <div class="flex justify-center space-x-4">
+    {% if not query %}
+    <div class="flex justify-center gap-2">
         {% if has_prev %}
-        <a href="/equipes?page={{ page - 1 }}{% if query %}&q={{ query }}{% endif %}" 
-           class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg">
-            ← Précédent
+        <a href="/equipes?page={{ page - 1 }}" class="pagination-btn">
+            <i data-lucide="chevron-left" class="w-4 h-4"></i> Précédent
         </a>
         {% endif %}
-        
-        <span class="px-4 py-2 text-gray-600">Page {{ page }}</span>
-        
+        <span class="pagination-btn opacity-60">Page {{ page }}</span>
         {% if has_next %}
-        <a href="/equipes?page={{ page + 1 }}{% if query %}&q={{ query }}{% endif %}" 
-           class="bg-gray-200 hover:bg-gray-300 px-4 py-2 rounded-lg">
-            Suivant →
+        <a href="/equipes?page={{ page + 1 }}" class="pagination-btn">
+            Suivant <i data-lucide="chevron-right" class="w-4 h-4"></i>
         </a>
         {% endif %}
     </div>
+    {% endif %}
+
 </div>
 {% endblock %}

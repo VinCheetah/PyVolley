@@ -10,42 +10,37 @@ from pydantic import BaseModel, ConfigDict
 # ============== Base Schemas ==============
 
 class JoueurResponse(BaseModel):
-    """Schéma de réponse pour un joueur."""
     model_config = ConfigDict(from_attributes=True)
-    
     id: int
     licence: str
     nom: str
     prenom: str
-    date_naissance: Optional[str] = None
 
 
 class JoueurDetail(JoueurResponse):
-    """Schéma détaillé d'un joueur avec stats."""
     matchs_joues: int = 0
     equipes: List[str] = []
+    saisons: List[str] = []
+    capitaine_count: int = 0
+    libero_count: int = 0
 
 
 class ClubResponse(BaseModel):
-    """Schéma de réponse pour un club."""
     model_config = ConfigDict(from_attributes=True)
-    
     id: int
     nom: str
-    ligue: Optional[str] = None
+    nom_court: Optional[str] = None
     ville: Optional[str] = None
+    departement: Optional[str] = None
 
 
 class ClubDetail(ClubResponse):
-    """Schéma détaillé d'un club."""
     equipes_count: int = 0
-    joueurs_count: int = 0
+    code_ffvb: Optional[str] = None
 
 
 class EquipeResponse(BaseModel):
-    """Schéma de réponse pour une équipe."""
     model_config = ConfigDict(from_attributes=True)
-    
     id: int
     nom: str
     club_id: Optional[int] = None
@@ -54,28 +49,134 @@ class EquipeResponse(BaseModel):
 
 
 class EquipeDetail(EquipeResponse):
-    """Schéma détaillé d'une équipe."""
     club_nom: Optional[str] = None
+    saison_code: Optional[str] = None
     matchs_count: int = 0
     victoires: int = 0
     defaites: int = 0
 
 
-class SetResponse(BaseModel):
-    """Schéma de réponse pour un set."""
+class ArbitreResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
-    
+    id: int
+    nom: str
+    prenom: Optional[str] = None
+    licence: Optional[str] = None
+    ligue: Optional[str] = None
+
+
+class ArbitreDetail(ArbitreResponse):
+    matchs_count: int = 0
+    roles: dict = {}
+
+
+class SaisonResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    code: str
+    nom: Optional[str] = None
+    date_debut: Optional[datetime_date] = None
+    date_fin: Optional[datetime_date] = None
+
+
+class CompetitionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    nom: str
+    code_competition: Optional[str] = None
+    genre: Optional[str] = None
+    categorie: Optional[str] = None
+    niveau: Optional[str] = None
+    division: Optional[str] = None
+
+
+class CompetitionDetail(CompetitionResponse):
+    saison_code: Optional[str] = None
+    entite_nom: Optional[str] = None
+    matchs_count: int = 0
+    equipes_count: int = 0
+
+
+class SetResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
     numero: int
     score_a: int
     score_b: int
     heure_debut: Optional[str] = None
     heure_fin: Optional[str] = None
+    duree_minutes: Optional[int] = None
+    service_initial: Optional[str] = None
+
+
+class FormationResponse(BaseModel):
+    equipe: str
+    position_1: Optional[str] = None
+    position_2: Optional[str] = None
+    position_3: Optional[str] = None
+    position_4: Optional[str] = None
+    position_5: Optional[str] = None
+    position_6: Optional[str] = None
+
+
+class ChangementResponse(BaseModel):
+    equipe: str
+    joueur_entrant: str
+    joueur_sortant: Optional[str] = None
+    position: Optional[int] = None
+    score_a: Optional[int] = None
+    score_b: Optional[int] = None
+
+
+class TimeoutResponse(BaseModel):
+    equipe: str
+    score_a: int
+    score_b: int
+
+
+class SanctionResponse(BaseModel):
+    type_sanction: str
+    set_numero: int
+    equipe: str
+    joueur_numero: Optional[str] = None
+    score_a: Optional[int] = None
+    score_b: Optional[int] = None
+
+
+class ParticipationResponse(BaseModel):
+    joueur_id: int
+    joueur_nom: str
+    joueur_prenom: str
+    joueur_licence: str
+    equipe_nom: str
+    equipe_id: int
+    numero_maillot: Optional[str] = None
+    est_capitaine: bool = False
+    est_libero: bool = False
+
+
+class OfficielResponse(BaseModel):
+    role: str
+    nom: str
+    prenom: Optional[str] = None
+    licence: Optional[str] = None
+    equipe: str
+
+
+class ArbitreMatchResponse(BaseModel):
+    arbitre_id: int
+    nom: str
+    prenom: Optional[str] = None
+    role: str
+
+
+class SetDetailResponse(SetResponse):
+    formations: List[FormationResponse] = []
+    changements: List[ChangementResponse] = []
+    timeouts: List[TimeoutResponse] = []
 
 
 class MatchResponse(BaseModel):
-    """Schéma de réponse pour un match."""
     model_config = ConfigDict(from_attributes=True)
-    
     id: int
     code_match: str
     date: Optional[datetime_date] = None
@@ -83,34 +184,36 @@ class MatchResponse(BaseModel):
     lieu: Optional[str] = None
     equipe_a_nom: str
     equipe_b_nom: str
-    score_final: Optional[str] = None
-    vainqueur_nom: Optional[str] = None
+    score_sets: Optional[str] = None
+    sets_equipe_a: int = 0
+    sets_equipe_b: int = 0
+    vainqueur: Optional[str] = None
+    has_details: bool = False
 
 
 class MatchDetail(MatchResponse):
-    """Schéma détaillé d'un match."""
     salle: Optional[str] = None
     competition_nom: Optional[str] = None
+    saison_code: Optional[str] = None
     journee: Optional[str] = None
     duree_totale: Optional[str] = None
-    sets: List[SetResponse] = []
     remarques: Optional[str] = None
+    equipe_a_id: Optional[int] = None
+    equipe_b_id: Optional[int] = None
+    sets: List[SetDetailResponse] = []
+    participations: List[ParticipationResponse] = []
+    arbitres: List[ArbitreMatchResponse] = []
+    officiels: List[OfficielResponse] = []
+    sanctions: List[SanctionResponse] = []
 
 
 # ============== Search Schemas ==============
 
-class SearchQuery(BaseModel):
-    """Schéma pour une requête de recherche."""
-    q: str
-    limit: int = 20
-    offset: int = 0
-
-
 class SearchResult(BaseModel):
-    """Schéma pour les résultats de recherche."""
     joueurs: List[JoueurResponse] = []
     clubs: List[ClubResponse] = []
     equipes: List[EquipeResponse] = []
+    arbitres: List[ArbitreResponse] = []
     matchs: List[MatchResponse] = []
     total: int = 0
 
@@ -118,45 +221,12 @@ class SearchResult(BaseModel):
 # ============== Stats Schemas ==============
 
 class StatsOverview(BaseModel):
-    """Statistiques globales."""
     total_matchs: int
     total_joueurs: int
     total_clubs: int
     total_equipes: int
+    total_arbitres: int = 0
+    total_competitions: int = 0
     saisons: List[str] = []
-
-
-class JoueurStats(BaseModel):
-    """Statistiques d'un joueur."""
-    joueur: JoueurResponse
-    matchs_joues: int
-    sets_joues: int = 0
-    equipes: List[str] = []
-    saisons: List[str] = []
-
-
-class EquipeStats(BaseModel):
-    """Statistiques d'une équipe."""
-    equipe: EquipeResponse
-    matchs_joues: int
-    victoires: int
-    defaites: int
-    sets_gagnes: int
-    sets_perdus: int
-    ratio: float = 0.0
-
-
-# ============== Import Schemas ==============
-
-class ImportRequest(BaseModel):
-    """Requête d'import de données."""
-    url: Optional[str] = None
-    file_path: Optional[str] = None
-
-
-class ImportResult(BaseModel):
-    """Résultat d'un import."""
-    total: int
-    imported: int
-    duplicates: int
-    errors: List[str] = []
+    matchs_par_saison: dict = {}
+    matchs_par_mois: List[dict] = []

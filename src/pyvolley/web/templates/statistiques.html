@@ -1,0 +1,274 @@
+{% extends "base.html" %}
+{% block title %}Statistiques - PyVolley{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+    <!-- Header -->
+    <div>
+        <h1 class="text-2xl font-bold">
+            <i data-lucide="bar-chart-3" class="w-6 h-6 inline-block mr-2" style="color: var(--accent-blue);"></i>
+            Statistiques
+        </h1>
+        <p style="color: var(--text-muted);">Vue d'ensemble des données PyVolley</p>
+    </div>
+
+    <!-- Global Stats Grid -->
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div class="stat-card">
+            <div class="stat-value gradient-text-blue">{{ stats.matchs }}</div>
+            <div class="stat-label">
+                <i data-lucide="swords" class="w-3 h-3 inline-block mr-1"></i> Matchs
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--accent-green);">{{ stats.joueurs }}</div>
+            <div class="stat-label">
+                <i data-lucide="user" class="w-3 h-3 inline-block mr-1"></i> Joueurs
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value gradient-text-gold">{{ stats.equipes }}</div>
+            <div class="stat-label">
+                <i data-lucide="shield" class="w-3 h-3 inline-block mr-1"></i> Équipes
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--accent-gold);">{{ stats.clubs }}</div>
+            <div class="stat-label">
+                <i data-lucide="building-2" class="w-3 h-3 inline-block mr-1"></i> Clubs
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--accent-purple);">{{ stats.arbitres }}</div>
+            <div class="stat-label">
+                <i data-lucide="gavel" class="w-3 h-3 inline-block mr-1"></i> Arbitres
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--accent-red);">{{ stats.competitions }}</div>
+            <div class="stat-label">
+                <i data-lucide="trophy" class="w-3 h-3 inline-block mr-1"></i> Compétitions
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Matchs par saison -->
+        <div class="card p-6">
+            <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+                <i data-lucide="bar-chart" class="w-4 h-4 inline-block mr-1"></i>
+                Matchs par saison
+            </h2>
+            {% if matchs_par_saison %}
+            <div style="height: 300px;">
+                <canvas id="saisonChart"></canvas>
+            </div>
+            {% else %}
+            <p class="text-center py-12" style="color: var(--text-muted);">Pas de données disponibles</p>
+            {% endif %}
+        </div>
+
+        <!-- Activité mensuelle -->
+        <div class="card p-6">
+            <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+                <i data-lucide="trending-up" class="w-4 h-4 inline-block mr-1"></i>
+                Activité mensuelle
+            </h2>
+            {% if matchs_par_mois %}
+            <div style="height: 300px;">
+                <canvas id="monthChart"></canvas>
+            </div>
+            {% else %}
+            <p class="text-center py-12" style="color: var(--text-muted);">Pas de données disponibles</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Saisons disponibles -->
+    {% if saisons %}
+    <div class="card p-6">
+        <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+            <i data-lucide="calendar" class="w-4 h-4 inline-block mr-1"></i>
+            Saisons disponibles
+        </h2>
+        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+            {% for s in saisons %}
+            <div class="card card-interactive p-4 text-center">
+                <div class="font-bold gradient-text-blue">{{ s.code }}</div>
+                {% if s.date_debut and s.date_fin %}
+                <div class="text-xs mt-1" style="color: var(--text-muted);">
+                    {{ s.date_debut|format_date }} → {{ s.date_fin|format_date }}
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Data summary table -->
+    <div class="card overflow-hidden">
+        <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
+            <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                <i data-lucide="database" class="w-4 h-4 inline-block mr-1"></i>
+                Résumé des données
+            </h2>
+        </div>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Entité</th>
+                    <th class="text-center">Nombre</th>
+                    <th class="text-right">Explorer</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td class="font-medium text-white">
+                        <i data-lucide="swords" class="w-4 h-4 inline-block mr-2" style="color: var(--accent-blue);"></i>
+                        Matchs
+                    </td>
+                    <td class="text-center font-bold gradient-text-blue">{{ stats.matchs }}</td>
+                    <td class="text-right"><a href="/matchs" class="badge badge-blue text-xs">Voir</a></td>
+                </tr>
+                <tr>
+                    <td class="font-medium text-white">
+                        <i data-lucide="user" class="w-4 h-4 inline-block mr-2" style="color: var(--accent-green);"></i>
+                        Joueurs
+                    </td>
+                    <td class="text-center font-bold" style="color: var(--accent-green);">{{ stats.joueurs }}</td>
+                    <td class="text-right"><a href="/joueurs" class="badge badge-green text-xs">Voir</a></td>
+                </tr>
+                <tr>
+                    <td class="font-medium text-white">
+                        <i data-lucide="shield" class="w-4 h-4 inline-block mr-2" style="color: var(--accent-green);"></i>
+                        Équipes
+                    </td>
+                    <td class="text-center font-bold gradient-text-gold">{{ stats.equipes }}</td>
+                    <td class="text-right"><a href="/equipes" class="badge badge-green text-xs">Voir</a></td>
+                </tr>
+                <tr>
+                    <td class="font-medium text-white">
+                        <i data-lucide="building-2" class="w-4 h-4 inline-block mr-2" style="color: var(--accent-gold);"></i>
+                        Clubs
+                    </td>
+                    <td class="text-center font-bold" style="color: var(--accent-gold);">{{ stats.clubs }}</td>
+                    <td class="text-right"><a href="/clubs" class="badge badge-gold text-xs">Voir</a></td>
+                </tr>
+                <tr>
+                    <td class="font-medium text-white">
+                        <i data-lucide="gavel" class="w-4 h-4 inline-block mr-2" style="color: var(--accent-purple);"></i>
+                        Arbitres
+                    </td>
+                    <td class="text-center font-bold" style="color: var(--accent-purple);">{{ stats.arbitres }}</td>
+                    <td class="text-right"><a href="/arbitres" class="badge badge-purple text-xs">Voir</a></td>
+                </tr>
+                <tr>
+                    <td class="font-medium text-white">
+                        <i data-lucide="trophy" class="w-4 h-4 inline-block mr-2" style="color: var(--accent-gold);"></i>
+                        Compétitions
+                    </td>
+                    <td class="text-center font-bold" style="color: var(--accent-red);">{{ stats.competitions }}</td>
+                    <td class="text-right"><a href="/competitions" class="badge badge-red text-xs">Voir</a></td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const chartFont = { family: 'Inter, system-ui, sans-serif', size: 11 };
+    const gridColor = 'rgba(148, 163, 184, 0.1)';
+    const textColor = '#64748b';
+
+    // Saison chart
+    {% if matchs_par_saison %}
+    const saisonData = {{ matchs_par_saison | tojson }};
+    if (saisonData.length > 0) {
+        const ctx1 = document.getElementById('saisonChart').getContext('2d');
+        new Chart(ctx1, {
+            type: 'bar',
+            data: {
+                labels: saisonData.map(d => d.saison),
+                datasets: [{
+                    label: 'Matchs',
+                    data: saisonData.map(d => d.count),
+                    backgroundColor: 'rgba(59, 130, 246, 0.6)',
+                    borderColor: '#3b82f6',
+                    borderWidth: 1,
+                    borderRadius: 6,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                },
+                scales: {
+                    x: {
+                        grid: { display: false },
+                        ticks: { color: textColor, font: chartFont }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: gridColor },
+                        ticks: { color: textColor, font: chartFont }
+                    }
+                }
+            }
+        });
+    }
+    {% endif %}
+
+    // Monthly chart
+    {% if matchs_par_mois %}
+    const monthData = {{ matchs_par_mois | tojson }};
+    if (monthData.length > 0) {
+        const monthNames = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
+        const ctx2 = document.getElementById('monthChart').getContext('2d');
+        new Chart(ctx2, {
+            type: 'line',
+            data: {
+                labels: monthData.map(d => `${monthNames[d.month - 1]} ${d.year}`),
+                datasets: [{
+                    label: 'Matchs',
+                    data: monthData.map(d => d.count),
+                    borderColor: '#a855f7',
+                    backgroundColor: 'rgba(168, 85, 247, 0.1)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 3,
+                    pointBackgroundColor: '#a855f7',
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                },
+                scales: {
+                    x: {
+                        grid: { display: false },
+                        ticks: { color: textColor, font: chartFont, maxTicksLimit: 12 }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: gridColor },
+                        ticks: { color: textColor, font: chartFont }
+                    }
+                }
+            }
+        });
+    }
+    {% endif %}
+});
+</script>
+{% endblock %}

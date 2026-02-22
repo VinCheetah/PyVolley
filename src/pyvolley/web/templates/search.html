@@ -1,113 +1,192 @@
 {% extends "base.html" %}
-
-{% block title %}Recherche: {{ query }} - PyVolley{% endblock %}
+{% block title %}Recherche{% if query %}: {{ query }}{% endif %} - PyVolley{% endblock %}
 
 {% block content %}
-<div class="space-y-6">
-    <h1 class="text-3xl font-bold">
-        {% if query %}
-        Résultats pour "{{ query }}"
-        {% else %}
-        Recherche
-        {% endif %}
-    </h1>
-    
-    <!-- Search form -->
-    <form action="/search" method="get" class="max-w-2xl">
-        <div class="flex">
-            <input 
-                type="text" 
-                name="q" 
-                value="{{ query }}"
-                placeholder="Rechercher un joueur, une équipe, un club..."
-                class="flex-1 px-4 py-3 border rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-            <button 
-                type="submit" 
-                class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-r-lg transition"
-            >
-                🔍 Rechercher
+<div class="space-y-8">
+
+    <!-- Search Header -->
+    <div>
+        <h1 class="text-2xl font-bold mb-4">
+            <i data-lucide="search" class="w-6 h-6 inline-block mr-2" style="color: var(--accent-blue);"></i>
+            Recherche
+        </h1>
+        <form action="/search" method="get" class="relative max-w-2xl">
+            <i data-lucide="search" class="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2" style="color: var(--text-muted);"></i>
+            <input type="text" name="q" value="{{ query }}"
+                   placeholder="Nom, prénom, club, équipe..."
+                   class="search-input text-lg py-3 pl-12" autofocus>
+        </form>
+    </div>
+
+    {% if query %}
+    <!-- Results summary -->
+    <div class="flex items-center gap-2" style="color: var(--text-secondary);">
+        <span class="font-medium">
+            {{ joueurs|length + clubs|length + equipes|length + arbitres|length }} résultat(s)
+        </span>
+        <span>pour « <span class="text-white font-medium">{{ query }}</span> »</span>
+    </div>
+
+    <!-- Results by category -->
+    <div x-data="{ tab: '{% if joueurs %}joueurs{% elif clubs %}clubs{% elif equipes %}equipes{% elif arbitres %}arbitres{% else %}joueurs{% endif %}' }" class="space-y-4">
+        <!-- Tabs -->
+        <div class="flex gap-2 flex-wrap">
+            <button @click="tab = 'joueurs'"
+                    :class="tab === 'joueurs' ? 'badge-blue' : ''"
+                    class="badge cursor-pointer transition">
+                <i data-lucide="user" class="w-3 h-3"></i>
+                Joueurs ({{ joueurs|length }})
+            </button>
+            <button @click="tab = 'clubs'"
+                    :class="tab === 'clubs' ? 'badge-green' : ''"
+                    class="badge cursor-pointer transition">
+                <i data-lucide="building" class="w-3 h-3"></i>
+                Clubs ({{ clubs|length }})
+            </button>
+            <button @click="tab = 'equipes'"
+                    :class="tab === 'equipes' ? 'badge-purple' : ''"
+                    class="badge cursor-pointer transition">
+                <i data-lucide="users" class="w-3 h-3"></i>
+                Équipes ({{ equipes|length }})
+            </button>
+            <button @click="tab = 'arbitres'"
+                    :class="tab === 'arbitres' ? 'badge-gold' : ''"
+                    class="badge cursor-pointer transition">
+                <i data-lucide="shield" class="w-3 h-3"></i>
+                Arbitres ({{ arbitres|length }})
             </button>
         </div>
-    </form>
-    
-    {% if query %}
-    <!-- Results -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
         <!-- Joueurs -->
-        <section class="bg-white rounded-lg shadow">
-            <div class="bg-blue-600 text-white px-4 py-3 rounded-t-lg">
-                <h2 class="font-semibold">👤 Joueurs ({{ joueurs|length }})</h2>
-            </div>
-            <div class="p-4">
-                {% if joueurs %}
-                <ul class="divide-y">
-                    {% for joueur in joueurs %}
-                    <li class="py-2">
-                        <a href="/joueurs/{{ joueur.id }}" class="hover:text-blue-600">
-                            <span class="font-medium">{{ joueur.nom }} {{ joueur.prenom }}</span>
-                            <span class="text-gray-500 text-sm">({{ joueur.licence }})</span>
-                        </a>
-                    </li>
+        <div x-show="tab === 'joueurs'" class="card overflow-hidden">
+            {% if joueurs %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Nom</th>
+                        <th>Prénom</th>
+                        <th>Licence</th>
+                        <th class="text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for j in joueurs %}
+                    <tr>
+                        <td class="font-semibold">{{ j.nom }}</td>
+                        <td>{{ j.prenom }}</td>
+                        <td style="color: var(--text-muted);">{{ j.licence }}</td>
+                        <td class="text-center">
+                            <a href="/joueurs/{{ j.id }}" class="badge badge-blue">Voir profil</a>
+                        </td>
+                    </tr>
                     {% endfor %}
-                </ul>
-                {% else %}
-                <p class="text-gray-500">Aucun joueur trouvé</p>
-                {% endif %}
-            </div>
-        </section>
-        
-        <!-- Équipes -->
-        <section class="bg-white rounded-lg shadow">
-            <div class="bg-green-600 text-white px-4 py-3 rounded-t-lg">
-                <h2 class="font-semibold">👥 Équipes ({{ equipes|length }})</h2>
-            </div>
-            <div class="p-4">
-                {% if equipes %}
-                <ul class="divide-y">
-                    {% for equipe in equipes %}
-                    <li class="py-2">
-                        <a href="/equipes/{{ equipe.id }}" class="hover:text-green-600 font-medium">
-                            {{ equipe.nom }}
-                        </a>
-                    </li>
-                    {% endfor %}
-                </ul>
-                {% else %}
-                <p class="text-gray-500">Aucune équipe trouvée</p>
-                {% endif %}
-            </div>
-        </section>
-        
+                </tbody>
+            </table>
+            {% else %}
+            <p class="p-8 text-center" style="color: var(--text-muted);">Aucun joueur trouvé</p>
+            {% endif %}
+        </div>
+
         <!-- Clubs -->
-        <section class="bg-white rounded-lg shadow">
-            <div class="bg-purple-600 text-white px-4 py-3 rounded-t-lg">
-                <h2 class="font-semibold">🏠 Clubs ({{ clubs|length }})</h2>
-            </div>
-            <div class="p-4">
-                {% if clubs %}
-                <ul class="divide-y">
-                    {% for club in clubs %}
-                    <li class="py-2">
-                        <a href="/clubs/{{ club.id }}" class="hover:text-purple-600 font-medium">
-                            {{ club.nom }}
-                        </a>
-                        {% if club.ligue %}
-                        <span class="text-gray-500 text-sm">({{ club.ligue }})</span>
-                        {% endif %}
-                    </li>
+        <div x-show="tab === 'clubs'" x-cloak class="card overflow-hidden">
+            {% if clubs %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Nom du club</th>
+                        <th>Ville</th>
+                        <th>Département</th>
+                        <th class="text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in clubs %}
+                    <tr>
+                        <td class="font-semibold">{{ c.nom }}</td>
+                        <td style="color: var(--text-secondary);">{{ c.ville or '-' }}</td>
+                        <td style="color: var(--text-muted);">{{ c.departement or '-' }}</td>
+                        <td class="text-center">
+                            <a href="/clubs/{{ c.id }}" class="badge badge-green">Voir club</a>
+                        </td>
+                    </tr>
                     {% endfor %}
-                </ul>
-                {% else %}
-                <p class="text-gray-500">Aucun club trouvé</p>
-                {% endif %}
-            </div>
-        </section>
+                </tbody>
+            </table>
+            {% else %}
+            <p class="p-8 text-center" style="color: var(--text-muted);">Aucun club trouvé</p>
+            {% endif %}
+        </div>
+
+        <!-- Equipes -->
+        <div x-show="tab === 'equipes'" x-cloak class="card overflow-hidden">
+            {% if equipes %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Nom</th>
+                        <th>Catégorie</th>
+                        <th>Genre</th>
+                        <th class="text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for e in equipes %}
+                    <tr>
+                        <td class="font-semibold">{{ e.nom }}</td>
+                        <td style="color: var(--text-secondary);">{{ e.categorie or '-' }}</td>
+                        <td style="color: var(--text-muted);">{{ e.genre or '-' }}</td>
+                        <td class="text-center">
+                            <a href="/equipes/{{ e.id }}" class="badge badge-purple">Voir équipe</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="p-8 text-center" style="color: var(--text-muted);">Aucune équipe trouvée</p>
+            {% endif %}
+        </div>
+
+        <!-- Arbitres -->
+        <div x-show="tab === 'arbitres'" x-cloak class="card overflow-hidden">
+            {% if arbitres %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Nom</th>
+                        <th>Prénom</th>
+                        <th>Ligue</th>
+                        <th class="text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for a in arbitres %}
+                    <tr>
+                        <td class="font-semibold">{{ a.nom }}</td>
+                        <td>{{ a.prenom or '-' }}</td>
+                        <td style="color: var(--text-muted);">{{ a.ligue or '-' }}</td>
+                        <td class="text-center">
+                            <a href="/arbitres/{{ a.id }}" class="badge badge-gold">Voir profil</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="p-8 text-center" style="color: var(--text-muted);">Aucun arbitre trouvé</p>
+            {% endif %}
+        </div>
     </div>
+
     {% else %}
-    <div class="bg-blue-50 border border-blue-200 rounded-lg p-6 text-center">
-        <p class="text-blue-800">Entrez un terme de recherche pour trouver des joueurs, équipes ou clubs.</p>
+    <!-- No query -->
+    <div class="text-center py-16">
+        <div class="text-6xl mb-4">🔍</div>
+        <p class="text-lg" style="color: var(--text-secondary);">
+            Tapez un nom, prénom ou terme de recherche
+        </p>
     </div>
     {% endif %}
+
 </div>
 {% endblock %}

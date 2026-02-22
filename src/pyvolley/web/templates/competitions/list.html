@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Compétitions - PyVolley{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+            <h1 class="text-2xl font-bold">
+                <i data-lucide="trophy" class="w-6 h-6 inline-block mr-2" style="color: var(--accent-gold);"></i>
+                Compétitions
+            </h1>
+            <p style="color: var(--text-muted);">{{ total }} compétitions enregistrées</p>
+        </div>
+
+        <!-- Saison filter -->
+        <form action="/competitions" method="get" class="flex gap-2">
+            <select name="saison_id" onchange="this.form.submit()"
+                    class="search-input" style="min-width: 160px;">
+                <option value="">Toutes les saisons</option>
+                {% for s in saisons %}
+                <option value="{{ s.id }}" {% if current_saison_id == s.id %}selected{% endif %}>
+                    {{ s.code }}
+                </option>
+                {% endfor %}
+            </select>
+        </form>
+    </div>
+
+    <!-- Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {% for c in competitions %}
+        <div class="card card-interactive p-5">
+            <div class="flex items-start gap-3">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                     style="background: rgba(245,158,11,0.15);">
+                    <i data-lucide="trophy" class="w-5 h-5" style="color: var(--accent-gold);"></i>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <h3 class="font-semibold text-white text-sm leading-tight mb-2">
+                        {{ c.nom }}
+                    </h3>
+                    <div class="flex flex-wrap gap-1">
+                        {% if c.saison %}
+                        <span class="badge badge-purple" style="font-size: 0.6rem;">{{ c.saison.code }}</span>
+                        {% endif %}
+                        {% if c.genre %}
+                        <span class="badge" style="font-size: 0.6rem;">{{ c.genre }}</span>
+                        {% endif %}
+                        {% if c.categorie %}
+                        <span class="badge" style="font-size: 0.6rem;">{{ c.categorie }}</span>
+                        {% endif %}
+                        {% if c.niveau %}
+                        <span class="badge badge-blue" style="font-size: 0.6rem;">{{ c.niveau }}</span>
+                        {% endif %}
+                        {% if c.division %}
+                        <span class="badge badge-green" style="font-size: 0.6rem;">{{ c.division }}</span>
+                        {% endif %}
+                    </div>
+                    {% if c.code_competition %}
+                    <div class="mt-2">
+                        <span class="font-mono text-xs" style="color: var(--text-muted);">{{ c.code_competition }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="col-span-full text-center py-12" style="color: var(--text-muted);">
+            Aucune compétition trouvée
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Pagination -->
+    <div class="flex justify-center gap-2">
+        {% if has_prev %}
+        <a href="/competitions?page={{ page - 1 }}{% if current_saison_id %}&saison_id={{ current_saison_id }}{% endif %}"
+           class="pagination-btn">
+            <i data-lucide="chevron-left" class="w-4 h-4"></i> Précédent
+        </a>
+        {% endif %}
+        <span class="pagination-btn opacity-60">Page {{ page }}</span>
+        {% if has_next %}
+        <a href="/competitions?page={{ page + 1 }}{% if current_saison_id %}&saison_id={{ current_saison_id }}{% endif %}"
+           class="pagination-btn">
+            Suivant <i data-lucide="chevron-right" class="w-4 h-4"></i>
+        </a>
+        {% endif %}
+    </div>
+
+</div>
+{% endblock %}

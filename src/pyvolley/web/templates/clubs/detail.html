@@ -1,67 +1,124 @@
 {% extends "base.html" %}
-
 {% block title %}{{ club.nom }} - PyVolley{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
+
     <!-- Breadcrumb -->
-    <nav class="text-gray-500 text-sm">
-        <a href="/" class="hover:text-blue-600">Accueil</a>
-        <span class="mx-2">›</span>
-        <a href="/clubs" class="hover:text-blue-600">Clubs</a>
-        <span class="mx-2">›</span>
-        <span class="text-gray-800">{{ club.nom }}</span>
+    <nav class="text-sm flex items-center gap-2" style="color: var(--text-muted);">
+        <a href="/" class="hover:text-white transition">Accueil</a>
+        <i data-lucide="chevron-right" class="w-3 h-3"></i>
+        <a href="/clubs" class="hover:text-white transition">Clubs</a>
+        <i data-lucide="chevron-right" class="w-3 h-3"></i>
+        <span style="color: var(--text-secondary);">{{ club.nom }}</span>
     </nav>
-    
-    <!-- Header -->
-    <div class="bg-white rounded-lg shadow p-6">
-        <div class="flex items-start justify-between">
-            <div>
-                <h1 class="text-3xl font-bold text-gray-800">{{ club.nom }}</h1>
-                {% if club.ligue %}
-                <p class="text-gray-600 mt-2">Ligue: {{ club.ligue }}</p>
-                {% endif %}
-                {% if club.ville %}
-                <p class="text-gray-500 mt-1">📍 {{ club.ville }}</p>
-                {% endif %}
+
+    <!-- Header Card -->
+    <div class="card p-6 md:p-8">
+        <div class="flex flex-col md:flex-row md:items-center gap-6">
+            <div class="w-16 h-16 rounded-2xl flex items-center justify-center flex-shrink-0"
+                 style="background: linear-gradient(135deg, var(--accent-gold), #f59e0b);">
+                <i data-lucide="building-2" class="w-8 h-8 text-white"></i>
             </div>
-            <div class="text-6xl">🏠</div>
-        </div>
-    </div>
-    
-    <!-- Stats -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div class="bg-white rounded-lg shadow p-6 text-center">
-            <div class="text-4xl font-bold text-blue-600">{{ equipes|length }}</div>
-            <div class="text-gray-600 mt-2">Équipes</div>
-        </div>
-        <div class="bg-white rounded-lg shadow p-6 text-center">
-            <div class="text-4xl font-bold text-green-600">-</div>
-            <div class="text-gray-600 mt-2">Joueurs</div>
-        </div>
-    </div>
-    
-    <!-- Équipes -->
-    <section class="bg-white rounded-lg shadow">
-        <div class="px-6 py-4 border-b">
-            <h2 class="text-xl font-semibold">👥 Équipes du club</h2>
-        </div>
-        <div class="p-6">
-            {% if equipes %}
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {% for equipe in equipes %}
-                <a href="/equipes/{{ equipe.id }}" class="border rounded-lg p-4 hover:bg-gray-50 transition">
-                    <h3 class="font-semibold text-blue-600">{{ equipe.nom }}</h3>
-                    {% if equipe.categorie or equipe.genre %}
-                    <p class="text-gray-600 text-sm mt-1">{{ equipe.categorie or '' }} {{ equipe.genre or '' }}</p>
+            <div class="flex-1">
+                <h1 class="text-2xl md:text-3xl font-bold text-white mb-1">{{ club.nom }}</h1>
+                {% if club.nom_court %}
+                <p style="color: var(--text-secondary);">{{ club.nom_court }}</p>
+                {% endif %}
+                <div class="flex flex-wrap gap-2 mt-2">
+                    {% if club.code_ffvb %}
+                    <span class="badge">
+                        <i data-lucide="hash" class="w-3 h-3 mr-1"></i>
+                        {{ club.code_ffvb }}
+                    </span>
                     {% endif %}
-                </a>
-                {% endfor %}
+                    {% if club.ville %}
+                    <span class="badge badge-blue">
+                        <i data-lucide="map-pin" class="w-3 h-3 mr-1"></i>
+                        {{ club.ville }}
+                    </span>
+                    {% endif %}
+                    {% if club.departement %}
+                    <span class="badge badge-purple">Dép. {{ club.departement }}</span>
+                    {% endif %}
+                </div>
             </div>
-            {% else %}
-            <p class="text-gray-500 text-center py-8">Aucune équipe trouvée pour ce club</p>
-            {% endif %}
         </div>
-    </section>
+    </div>
+
+    <!-- Stats -->
+    <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <div class="stat-card">
+            <div class="stat-value gradient-text-gold">{{ equipes|length }}</div>
+            <div class="stat-label">Équipes</div>
+        </div>
+        <div class="stat-card">
+            {% set saisons_set = [] %}
+            {% for eq in equipes %}
+                {% if eq.saison and eq.saison.code not in saisons_set %}
+                    {% if saisons_set.append(eq.saison.code) %}{% endif %}
+                {% endif %}
+            {% endfor %}
+            <div class="stat-value gradient-text-blue">{{ saisons_set|length }}</div>
+            <div class="stat-label">Saisons</div>
+        </div>
+        <div class="stat-card">
+            {% set aliases_count = club.aliases|length if club.aliases else 0 %}
+            <div class="stat-value" style="color: var(--text-secondary);">{{ aliases_count }}</div>
+            <div class="stat-label">Alias</div>
+        </div>
+    </div>
+
+    <!-- Equipes du club -->
+    <div class="card overflow-hidden">
+        <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
+            <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                <i data-lucide="shield" class="w-4 h-4 inline-block mr-1"></i>
+                Équipes du club
+            </h2>
+        </div>
+        {% if equipes %}
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
+            {% for eq in equipes %}
+            <a href="/equipes/{{ eq.id }}" class="card card-interactive p-4 no-underline">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl flex items-center justify-center"
+                         style="background: rgba(16,185,129,0.15);">
+                        <i data-lucide="shield" class="w-5 h-5" style="color: var(--accent-green);"></i>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="font-semibold text-white truncate">{{ eq.nom }}</div>
+                        <div class="flex gap-2 mt-1">
+                            {% if eq.saison %}
+                            <span class="badge badge-purple" style="font-size: 0.6rem;">{{ eq.saison.code }}</span>
+                            {% endif %}
+                            {% if eq.genre %}
+                            <span class="badge" style="font-size: 0.6rem;">{{ eq.genre }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-center py-8" style="color: var(--text-muted);">Aucune équipe enregistrée</p>
+        {% endif %}
+    </div>
+
+    <!-- Aliases -->
+    {% if club.aliases %}
+    <div class="card p-6">
+        <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+            <i data-lucide="tag" class="w-4 h-4 inline-block mr-1"></i> Alias connus
+        </h2>
+        <div class="flex flex-wrap gap-2">
+            {% for alias in club.aliases %}
+            <span class="badge">{{ alias.alias }}</span>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
 </div>
 {% endblock %}

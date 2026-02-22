@@ -4,70 +4,145 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}PyVolley{% endblock %}</title>
-    
+
+    <!-- Inter Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    
-    <!-- Alpine.js pour l'interactivité -->
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              dark: { 900: '#0b0e17', 800: '#131829', 700: '#1a1f35', 600: '#222845', 500: '#2a3050' },
+              volley: { blue: '#3b82f6', red: '#ef4444', gold: '#f59e0b', green: '#22c55e', cyan: '#06b6d4', purple: '#a855f7' },
+            },
+            fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+          }
+        }
+      }
+    </script>
+
+    <!-- Alpine.js -->
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    
-    <style>
-        [x-cloak] { display: none !important; }
-    </style>
-    
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
+
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/css/pyvolley.css">
+
     {% block extra_head %}{% endblock %}
 </head>
-<body class="bg-gray-50 min-h-screen">
-    <!-- Navigation -->
-    <nav class="bg-blue-600 text-white shadow-lg">
-        <div class="container mx-auto px-4">
+<body class="min-h-screen" x-data="{ mobileMenu: false, searchOpen: false }">
+
+    <!-- ═══════════════ Navigation ═══════════════ -->
+    <nav class="sticky top-0 z-50 border-b" style="background: var(--bg-secondary); border-color: var(--border-color);">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6">
             <div class="flex items-center justify-between h-16">
+
                 <!-- Logo -->
-                <a href="/" class="flex items-center space-x-2">
-                    <span class="text-2xl">🏐</span>
-                    <span class="font-bold text-xl">PyVolley</span>
+                <a href="/" class="flex items-center gap-3 group">
+                    <div class="w-9 h-9 rounded-lg flex items-center justify-center text-white font-black text-sm"
+                         style="background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));">
+                        PV
+                    </div>
+                    <span class="font-extrabold text-lg tracking-tight gradient-text hidden sm:inline">PyVolley</span>
                 </a>
-                
-                <!-- Navigation links -->
-                <div class="hidden md:flex items-center space-x-6">
-                    <a href="/" class="hover:text-blue-200 transition">Accueil</a>
-                    <a href="/joueurs" class="hover:text-blue-200 transition">Joueurs</a>
-                    <a href="/equipes" class="hover:text-blue-200 transition">Équipes</a>
-                    <a href="/clubs" class="hover:text-blue-200 transition">Clubs</a>
-                    <a href="/matchs" class="hover:text-blue-200 transition">Matchs</a>
+
+                <!-- Desktop Nav Links -->
+                <div class="hidden lg:flex items-center gap-6">
+                    <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">Accueil</a>
+                    <a href="/matchs" class="nav-link {% if '/matchs' in request.url.path %}active{% endif %}">Matchs</a>
+                    <a href="/joueurs" class="nav-link {% if '/joueurs' in request.url.path %}active{% endif %}">Joueurs</a>
+                    <a href="/equipes" class="nav-link {% if '/equipes' in request.url.path %}active{% endif %}">Équipes</a>
+                    <a href="/clubs" class="nav-link {% if '/clubs' in request.url.path %}active{% endif %}">Clubs</a>
+                    <a href="/arbitres" class="nav-link {% if '/arbitres' in request.url.path %}active{% endif %}">Arbitres</a>
+                    <a href="/competitions" class="nav-link {% if '/competitions' in request.url.path %}active{% endif %}">Compétitions</a>
+                    <a href="/statistiques" class="nav-link {% if '/statistiques' in request.url.path %}active{% endif %}">Stats</a>
                 </div>
-                
-                <!-- Search -->
-                <div class="flex items-center">
-                    <form action="/search" method="get" class="relative">
-                        <input 
-                            type="text" 
-                            name="q" 
-                            placeholder="Rechercher..."
-                            class="pl-4 pr-10 py-2 rounded-lg text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-300"
-                        >
-                        <button type="submit" class="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500">
-                            🔍
-                        </button>
-                    </form>
+
+                <!-- Search + Mobile menu -->
+                <div class="flex items-center gap-3">
+                    <!-- Search toggle -->
+                    <button @click="searchOpen = !searchOpen" class="p-2 rounded-lg transition"
+                            style="color: var(--text-secondary);"
+                            :style="searchOpen && 'color: var(--accent-blue)'">
+                        <i data-lucide="search" class="w-5 h-5"></i>
+                    </button>
+
+                    <!-- Mobile menu toggle -->
+                    <button @click="mobileMenu = !mobileMenu" class="lg:hidden p-2 rounded-lg"
+                            style="color: var(--text-secondary);">
+                        <i data-lucide="menu" class="w-5 h-5" x-show="!mobileMenu"></i>
+                        <i data-lucide="x" class="w-5 h-5" x-show="mobileMenu" x-cloak></i>
+                    </button>
                 </div>
+            </div>
+
+            <!-- Search bar (expandable) -->
+            <div x-show="searchOpen" x-cloak x-transition.opacity class="pb-4">
+                <form action="/search" method="get" class="relative max-w-2xl mx-auto">
+                    <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" style="color: var(--text-muted);"></i>
+                    <input type="text" name="q" placeholder="Rechercher un joueur, club, équipe, arbitre..."
+                           class="search-input" autofocus
+                           x-ref="searchInput"
+                           @keydown.escape="searchOpen = false">
+                </form>
+            </div>
+
+            <!-- Mobile menu -->
+            <div x-show="mobileMenu" x-cloak x-transition class="lg:hidden pb-4 space-y-1">
+                <a href="/" class="block px-3 py-2 rounded-lg text-sm" style="color: var(--text-secondary);">Accueil</a>
+                <a href="/matchs" class="block px-3 py-2 rounded-lg text-sm" style="color: var(--text-secondary);">Matchs</a>
+                <a href="/joueurs" class="block px-3 py-2 rounded-lg text-sm" style="color: var(--text-secondary);">Joueurs</a>
+                <a href="/equipes" class="block px-3 py-2 rounded-lg text-sm" style="color: var(--text-secondary);">Équipes</a>
+                <a href="/clubs" class="block px-3 py-2 rounded-lg text-sm" style="color: var(--text-secondary);">Clubs</a>
+                <a href="/arbitres" class="block px-3 py-2 rounded-lg text-sm" style="color: var(--text-secondary);">Arbitres</a>
+                <a href="/competitions" class="block px-3 py-2 rounded-lg text-sm" style="color: var(--text-secondary);">Compétitions</a>
+                <a href="/statistiques" class="block px-3 py-2 rounded-lg text-sm" style="color: var(--text-secondary);">Statistiques</a>
             </div>
         </div>
     </nav>
-    
-    <!-- Main content -->
-    <main class="container mx-auto px-4 py-8">
+
+    <!-- ═══════════════ Main Content ═══════════════ -->
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 py-8 fade-in">
         {% block content %}{% endblock %}
     </main>
-    
-    <!-- Footer -->
-    <footer class="bg-gray-800 text-gray-300 py-6 mt-auto">
-        <div class="container mx-auto px-4 text-center">
-            <p>PyVolley - Données volleyball FFVB</p>
-            <p class="text-sm mt-2">© 2024 - Open Source</p>
+
+    <!-- ═══════════════ Footer ═══════════════ -->
+    <footer class="border-t mt-16 py-8" style="background: var(--bg-secondary); border-color: var(--border-color);">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6">
+            <div class="flex flex-col md:flex-row items-center justify-between gap-4">
+                <div class="flex items-center gap-2">
+                    <span class="font-bold gradient-text">PyVolley</span>
+                    <span style="color: var(--text-muted);">—</span>
+                    <span style="color: var(--text-muted);" class="text-sm">Données volleyball FFVB</span>
+                </div>
+                <div class="flex items-center gap-6 text-sm" style="color: var(--text-muted);">
+                    <a href="/api/docs" class="hover:text-white transition">API Docs</a>
+                    <span>© 2024-2026</span>
+                </div>
+            </div>
         </div>
     </footer>
-    
+
+    <!-- Initialize Lucide icons -->
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            lucide.createIcons();
+        });
+        // Re-init after Alpine updates
+        document.addEventListener('alpine:initialized', () => {
+            lucide.createIcons();
+        });
+    </script>
+
     {% block extra_scripts %}{% endblock %}
 </body>
 </html>

@@ -12,6 +12,9 @@ from pyvolley.database.repositories import (
     ClubRepository,
     EquipeRepository,
     MatchRepository,
+    SaisonRepository,
+    CompetitionRepository,
+    ArbitreRepository,
 )
 
 
@@ -24,26 +27,40 @@ def get_session() -> Generator[Session, None, None]:
 def get_joueur_repo(
     session: Session = Depends(get_session)
 ) -> JoueurRepository:
-    """Dépendance pour le repository des joueurs."""
     return JoueurRepository(session)
 
 
 def get_club_repo(
     session: Session = Depends(get_session)
 ) -> ClubRepository:
-    """Dépendance pour le repository des clubs."""
     return ClubRepository(session)
 
 
 def get_equipe_repo(
     session: Session = Depends(get_session)
 ) -> EquipeRepository:
-    """Dépendance pour le repository des équipes."""
     return EquipeRepository(session)
 
 
 def get_match_repo(
     session: Session = Depends(get_session)
 ) -> MatchRepository:
-    """Dépendance pour le repository des matchs."""
     return MatchRepository(session)
+
+
+def get_saison_repo(
+    session: Session = Depends(get_session)
+) -> SaisonRepository:
+    return SaisonRepository(session)
+
+
+def get_competition_repo(
+    session: Session = Depends(get_session)
+) -> CompetitionRepository:
+    return CompetitionRepository(session)
+
+
+def get_arbitre_repo(
+    session: Session = Depends(get_session)
+) -> ArbitreRepository:
+    return ArbitreRepository(session)

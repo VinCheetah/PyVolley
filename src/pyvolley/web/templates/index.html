@@ -1,100 +1,259 @@
 {% extends "base.html" %}
-
-{% block title %}PyVolley - Accueil{% endblock %}
+{% block title %}PyVolley — Tableau de bord{% endblock %}
 
 {% block content %}
 <div class="space-y-8">
+
     <!-- Hero Section -->
-    <section class="bg-gradient-to-r from-blue-600 to-blue-800 rounded-xl p-8 text-white">
-        <h1 class="text-4xl font-bold mb-4">🏐 PyVolley</h1>
-        <p class="text-xl mb-6">Explorez les données du volleyball français</p>
-        
-        <form action="/search" method="get" class="max-w-xl">
-            <div class="flex">
-                <input 
-                    type="text" 
-                    name="q" 
-                    placeholder="Rechercher un joueur, une équipe, un club..."
-                    class="flex-1 px-6 py-3 rounded-l-lg text-gray-800 focus:outline-none text-lg"
-                >
-                <button 
-                    type="submit" 
-                    class="bg-yellow-500 hover:bg-yellow-400 px-8 py-3 rounded-r-lg font-semibold transition"
-                >
+    <section class="relative overflow-hidden rounded-2xl p-8 md:p-12"
+             style="background: linear-gradient(135deg, rgba(59,130,246,0.15), rgba(6,182,212,0.1)); border: 1px solid rgba(59,130,246,0.2);">
+        <div class="relative z-10">
+            <h1 class="text-4xl md:text-5xl font-black tracking-tight mb-3">
+                <span class="gradient-text">PyVolley</span>
+            </h1>
+            <p class="text-lg mb-8" style="color: var(--text-secondary);">
+                Explorez les données du volleyball français — matchs, joueurs, clubs et statistiques
+            </p>
+            <form action="/search" method="get" class="max-w-xl relative">
+                <i data-lucide="search" class="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2" style="color: var(--text-muted);"></i>
+                <input type="text" name="q"
+                       placeholder="Rechercher un joueur, une équipe, un club..."
+                       class="search-input text-lg py-4 pl-12 pr-32">
+                <button type="submit"
+                        class="absolute right-2 top-1/2 -translate-y-1/2 px-6 py-2 rounded-lg font-semibold text-white text-sm transition"
+                        style="background: var(--accent-blue);">
                     Rechercher
                 </button>
-            </div>
-        </form>
+            </form>
+        </div>
+        <!-- Decorative volleyball -->
+        <div class="absolute right-8 top-1/2 -translate-y-1/2 text-8xl opacity-10 select-none hidden md:block">🏐</div>
     </section>
-    
+
     <!-- Stats Cards -->
-    <section class="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div class="bg-white rounded-lg shadow p-6 text-center">
-            <div class="text-4xl font-bold text-blue-600">{{ stats.matchs }}</div>
-            <div class="text-gray-600 mt-2">Matchs</div>
-        </div>
-        <div class="bg-white rounded-lg shadow p-6 text-center">
-            <div class="text-4xl font-bold text-green-600">{{ stats.joueurs }}</div>
-            <div class="text-gray-600 mt-2">Joueurs</div>
-        </div>
-        <div class="bg-white rounded-lg shadow p-6 text-center">
-            <div class="text-4xl font-bold text-purple-600">-</div>
-            <div class="text-gray-600 mt-2">Équipes</div>
-        </div>
-        <div class="bg-white rounded-lg shadow p-6 text-center">
-            <div class="text-4xl font-bold text-orange-600">-</div>
-            <div class="text-gray-600 mt-2">Clubs</div>
-        </div>
-    </section>
-    
-    <!-- Quick Links -->
-    <section class="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <a href="/joueurs" class="bg-white rounded-lg shadow p-6 hover:shadow-lg transition group">
-            <h3 class="text-xl font-semibold text-gray-800 group-hover:text-blue-600">👤 Joueurs</h3>
-            <p class="text-gray-600 mt-2">Recherchez des joueurs et consultez leurs statistiques</p>
+    <section class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <a href="/matchs" class="stat-card card-interactive">
+            <div class="stat-value">{{ stats.matchs }}</div>
+            <div class="stat-label">Matchs</div>
         </a>
-        <a href="/equipes" class="bg-white rounded-lg shadow p-6 hover:shadow-lg transition group">
-            <h3 class="text-xl font-semibold text-gray-800 group-hover:text-blue-600">👥 Équipes</h3>
-            <p class="text-gray-600 mt-2">Explorez les équipes et leurs résultats</p>
+        <a href="/joueurs" class="stat-card card-interactive">
+            <div class="stat-value" style="background: linear-gradient(135deg, #22c55e, #06b6d4); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">{{ stats.joueurs }}</div>
+            <div class="stat-label">Joueurs</div>
         </a>
-        <a href="/matchs" class="bg-white rounded-lg shadow p-6 hover:shadow-lg transition group">
-            <h3 class="text-xl font-semibold text-gray-800 group-hover:text-blue-600">📊 Matchs</h3>
-            <p class="text-gray-600 mt-2">Consultez les feuilles de match détaillées</p>
+        <a href="/equipes" class="stat-card card-interactive">
+            <div class="stat-value" style="background: linear-gradient(135deg, #a855f7, #3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">{{ stats.equipes }}</div>
+            <div class="stat-label">Équipes</div>
+        </a>
+        <a href="/clubs" class="stat-card card-interactive">
+            <div class="stat-value" style="background: linear-gradient(135deg, #f59e0b, #ef4444); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">{{ stats.clubs }}</div>
+            <div class="stat-label">Clubs</div>
+        </a>
+        <a href="/arbitres" class="stat-card card-interactive">
+            <div class="stat-value" style="background: linear-gradient(135deg, #06b6d4, #a855f7); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">{{ stats.arbitres }}</div>
+            <div class="stat-label">Arbitres</div>
+        </a>
+        <a href="/competitions" class="stat-card card-interactive">
+            <div class="stat-value" style="background: linear-gradient(135deg, #ef4444, #f59e0b); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">{{ stats.competitions }}</div>
+            <div class="stat-label">Compétitions</div>
         </a>
     </section>
-    
+
+    <!-- Charts Row -->
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Matchs par saison -->
+        <div class="card p-6">
+            <h3 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+                <i data-lucide="bar-chart-3" class="w-4 h-4 inline-block mr-1"></i>
+                Matchs par saison
+            </h3>
+            <div style="height: 250px;">
+                <canvas id="chartSaison"></canvas>
+            </div>
+        </div>
+
+        <!-- Matchs par mois -->
+        <div class="card p-6">
+            <h3 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+                <i data-lucide="trending-up" class="w-4 h-4 inline-block mr-1"></i>
+                Activité mensuelle
+            </h3>
+            <div style="height: 250px;">
+                <canvas id="chartMois"></canvas>
+            </div>
+        </div>
+    </section>
+
+    <!-- Quick Navigation -->
+    <section class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <a href="/joueurs" class="card card-interactive p-6 flex items-start gap-4 no-underline">
+            <div class="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+                 style="background: rgba(59,130,246,0.15);">
+                <i data-lucide="users" class="w-6 h-6" style="color: var(--accent-blue);"></i>
+            </div>
+            <div>
+                <h3 class="font-semibold text-white mb-1">Joueurs</h3>
+                <p class="text-sm" style="color: var(--text-secondary);">Rechercher et consulter les fiches joueurs et leurs statistiques</p>
+            </div>
+        </a>
+        <a href="/matchs" class="card card-interactive p-6 flex items-start gap-4 no-underline">
+            <div class="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+                 style="background: rgba(239,68,68,0.15);">
+                <i data-lucide="swords" class="w-6 h-6" style="color: var(--accent-red);"></i>
+            </div>
+            <div>
+                <h3 class="font-semibold text-white mb-1">Matchs</h3>
+                <p class="text-sm" style="color: var(--text-secondary);">Feuilles de match détaillées avec simulation interactive</p>
+            </div>
+        </a>
+        <a href="/statistiques" class="card card-interactive p-6 flex items-start gap-4 no-underline">
+            <div class="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
+                 style="background: rgba(245,158,11,0.15);">
+                <i data-lucide="bar-chart" class="w-6 h-6" style="color: var(--accent-gold);"></i>
+            </div>
+            <div>
+                <h3 class="font-semibold text-white mb-1">Statistiques</h3>
+                <p class="text-sm" style="color: var(--text-secondary);">Graphiques et analyses des données volleyball</p>
+            </div>
+        </a>
+    </section>
+
     <!-- Derniers matchs -->
     {% if derniers_matchs %}
-    <section class="bg-white rounded-lg shadow p-6">
-        <h2 class="text-2xl font-semibold mb-4">🕐 Derniers matchs</h2>
+    <section class="card overflow-hidden">
+        <div class="px-6 py-4 flex items-center justify-between" style="border-bottom: 1px solid var(--border-color);">
+            <h2 class="font-semibold flex items-center gap-2">
+                <i data-lucide="clock" class="w-4 h-4" style="color: var(--accent-blue);"></i>
+                Derniers matchs
+            </h2>
+            <a href="/matchs" class="text-sm transition" style="color: var(--accent-blue);">Voir tous →</a>
+        </div>
         <div class="overflow-x-auto">
-            <table class="w-full">
-                <thead class="bg-gray-50">
+            <table class="data-table">
+                <thead>
                     <tr>
-                        <th class="px-4 py-3 text-left text-gray-600">Date</th>
-                        <th class="px-4 py-3 text-left text-gray-600">Équipe A</th>
-                        <th class="px-4 py-3 text-center text-gray-600">Score</th>
-                        <th class="px-4 py-3 text-left text-gray-600">Équipe B</th>
-                        <th class="px-4 py-3 text-left text-gray-600">Lieu</th>
+                        <th>Date</th>
+                        <th>Équipe A</th>
+                        <th class="text-center">Score</th>
+                        <th>Équipe B</th>
+                        <th>Lieu</th>
+                        <th class="text-center">Détails</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y">
+                <tbody>
                     {% for match in derniers_matchs %}
-                    <tr class="hover:bg-gray-50">
-                        <td class="px-4 py-3">{{ match.date.strftime('%d/%m/%Y') if match.date else '-' }}</td>
-                        <td class="px-4 py-3 font-medium">{{ match.equipe_a.nom if match.equipe_a else '-' }}</td>
-                        <td class="px-4 py-3 text-center font-bold">{{ match.score_final or '-' }}</td>
-                        <td class="px-4 py-3 font-medium">{{ match.equipe_b.nom if match.equipe_b else '-' }}</td>
-                        <td class="px-4 py-3 text-gray-600">{{ match.lieu or '-' }}</td>
+                    <tr>
+                        <td class="whitespace-nowrap" style="color: var(--text-secondary);">
+                            {{ match.date_match|format_date }}
+                        </td>
+                        <td>
+                            {% if match.equipe_a %}
+                            <a href="/equipes/{{ match.equipe_a.id }}" class="font-medium">
+                                {{ match.equipe_a.nom|truncate_name(25) }}
+                            </a>
+                            {% else %}-{% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% if match.score_sets %}
+                            <span class="font-bold text-lg">
+                                <span class="score-team-a">{{ match.sets_equipe_a }}</span>
+                                <span style="color: var(--text-muted);">-</span>
+                                <span class="score-team-b">{{ match.sets_equipe_b }}</span>
+                            </span>
+                            {% else %}<span style="color: var(--text-muted);">—</span>{% endif %}
+                        </td>
+                        <td>
+                            {% if match.equipe_b %}
+                            <a href="/equipes/{{ match.equipe_b.id }}" class="font-medium">
+                                {{ match.equipe_b.nom|truncate_name(25) }}
+                            </a>
+                            {% else %}-{% endif %}
+                        </td>
+                        <td style="color: var(--text-secondary);">{{ match.lieu|truncate_name(20) }}</td>
+                        <td class="text-center">
+                            <a href="/matchs/{{ match.id }}" class="badge badge-blue">
+                                {% if match.has_details %}Détails{% else %}Voir{% endif %}
+                            </a>
+                        </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
-        <div class="mt-4 text-right">
-            <a href="/matchs" class="text-blue-600 hover:underline">Voir tous les matchs →</a>
-        </div>
     </section>
     {% endif %}
+
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const chartColors = {
+        blue: '#3b82f6',
+        cyan: '#06b6d4',
+        grid: 'rgba(42, 48, 80, 0.5)',
+        text: '#5a6178',
+    };
+
+    const defaultOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { display: false },
+        },
+        scales: {
+            x: {
+                grid: { color: chartColors.grid },
+                ticks: { color: chartColors.text, font: { size: 11 } },
+            },
+            y: {
+                grid: { color: chartColors.grid },
+                ticks: { color: chartColors.text, font: { size: 11 } },
+                beginAtZero: true,
+            },
+        },
+    };
+
+    // Matchs par saison
+    const saisonData = {{ matchs_par_saison | tojson }};
+    if (saisonData.length > 0) {
+        new Chart(document.getElementById('chartSaison'), {
+            type: 'bar',
+            data: {
+                labels: saisonData.map(d => d.saison),
+                datasets: [{
+                    data: saisonData.map(d => d.count),
+                    backgroundColor: 'rgba(59, 130, 246, 0.6)',
+                    borderColor: chartColors.blue,
+                    borderWidth: 1,
+                    borderRadius: 6,
+                }],
+            },
+            options: defaultOptions,
+        });
+    }
+
+    // Matchs par mois
+    const moisData = {{ matchs_par_mois | tojson }};
+    if (moisData.length > 0) {
+        const moisNoms = ['', 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
+        new Chart(document.getElementById('chartMois'), {
+            type: 'line',
+            data: {
+                labels: moisData.map(d => `${moisNoms[d.month]} ${d.year}`),
+                datasets: [{
+                    data: moisData.map(d => d.count),
+                    borderColor: chartColors.cyan,
+                    backgroundColor: 'rgba(6, 182, 212, 0.1)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 3,
+                    pointBackgroundColor: chartColors.cyan,
+                }],
+            },
+            options: defaultOptions,
+        });
+    }
+});
+</script>
 {% endblock %}
