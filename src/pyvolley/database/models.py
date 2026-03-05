@@ -140,10 +140,12 @@ class CompetitionDB(Base):
         back_populates="competition", cascade="all, delete-orphan"
     )
     matchs: Mapped[List["MatchDB"]] = relationship(back_populates="competition")
+    equipes: Mapped[List["EquipeDB"]] = relationship(back_populates="competition")
 
     __table_args__ = (
-        UniqueConstraint("nom", "saison_id", "genre", name="uq_competition_nom_saison_genre"),
+        UniqueConstraint("nom", "saison_id", "genre", "categorie", name="uq_competition_nom_saison_genre_cat"),
         Index("ix_competitions_saison", "saison_id"),
+        Index("ix_competitions_genre_categorie", "genre", "categorie"),
     )
 
     def __repr__(self) -> str:
@@ -192,19 +194,24 @@ class EquipeDB(Base):
     numero_equipe: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     genre: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     categorie: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    niveau: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # Elite, Nationale, Régionale, Départementale...
+    division: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # N2, N3, R1, R2, D1...
 
     # Foreign keys
     club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True)
     saison_id: Mapped[Optional[int]] = mapped_column(ForeignKey("saisons.id"), nullable=True)
+    competition_id: Mapped[Optional[int]] = mapped_column(ForeignKey("competitions.id"), nullable=True)
 
     # Relations
     club: Mapped[Optional["ClubDB"]] = relationship(back_populates="equipes")
     saison: Mapped[Optional["SaisonDB"]] = relationship(back_populates="equipes")
+    competition: Mapped[Optional["CompetitionDB"]] = relationship(back_populates="equipes")
     participations: Mapped[List["ParticipationMatchDB"]] = relationship(back_populates="equipe")
 
     __table_args__ = (
-        UniqueConstraint("nom", "saison_id", name="uq_equipe_nom_saison"),
+        UniqueConstraint("nom", "saison_id", "competition_id", name="uq_equipe_nom_saison_competition"),
         Index("ix_equipes_club_saison", "club_id", "saison_id"),
+        Index("ix_equipes_competition", "competition_id"),
     )
 
     def __repr__(self) -> str:

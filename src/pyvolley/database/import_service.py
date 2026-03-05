@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 
 from ..core.models import Match, Joueur, Equipe, Set, Arbitre, Sanction, Officiel
+from ..core.geo_data import extract_entite_code_from_path, get_departments_for_entite
 from .models import (
     ClubDB, ClubAliasDB, EquipeDB, JoueurDB, MatchDB, SetDB,
     FormationDB, ChangementDB, TimeoutDB,
@@ -25,12 +26,126 @@ from .models import (
 logger = logging.getLogger(__name__)
 
 
+import unicodedata
+
+
 def normalize_club_name(name: str) -> str:
-    """Normalise un nom de club pour le matching (minuscule, sans ponctuation superflue)."""
+    """Normalise un nom de club pour le matching.
+
+    - Majuscules
+    - Supprime les accents
+    - Remplace ponctuation par espaces
+    - Supprime les numéros d'équipe en fin de nom (ex: " 2", " 3")
+    - Normalise SAINT/ST, SAINTE/STE
+    - Coalescence d'espaces
+    """
     n = name.upper().strip()
-    n = re.sub(r'[.\-/\']', ' ', n)
+    # Supprimer les accents
+    n = ''.join(
+        c for c in unicodedata.normalize('NFD', n)
+        if unicodedata.category(c) != 'Mn'
+    )
+    # Ponctuation → espaces
+    n = re.sub(r'[.\-/\'\",;:()]+', ' ', n)
+    # Supprimer numéro d'équipe final (chiffre isolé en fin)
+    n = re.sub(r'\s+\d$', '', n.strip())
+    # Normaliser SAINT-/SAINTE-
+    n = re.sub(r'\bSAINTE?\b', 'ST', n)
+    n = re.sub(r'\bSTE\b', 'ST', n)
+    # Coalescence espaces
     n = re.sub(r'\s+', ' ', n)
     return n.strip()
+
+
+def extract_club_core_name(name: str) -> str:
+    """Extrait le nom-noyau d'un club en supprimant les suffixes de volley courants.
+
+    Utilisé pour le matching souple entre variantes d'un même club.
+
+    Exemples :
+        'LYON PESD VB'       → 'LYON PESD'
+        'LYON PESD VOLLEY'   → 'LYON PESD'
+        'VBC CHAMALIERES'    → 'VBC CHAMALIERES'  (préfixe, pas suffixe)
+        'ASUL LYON VB'       → 'ASUL LYON'
+        'E. FOREZIENNE VB'   → 'E FOREZIENNE'
+        'TOUVET VOLLEY-BALL' → 'TOUVET'
+    """
+    n = normalize_club_name(name)
+    # Supprimer les suffixes de volley courants en fin de nom
+    # Ordonnés du plus long au plus court pour matcher "VOLLEY BALL" avant "VOLLEY"
+    volleyball_suffixes = [
+        r'\s+VOLLEY\s*BALL$',
+        r'\s+VOLLEYBALL$',
+        r'\s+VOLLEY$',
+        r'\s+VB$',
+        r'\s+AVB$',
+        r'\s+VBC$',
+        r'\s+VC$',
+    ]
+    for suffix in volleyball_suffixes:
+        n = re.sub(suffix, '', n)
+    return n.strip()
+
+
+def _club_names_match(name_a: str, name_b: str) -> bool:
+    """Détermine si deux noms de clubs désignent probablement le même club.
+
+    Règles de matching :
+    1. Noms normalisés identiques → True
+    2. Noms-noyaux identiques → True (gère 'LYON VB' vs 'LYON VOLLEY')
+    3. L'un est préfixe de l'autre (≥ 5 chars) → True (gère 'AS CALUIRE' vs 'AS CALUIRE VB')
+    4. Variantes d'orthographe proches → True (Levenshtein ≤ 2 pour les noms courts)
+    """
+    na = normalize_club_name(name_a)
+    nb = normalize_club_name(name_b)
+
+    # 1. Noms normalisés identiques
+    if na == nb:
+        return True
+
+    # 2. Noms-noyaux identiques
+    core_a = extract_club_core_name(name_a)
+    core_b = extract_club_core_name(name_b)
+    if core_a == core_b and len(core_a) >= 4:
+        return True
+
+    # 3. L'un est préfixe de l'autre (pour les cas avec/sans suffixe VB)
+    if len(na) >= 5 and len(nb) >= 5:
+        if na.startswith(nb) or nb.startswith(na):
+            # Vérifier que le suffixe est un mot de volley courant
+            longer, shorter = (na, nb) if len(na) > len(nb) else (nb, na)
+            suffix = longer[len(shorter):].strip()
+            if not suffix or re.match(r'^(VB|VBC|VC|AVB|VOLLEY|VOLLEYBALL|VOLLEY\s*BALL)$', suffix):
+                return True
+
+    # 4. Distance d'édition pour les variantes orthographiques proches
+    #    (ex: SESSINS vs SEYSSINS, ECHIROLLES vs ECHIROLLES)
+    if abs(len(core_a) - len(core_b)) <= 2 and len(core_a) >= 6:
+        dist = _levenshtein(core_a, core_b)
+        if dist <= 2:
+            return True
+
+    return False
+
+
+def _levenshtein(s1: str, s2: str) -> int:
+    """Distance de Levenshtein entre deux chaînes."""
+    if len(s1) < len(s2):
+        return _levenshtein(s2, s1)
+    if not s2:
+        return len(s1)
+    prev_row = list(range(len(s2) + 1))
+    for i, c1 in enumerate(s1):
+        curr_row = [i + 1]
+        for j, c2 in enumerate(s2):
+            cost = 0 if c1 == c2 else 1
+            curr_row.append(min(
+                curr_row[j] + 1,       # insertion
+                prev_row[j + 1] + 1,   # deletion
+                prev_row[j] + cost,    # substitution
+            ))
+        prev_row = curr_row
+    return prev_row[-1]
 
 
 class MatchImportService:
@@ -46,11 +161,12 @@ class MatchImportService:
         # Cache local pour éviter les requêtes répétitives dans un batch
         self._saison_cache: dict[str, SaisonDB] = {}
         self._club_cache: dict[str, ClubDB] = {}
-        self._equipe_cache: dict[tuple[str, int], EquipeDB] = {}
+        self._equipe_cache: dict[tuple, EquipeDB] = {}
         self._joueur_cache: dict[str, JoueurDB] = {}
         self._arbitre_cache: dict[str, ArbitreDB] = {}
-        self._competition_cache: dict[tuple[str, int, Optional[str]], CompetitionDB] = {}
+        self._competition_cache: dict[tuple[str, int, Optional[str], Optional[str]], CompetitionDB] = {}
         self._poule_cache: dict[tuple[str, int], PouleDB] = {}
+        self._entite_cache: dict[str, EntiteFFVBDB] = {}
         # Track participations ajoutées (non-flushées) pour éviter les doublons
         # Nécessaire car autoflush=False empêche les queries de voir les adds en attente
         self._participation_seen: set[tuple[int, int]] = set()
@@ -68,6 +184,7 @@ class MatchImportService:
         self._arbitre_cache.clear()
         self._competition_cache.clear()
         self._poule_cache.clear()
+        self._entite_cache.clear()
         self._participation_seen.clear()
 
     # =================================================================
@@ -96,8 +213,8 @@ class MatchImportService:
         poule = self._get_or_create_poule(match_data, competition)
 
         # 4. Clubs & Équipes
-        equipe_a_db = self._resolve_equipe(match_data.equipe_a, match_data, saison)
-        equipe_b_db = self._resolve_equipe(match_data.equipe_b, match_data, saison)
+        equipe_a_db = self._resolve_equipe(match_data.equipe_a, match_data, saison, competition)
+        equipe_b_db = self._resolve_equipe(match_data.equipe_b, match_data, saison, competition)
 
         # 5. Créer le match
         heure_str = self._time_to_string(match_data.heure) if match_data.heure else None
@@ -230,12 +347,66 @@ class MatchImportService:
     # Compétition & Poule
     # =================================================================
 
+    def _get_or_create_entite(self, entite_code: str, organisateur: Optional[str] = None) -> Optional[EntiteFFVBDB]:
+        """Crée ou récupère une entité FFVB (ligue, comité, nationale).
+        
+        Args:
+            entite_code: Code de l'entité (ex: "PTRA38", "LIRA", "ABCCS")
+            organisateur: Nom de l'organisateur extrait du PDF (fallback pour le nom)
+        """
+        if not entite_code:
+            return None
+        
+        entite_code = entite_code.strip()
+        
+        if entite_code in self._entite_cache:
+            return self._entite_cache[entite_code]
+        
+        existing = self.session.scalar(
+            select(EntiteFFVBDB).where(EntiteFFVBDB.code == entite_code)
+        )
+        if existing:
+            self._entite_cache[entite_code] = existing
+            return existing
+        
+        # Déterminer le type et le nom
+        from ..scrapers.ffvb.entities import detect_entity_type
+        entity_type = detect_entity_type(entite_code, organisateur or "")
+        
+        # Nom : utiliser l'organisateur parsé du PDF si dispo, sinon le code
+        nom = organisateur if organisateur else entite_code
+        
+        entite = EntiteFFVBDB(
+            code=entite_code,
+            nom=nom,
+            type=entity_type,
+        )
+        self.session.add(entite)
+        self.session.flush()
+        self._entite_cache[entite_code] = entite
+        return entite
+
+    def _resolve_entite(self, match_data: Match) -> Optional[EntiteFFVBDB]:
+        """Résout l'entité FFVB organisatrice depuis le chemin PDF et/ou l'organisateur.
+        
+        Priorité :
+        1. Code entité extrait du chemin source_pdf
+        2. Fallback : organisateur parsé du header PDF (non utilisé seul car pas de code)
+        """
+        entite_code = extract_entite_code_from_path(match_data.source_pdf)
+        if not entite_code:
+            return None
+        
+        organisateur = getattr(match_data, 'organisateur', None)
+        return self._get_or_create_entite(entite_code, organisateur)
+
     def _get_or_create_competition(
         self, match_data: Match, saison: Optional[SaisonDB]
     ) -> Optional[CompetitionDB]:
         """Crée ou récupère la compétition.
 
         La compétition est identifiée par son nom + saison + genre.
+        Lie l'entité organisatrice (ligue, comité, nationale) si disponible.
         """
         if not match_data.competition:
             return None
@@ -243,7 +414,8 @@ class MatchImportService:
             return None
 
         genre = match_data.genre.value if match_data.genre else None
-        cache_key = (match_data.competition, saison.id, genre)
+        categorie = match_data.categorie.value if match_data.categorie else None
+        cache_key = (match_data.competition, saison.id, genre, categorie)
 
         if cache_key in self._competition_cache:
             return self._competition_cache[cache_key]
@@ -258,16 +430,28 @@ class MatchImportService:
         )
         if genre:
             stmt = stmt.where(CompetitionDB.genre == genre)
+        else:
+            stmt = stmt.where(CompetitionDB.genre.is_(None))
+        if categorie:
+            stmt = stmt.where(CompetitionDB.categorie == categorie)
+        else:
+            stmt = stmt.where(CompetitionDB.categorie.is_(None))
 
         existing = self.session.scalar(stmt)
         if existing:
+            # If entite_id is not yet linked, try to link it now
+            if not existing.entite_id:
+                entite = self._resolve_entite(match_data)
+                if entite:
+                    existing.entite_id = entite.id
             self._competition_cache[cache_key] = existing
             return existing
 
-        categorie = match_data.categorie.value if match_data.categorie else None
-
         # Extraire un code lisible depuis le nom de compétition
         comp_code = self._extract_code_from_competition_name(match_data.competition)
+
+        # Résoudre l'entité organisatrice
+        entite = self._resolve_entite(match_data)
 
         competition = CompetitionDB(
             nom=match_data.competition,
@@ -275,6 +459,7 @@ class MatchImportService:
             genre=genre,
             categorie=categorie,
             saison_id=saison.id,
+            entite_id=entite.id if entite else None,
         )
         self.session.add(competition)
         self.session.flush()
@@ -334,25 +519,145 @@ class MatchImportService:
     # Club & Équipe
     # =================================================================
 
+    @staticmethod
+    def _extract_niveau_division(competition_name: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+        """Extrait le niveau et la division depuis le nom de la compétition.
+
+        Couvre tous les niveaux FFVB : Elite, Ligue A/B, Nationale (N1-N3),
+        Prénational, Régional (R1-R3), Départemental (D1-D3), Loisir,
+        ainsi que les variantes orthographiques et abréviations.
+
+        Exemples :
+            'EMA - ELITE MASCULINE - POULE A'                 → ('ELITE', None)
+            'PFA - PRENATIONAL FEMININS POULE A'               → ('PRÉNATIONAL', None)
+            'RFC - REGIONAL FEMININS POULE C'                  → ('RÉGIONAL', None)
+            'R1M - REGIONALE 1 MASCULINE'                      → ('RÉGIONAL', '1')
+            'D2F - DEPARTEMENTALE 2 FEMININE'                  → ('DÉPARTEMENTAL', '2')
+            'NM2 - NATIONALE 2 MASCULINE'                      → ('NATIONAL', '2')
+            'N3F - NATIONALE 3 FEMININE'                       → ('NATIONAL', '3')
+            'CHAMPIONNAT REGIONAL ELITE M15 MASCULINS'         → ('ELITE', None)
+            'TOURNOI REGIONAL M13 FEMININS POULE A'            → ('RÉGIONAL', None)
+            'TQE M18 FEMININS POULE C'                         → ('ELITE', None)
+            'COUPE DE FRANCE'                                  → (None, None)
+        """
+        if not competition_name:
+            return None, None
+
+        upper = competition_name.upper()
+
+        # ── Détection du niveau (du plus élevé au plus bas) ──
+        # L'ordre est important : ELITE doit être testé avant REGIONAL
+        # car "CHAMPIONNAT REGIONAL ELITE" doit donner ELITE.
+        niveau_patterns = [
+            # Pro & Elite
+            (r'\bELITE\b', 'ELITE'),
+            (r'\bLIGUE\s*[AB]\b', 'ELITE'),
+            (r'\bLAF\b|\bLBF\b|\bLAM\b|\bLBM\b', 'ELITE'),
+            (r'\bTQE\b', 'ELITE'),  # Tournoi Qualification Élite
+            (r'\bTQ\b', 'RÉGIONAL'),  # Tournoi de Qualification (régional)
+            # National
+            (r'\bPR[EÉ]NATIONAL(?:E|AUX|ES?)?\b', 'PRÉNATIONAL'),
+            (r'\bPRENATIONAL(?:E|AUX|ES?)?\b', 'PRÉNATIONAL'),
+            (r'\bNATIONAL(?:E|AUX|ES?)?\b', 'NATIONAL'),
+            # Régional
+            (r'\bR[EÉ]GIONAL(?:E|AUX|ES?)?\b', 'RÉGIONAL'),
+            (r'\bREGIONAL(?:E|AUX|ES?)?\b', 'RÉGIONAL'),
+            # Départemental
+            (r'\bD[EÉ]PARTEMENTAL(?:E|AUX|ES?)?\b', 'DÉPARTEMENTAL'),
+            (r'\bDEPARTEMENTAL(?:E|AUX|ES?)?\b', 'DÉPARTEMENTAL'),
+            # Loisir
+            (r'\bLOISIR(?:S)?\b', 'LOISIR'),
+            # Tournoi sans qualification de niveau → régional par défaut
+            (r'\bTOURNOI\b', 'RÉGIONAL'),
+            (r'\bCHAMPIONNAT\b', 'RÉGIONAL'),
+        ]
+
+        niveau = None
+        for pattern, label in niveau_patterns:
+            if re.search(pattern, upper):
+                niveau = label
+                break
+
+        # Fallback : détecter le niveau via le code abrégé de début
+        # P** → Prénational, R** → Régional, D** → Départemental, N** → National, E** → Elite
+        # Exclure les codes de catégories d'âge : B (Benjamin), C (Cadet), M (Minime)
+        if not niveau:
+            m = re.match(r'^([A-Z])([MF])([A-Z\d]?)\s*-', upper)
+            if m:
+                code_prefix = m.group(1)
+                # B, C, M sont des catégories d'âge, pas des niveaux
+                if code_prefix not in ('B', 'C', 'M'):
+                    prefix_map = {
+                        'P': 'PRÉNATIONAL',
+                        'R': 'RÉGIONAL',
+                        'D': 'DÉPARTEMENTAL',
+                        'N': 'NATIONAL',
+                        'E': 'ELITE',
+                    }
+                    niveau = prefix_map.get(code_prefix)
+
+        # ── Extraction de la division (chiffre significatif) ──
+        # On ne considère PAS les lettres de poule comme des divisions.
+        division = None
+        if niveau:
+            # 1. Chercher un chiffre dans le nom complet après le mot du niveau
+            #    Ex: "NATIONALE 2", "REGIONALE 1", "DEPARTEMENTALE 3"
+            for niv_word in [r'NATIONAL(?:E|AUX|ES?)?', r'R[EÉ]GIONAL(?:E|AUX|ES?)?',
+                             r'REGIONAL(?:E|AUX|ES?)?', r'D[EÉ]PARTEMENTAL(?:E|AUX|ES?)?',
+                             r'DEPARTEMENTAL(?:E|AUX|ES?)?', r'PR[EÉ]NATIONAL(?:E|AUX|ES?)?',
+                             r'PRENATIONAL(?:E|AUX|ES?)?']:
+                m = re.search(rf'\b{niv_word}\s+(\d)\b', upper)
+                if m:
+                    division = m.group(1)
+                    break
+
+            # 2. Chercher dans le code abrégé : "N3F", "R1M", "D2F"
+            if not division:
+                m = re.match(r'^[A-Z](\d)[MF]?\s*-', upper)
+                if m:
+                    division = m.group(1)
+
+            # 3. Chercher N2, N3, R1, R2, D1 isolés dans le nom
+            if not division:
+                m = re.search(r'\b[NRD](\d)\b', upper)
+                if m:
+                    division = m.group(1)
+
+        return niveau, division
+
     def _resolve_equipe(
-        self, equipe_data: Optional[Equipe], match_data: Match, saison: Optional[SaisonDB]
+        self, equipe_data: Optional[Equipe], match_data: Match,
+        saison: Optional[SaisonDB], competition: Optional[CompetitionDB] = None,
     ) -> Optional[EquipeDB]:
-        """Résout / crée une équipe et son club associé."""
+        """Résout / crée une équipe et son club associé.
+
+        Une équipe est identifiée par (nom, saison, compétition).
+        Deux équipes avec le même nom mais dans des compétitions différentes
+        (ex: même club en SENIOR et M18) sont des entités distinctes.
+        """
         if not equipe_data:
             return None
 
         nom_equipe = equipe_data.nom
         saison_id = saison.id if saison else None
+        competition_id = competition.id if competition else None
+        genre = match_data.genre.value if match_data.genre else None
+        categorie = match_data.categorie.value if match_data.categorie else None
 
-        # Cache
-        cache_key = (nom_equipe, saison_id or 0)
+        # Cache key inclut la compétition, le genre et la catégorie
+        # pour séparer les équipes par genre et catégorie d'âge
+        cache_key = (nom_equipe, saison_id or 0, competition_id or 0, genre, categorie)
         if cache_key in self._equipe_cache:
             return self._equipe_cache[cache_key]
 
-        # Chercher l'équipe existante
+        # Chercher l'équipe existante (nom + saison + compétition)
         stmt = select(EquipeDB).where(EquipeDB.nom == nom_equipe)
         if saison_id:
             stmt = stmt.where(EquipeDB.saison_id == saison_id)
+        if competition_id:
+            stmt = stmt.where(EquipeDB.competition_id == competition_id)
+        else:
+            stmt = stmt.where(EquipeDB.competition_id.is_(None))
         existing = self.session.scalar(stmt)
         if existing:
             self._equipe_cache[cache_key] = existing
@@ -365,6 +670,10 @@ class MatchImportService:
         genre = match_data.genre.value if match_data.genre else None
         categorie = match_data.categorie.value if match_data.categorie else None
 
+        # Extraire niveau/division depuis le nom de compétition
+        comp_nom = competition.nom if competition else match_data.competition
+        niveau, division = self._extract_niveau_division(comp_nom)
+
         equipe = EquipeDB(
             nom=nom_equipe,
             numero_equipe=equipe_data.numero_equipe,
@@ -372,6 +681,9 @@ class MatchImportService:
             categorie=categorie,
             club_id=club.id if club else None,
             saison_id=saison_id,
+            competition_id=competition_id,
+            niveau=niveau,
+            division=division,
         )
         self.session.add(equipe)
         self.session.flush()
@@ -379,13 +691,22 @@ class MatchImportService:
         return equipe
 
     def _get_or_create_club(self, nom: str) -> ClubDB:
-        """Crée ou récupère un club par nom (avec matching par alias)."""
+        """Crée ou récupère un club par nom (avec matching par alias et fuzzy).
+
+        Stratégie de résolution en 5 étapes :
+        1. Cache mémoire (nom normalisé)
+        2. Alias exact en BDD (nom normalisé)
+        3. Nom exact en BDD
+        4. Matching souple : comparaison du nom-noyau (sans suffixes VB/volley)
+           et distance d'édition avec tous les clubs existants
+        5. Création si aucune correspondance
+        """
         normalized = normalize_club_name(nom)
 
         if normalized in self._club_cache:
             return self._club_cache[normalized]
 
-        # 1. Chercher par alias
+        # 1. Chercher par alias exact
         alias_match = self.session.scalar(
             select(ClubAliasDB).where(ClubAliasDB.alias == normalized)
         )
@@ -401,24 +722,52 @@ class MatchImportService:
         if existing:
             # Créer un alias pour le nom normalisé
             if normalized != normalize_club_name(existing.nom):
-                alias = ClubAliasDB(alias=normalized, club_id=existing.id)
-                self.session.add(alias)
-                self.session.flush()
+                self._create_alias_safe(normalized, existing.id)
             self._club_cache[normalized] = existing
             return existing
 
-        # 3. Créer le club
+        # 3. Matching souple : comparer avec tous les clubs existants
+        #    D'abord regarder dans le cache mémoire
+        for cached_name, cached_club in self._club_cache.items():
+            if _club_names_match(nom, cached_club.nom):
+                # Créer un alias pour ce nouveau nom
+                self._create_alias_safe(normalized, cached_club.id)
+                self._club_cache[normalized] = cached_club
+                logger.info(
+                    f"Club fuzzy-match: '{nom}' → '{cached_club.nom}' (cache)"
+                )
+                return cached_club
+
+        #    Puis chercher en BDD (limité pour les performances)
+        all_clubs = list(self.session.scalars(select(ClubDB)))
+        for existing_club in all_clubs:
+            if _club_names_match(nom, existing_club.nom):
+                self._create_alias_safe(normalized, existing_club.id)
+                self._club_cache[normalized] = existing_club
+                logger.info(
+                    f"Club fuzzy-match: '{nom}' → '{existing_club.nom}' (DB)"
+                )
+                return existing_club
+
+        # 4. Créer le club
         club = ClubDB(nom=nom)
         self.session.add(club)
         self.session.flush()
 
         # Créer l'alias normalisé
-        alias = ClubAliasDB(alias=normalized, club_id=club.id)
-        self.session.add(alias)
-        self.session.flush()
+        self._create_alias_safe(normalized, club.id)
 
         self._club_cache[normalized] = club
         return club
+
+    def _create_alias_safe(self, alias: str, club_id: int) -> None:
+        """Crée un alias de club si il n'existe pas déjà."""
+        existing = self.session.scalar(
+            select(ClubAliasDB).where(ClubAliasDB.alias == alias)
+        )
+        if not existing:
+            self.session.add(ClubAliasDB(alias=alias, club_id=club_id))
+            self.session.flush()
 
     # =================================================================
     # Sets
