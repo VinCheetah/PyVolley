@@ -1538,17 +1538,17 @@ def _copy_to_category(src_file: str, dest_folder: Path) -> None:
 def complete_scores(
     saison: str = typer.Argument(
         ...,
-        help="Saison à compléter (ex: 2022-2023)"
+        help="Saison à compléter (ex: 2025-2026)"
     ),
     entity: Optional[List[str]] = typer.Option(
         None,
         "--entity", "-e",
-        help="Restreindre à certaines entités. Répétable: -e ABCCS -e LIRA"
+        help="Restreindre à certaines entités. Répétable: -e LIRA -e ABCCS"
     ),
     dry_run: bool = typer.Option(
         False,
         "--dry-run",
-        help="Affiche ce qui serait mis à jour sans modifier la base"
+        help="Affiche ce qui serait créé/modifié sans modifier la base"
     ),
     summary_only: bool = typer.Option(
         False,
@@ -1557,27 +1557,25 @@ def complete_scores(
     ),
 ):
     """
-    🔄 Complète les scores manquants depuis le site FFVB.
+    🔄 Synchronise et complète les matchs depuis le site FFVB.
 
-    Interroge la base de données pour trouver les matchs joués sans détails
-    de score, puis récupère les scores en ligne depuis les calendriers FFVB.
-
-    Utile principalement pour les saisons avant 2024-2025, dont les feuilles
-    de match ne contiennent pas les scores détaillés par set.
+    Récupère les calendriers FFVB en ligne pour chaque poule de la saison.
+    Crée les matchs manquants (feuille absente, matchs à venir) et complète
+    les scores des matchs existants.
 
     Exemples:
 
         # Voir l'état de complétion pour une saison
-        pyvolley complete-scores 2022-2023 --summary
+        pyvolley complete-scores 2025-2026 --summary
 
-        # Compléter les scores (dry-run d'abord)
-        pyvolley complete-scores 2022-2023 --dry-run
+        # Voir ce qui serait créé/modifié (dry-run)
+        pyvolley complete-scores 2025-2026 --dry-run
 
-        # Compléter effectivement
-        pyvolley complete-scores 2022-2023
+        # Synchroniser effectivement
+        pyvolley complete-scores 2025-2026
 
         # Restreindre à une entité
-        pyvolley complete-scores 2022-2023 -e ABCCS
+        pyvolley complete-scores 2025-2026 -e LIRA
     """
     from pyvolley.database.connection import DatabaseSession, init_db
     from pyvolley.database.score_completion import ScoreCompletionService
@@ -1598,6 +1596,7 @@ def complete_scores(
                 f"[bold blue]Saison: {summary['saison']}[/bold blue]\n\n"
                 f"Total matchs:        [cyan]{summary['total_matches']}[/cyan]\n"
                 f"Matchs joués:        [cyan]{summary['match_joue']}[/cyan]\n"
+                f"Matchs à venir:      [yellow]{summary['upcoming']}[/yellow]\n"
                 f"Avec détails:        [green]{summary['with_details']}[/green]\n"
                 f"Sans détails:        [yellow]{summary['without_details']}[/yellow]\n"
                 f"Complétion:          [{'green' if summary['completion_pct'] > 80 else 'yellow'}]"
@@ -1621,35 +1620,77 @@ def complete_scores(
 
             raise typer.Exit(0)
 
-        # ── Mode complétion ──
+        # ── Mode complétion / synchronisation ──
         mode = "[yellow]DRY-RUN[/yellow]" if dry_run else "[green]MISE À JOUR[/green]"
         entity_display = ", ".join(entity) if entity else "toutes"
 
         console.print(Panel(
-            f"[bold blue]🔄 Complétion des scores[/bold blue]\n\n"
+            f"[bold blue]🔄 Synchronisation & complétion des scores[/bold blue]\n\n"
             f"Saison:   [cyan]{saison}[/cyan]\n"
             f"Entités:  [cyan]{entity_display}[/cyan]\n"
             f"Mode:     {mode}",
             title="Configuration"
         ))
 
-        with console.status("[bold blue]Récupération et complétion des scores en cours..."):
-            stats = service.complete_scores_for_saison(
-                saison,
-                entity_codes=entity,
-                dry_run=dry_run,
+        def on_progress(poule_code, n_online, n_created, n_updated):
+            status = ""
+            if n_created:
+                status += f"[green]+{n_created} créés[/green] "
+            if n_updated:
+                status += f"[cyan]~{n_updated} mis à jour[/cyan] "
+            if not status:
+                status = "[dim]aucun changement[/dim]"
+            console.print(
+                f"  [bold]{poule_code}[/bold]: "
+                f"{n_online} matchs en ligne → {status}"
             )
+
+        console.print()
+        console.print("[bold]Traitement des poules :[/bold]")
+
+        stats = service.complete_scores_for_saison(
+            saison,
+            entity_codes=entity,
+            dry_run=dry_run,
+            progress_callback=on_progress,
+        )
 
         # ── Afficher les résultats ──
         console.print()
-        console.print(Panel(
-            f"Matchs sans détails:       [cyan]{stats['total_without_details']}[/cyan]\n"
-            f"Scores trouvés en ligne:   [green]{stats['scores_found_online']}[/green]\n"
-            f"Matchs mis à jour:         [green]{stats['updated']}[/green]\n"
-            f"Sans données en ligne:     [yellow]{stats['skipped_no_online_data']}[/yellow]\n"
-            f"Déjà détaillés (ignorés):  [dim]{stats['skipped_already_detailed']}[/dim]",
-            title=f"{'🔍 Résultats (dry-run)' if dry_run else '✅ Résultats'}"
-        ))
+
+        result_lines = [
+            f"Poules traitées:        [cyan]{stats['poules_processed']}[/cyan]",
+            f"Matchs en ligne:        [cyan]{stats['total_online']}[/cyan]",
+        ]
+
+        if stats['matches_created']:
+            result_lines.append(
+                f"Matchs créés:           [green]{stats['matches_created']}[/green]"
+                f"  (dont [yellow]{stats['upcoming_created']}[/yellow] à venir)"
+            )
+        if stats['matches_updated']:
+            result_lines.append(
+                f"Scores mis à jour:      [green]{stats['matches_updated']}[/green]"
+            )
+        if stats['metadata_updated']:
+            result_lines.append(
+                f"Métadonnées mises à jour: [cyan]{stats['metadata_updated']}[/cyan]"
+            )
+        if stats['arbitres_added']:
+            result_lines.append(
+                f"Arbitres ajoutés:       [cyan]{stats['arbitres_added']}[/cyan]"
+            )
+        if stats['already_complete']:
+            result_lines.append(
+                f"Déjà complets:          [dim]{stats['already_complete']}[/dim]"
+            )
+        if stats['skipped_exempt']:
+            result_lines.append(
+                f"Exemptions ignorées:    [dim]{stats['skipped_exempt']}[/dim]"
+            )
+
+        title = "🔍 Résultats (dry-run)" if dry_run else "✅ Résultats"
+        console.print(Panel("\n".join(result_lines), title=title))
 
         if stats['errors']:
             console.print(f"\n[red]Erreurs ({len(stats['errors'])}):[/red]")
@@ -1658,9 +1699,10 @@ def complete_scores(
             if len(stats['errors']) > 10:
                 console.print(f"  [dim]... et {len(stats['errors']) - 10} autres[/dim]")
 
-        if dry_run and stats['updated'] > 0:
+        if dry_run and (stats['matches_created'] + stats['matches_updated'] > 0):
+            total_changes = stats['matches_created'] + stats['matches_updated']
             console.print(
-                f"\n[blue]💡 {stats['updated']} matchs peuvent être complétés. "
+                f"\n[blue]💡 {total_changes} changements possibles. "
                 f"Relancez sans --dry-run pour appliquer.[/blue]"
             )
 

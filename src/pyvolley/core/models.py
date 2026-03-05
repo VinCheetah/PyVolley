@@ -35,6 +35,16 @@ class Categorie(str, Enum):
     VETERAN = "VETERAN"
 
 
+class Niveau(str, Enum):
+    """Niveau de compétition."""
+    ELITE = "ELITE"
+    NATIONALE = "NATIONALE"
+    PRE_NATIONALE = "PRE_NATIONALE"
+    REGIONALE = "REGIONALE"
+    DEPARTEMENTALE = "DEPARTEMENTALE"
+    LOISIR = "LOISIR"
+
+
 class TypeSanction(str, Enum):
     """Type de sanction."""
     AVERTISSEMENT = "A"  # Carton jaune
@@ -127,6 +137,8 @@ class Equipe(PyVolleyModel):
     numero_equipe: Optional[int] = None  # 1, 2, 3... si multiple équipes du club
     club_id: Optional[int] = None
     club: Optional[Club] = None
+    niveau: Optional[str] = None  # Elite, Nationale, Régionale, ...
+    division: Optional[str] = None  # N2, R1, D1, ...
     joueurs: list[Joueur] = Field(default_factory=list)
     liberos: list[Joueur] = Field(default_factory=list)
     officiels: list["Officiel"] = Field(default_factory=list)
@@ -304,6 +316,8 @@ class Match(MatchBase):
     saison: Optional[str] = None  # "2024-2025"
     categorie: Optional[Categorie] = None
     genre: Optional[Genre] = None
+    niveau: Optional[Niveau] = None  # ELITE, NATIONALE, PRE_NATIONALE, REGIONALE, DEPARTEMENTALE, LOISIR
+    organisateur: Optional[str] = None  # "Compétitions Nationales", "Ligue ILE-DE-FRANCE", "Comité Seine Paris"
     
     # Équipes
     equipe_a: Optional[Equipe] = None

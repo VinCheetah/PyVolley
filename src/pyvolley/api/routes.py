@@ -329,6 +329,18 @@ async def list_competitions(
     return [CompetitionResponse.model_validate(c) for c in competitions]
 
 
+@router.get("/competitions/{competition_id}/classement")
+async def get_competition_classement(
+    competition_id: int,
+    repo: CompetitionRepository = Depends(get_competition_repo),
+):
+    """Calcule et retourne le classement complet d'une compétition avec évolution."""
+    classement = repo.get_classement(competition_id)
+    if not classement:
+        raise HTTPException(status_code=404, detail="Compétition non trouvée")
+    return classement.model_dump()
+
+
 # ============== Matchs ==============
 
 @router.get("/matchs", response_model=List[MatchResponse])
