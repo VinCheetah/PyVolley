@@ -29,13 +29,14 @@ import pdfplumber
 from pyvolley.parsers.base import BaseParser, ParseResult
 from pyvolley.core.models import (
     Match, Equipe, Officiel, Joueur,
-    Genre, Categorie,
+    Genre, Categorie, Niveau,
 )
 from pyvolley.parsers.diagnostics import (
     DiagnosticCollector, Diagnostic, DiagnosticCategory as Cat,
 )
 from pyvolley.parsers.utils import (
     extract_club_info, extract_competition_code, try_enum, saison_year,
+    normalize_club_name,
 )
 from pyvolley.parsers.extractors.header import extract_header
 from pyvolley.parsers.extractors.equipes import (
@@ -360,6 +361,10 @@ def _build_match(
     club_nom_a, num_equipe_a = extract_club_info(nom_a)
     club_nom_b, num_equipe_b = extract_club_info(nom_b)
 
+    # Normaliser aussi les noms d’équipe (VB uniformé)
+    nom_a = normalize_club_name(nom_a)
+    nom_b = normalize_club_name(nom_b)
+
     all_joueurs_a = merge_liberos(joueurs_a, liberos_a)
     all_joueurs_b = merge_liberos(joueurs_b, liberos_b)
 
@@ -401,6 +406,7 @@ def _build_match(
 
     genre = try_enum(Genre, header.get("genre"))
     categorie = try_enum(Categorie, header.get("categorie"))
+    niveau = try_enum(Niveau, header.get("niveau"))
 
     # Remarques enrichies
     all_remarks: list[str] = []
@@ -438,6 +444,8 @@ def _build_match(
         salle=header.get("salle"),
         genre=genre,
         categorie=categorie,
+        niveau=niveau,
+        organisateur=header.get("organisateur"),
         equipe_a=equipe_a,
         equipe_b=equipe_b,
         sets=sets,

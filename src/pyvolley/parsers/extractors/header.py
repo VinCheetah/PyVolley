@@ -2,7 +2,7 @@
 Extraction des informations d'en-tête de la feuille de match.
 
 Responsable de : compétition, code match, journée, date, heure,
-lieu, salle, genre, catégorie, saison, ligue.
+lieu, salle, genre, catégorie, saison, ligue, organisateur, niveau.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from datetime import date as dt_date, time as dt_time
 from typing import Optional
 
 from pyvolley.parsers.constants import MOIS_MAP, JOURS_SEMAINE
+from pyvolley.parsers.utils import detect_niveau, extract_organisateur
 
 
 def extract_header(lines: list[str]) -> dict:
@@ -28,6 +29,7 @@ def extract_header(lines: list[str]) -> dict:
         "date": None, "date_obj": None, "heure": None, "heure_obj": None,
         "lieu": None, "salle": None, "genre": None, "categorie": None,
         "saison": None, "ligue": None, "organisation": None,
+        "organisateur": None, "niveau": None,
     }
 
     for line in lines[:8]:
@@ -51,20 +53,37 @@ def extract_header(lines: list[str]) -> dict:
         if 'Salle:' in line:
             header.update(_parse_salle_line(line))
 
-        # ── Organisation / ligue ──
-        if 'Compétitions' in line:
+        # ── Organisation / ligue / organisateur ──
+        if 'Compétitions' in line or 'Compétition' in line:
             header["organisation"] = "Compétitions Nationales"
-        elif 'Comité' in line:
-            cm = re.match(r'(Comité[^A-Z]*?)\s+[A-Z]', line)
-            if cm:
-                header["organisation"] = cm.group(1).strip()
+            org = extract_organisateur(line)
+            if org:
+                header["organisateur"] = org
+        elif 'Comité' in line or 'Comite' in line:
+            org = extract_organisateur(line)
+            if org:
+                header["organisateur"] = org
+                header["organisation"] = org
             else:
-                header["organisation"] = line.split('  ')[0].strip()
-        if m := re.search(r'Ligue\s+(\w[\w\s-]*?)(?:\s+Match:|\s*$)', line):
-            ligue_name = m.group(1).strip()
-            if len(ligue_name) > 1:
-                header["ligue"] = f"Ligue {ligue_name}"
-                header["organisation"] = f"Ligue {ligue_name}"
+                cm = re.match(r'(Comité[^A-Z]*?)\s+[A-Z]', line)
+                if cm:
+                    header["organisation"] = cm.group(1).strip()
+                    header["organisateur"] = cm.group(1).strip()
+                else:
+                    header["organisation"] = line.split('  ')[0].strip()
+                    header["organisateur"] = line.split('  ')[0].strip()
+        elif 'Ligue' in line:
+            org = extract_organisateur(line)
+            if org:
+                header["ligue"] = org
+                header["organisation"] = org
+                header["organisateur"] = org
+            elif m := re.search(r'Ligue\s+(\w[\w\s-]*?)(?:\s+Match:|\s*$)', line):
+                ligue_name = m.group(1).strip()
+                if len(ligue_name) > 1:
+                    header["ligue"] = f"Ligue {ligue_name}"
+                    header["organisation"] = f"Ligue {ligue_name}"
+                    header["organisateur"] = f"Ligue {ligue_name}"
 
     # ── Saison depuis la date ──
     if d := header.get("date_obj"):
@@ -72,6 +91,12 @@ def extract_header(lines: list[str]) -> dict:
             f"{d.year}-{d.year + 1}" if d.month >= 8
             else f"{d.year - 1}-{d.year}"
         )
+
+    # ── Niveau de compétition ──
+    header["niveau"] = detect_niveau(
+        header.get("competition"),
+        header.get("organisateur"),
+    )
 
     return header
 
