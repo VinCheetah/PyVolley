@@ -13,19 +13,39 @@
             </h1>
             <p style="color: var(--text-muted);">{{ total }} arbitres enregistrés</p>
         </div>
-        <form action="/arbitres" method="get" class="flex gap-2 max-w-md w-full">
+    </div>
+
+    <!-- Search & Filters -->
+    <form action="/arbitres" method="get" class="space-y-3">
+        <div class="flex gap-2 max-w-2xl w-full">
             <input type="text" name="q" value="{{ query or '' }}" placeholder="Rechercher un arbitre..."
                    class="search-input flex-1">
             <button type="submit" class="pagination-btn" style="background: var(--accent-purple); color: white; border-color: var(--accent-purple);">
                 <i data-lucide="search" class="w-4 h-4"></i>
             </button>
-            {% if query %}
+            {% if query or ligue %}
             <a href="/arbitres" class="pagination-btn">
                 <i data-lucide="x" class="w-4 h-4"></i>
             </a>
             {% endif %}
-        </form>
+        </div>
+
+        <div class="flex flex-wrap gap-3">
+            <select name="ligue" class="filter-select" onchange="this.form.submit()">
+                <option value="">Ligue : Toutes</option>
+                {% for l in ligues %}
+                <option value="{{ l }}" {% if ligue == l %}selected{% endif %}>{{ l }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </form>
+
+    {% if ligue %}
+    <div class="flex flex-wrap gap-2 items-center">
+        <span class="text-xs font-semibold uppercase" style="color: var(--text-muted);">Filtre :</span>
+        <span class="badge badge-purple">{{ ligue }}</span>
     </div>
+    {% endif %}
 
     <!-- Table -->
     <div class="card overflow-hidden">
@@ -63,8 +83,8 @@
                 {% else %}
                 <tr>
                     <td colspan="5" class="text-center py-8" style="color: var(--text-muted);">
-                        {% if query %}
-                        Aucun arbitre trouvé pour « {{ query }} »
+                        {% if query or ligue %}
+                        Aucun arbitre trouvé pour ces critères
                         {% else %}
                         Aucun arbitre enregistré
                         {% endif %}

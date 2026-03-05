@@ -10,15 +10,120 @@
             <i data-lucide="search" class="w-6 h-6 inline-block mr-2" style="color: var(--accent-blue);"></i>
             Recherche
         </h1>
-        <form action="/search" method="get" class="relative max-w-2xl">
-            <i data-lucide="search" class="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2" style="color: var(--text-muted);"></i>
-            <input type="text" name="q" value="{{ query }}"
-                   placeholder="Nom, prénom, club, équipe..."
-                   class="search-input text-lg py-3 pl-12" autofocus>
+        <form action="/search" method="get" class="space-y-4" id="searchForm">
+            <!-- Search input -->
+            <div class="relative max-w-2xl">
+                <i data-lucide="search" class="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2" style="color: var(--text-muted);"></i>
+                <input type="text" name="q" value="{{ query }}"
+                       placeholder="Nom, prénom, club, équipe..."
+                       class="search-input text-lg py-3 pl-12" autofocus>
+            </div>
+
+            <!-- Filters -->
+            <div x-data="{ showFilters: {{ 'true' if (genre or niveau or saison_id or ligue) else 'false' }} }" class="max-w-2xl">
+                <button type="button" @click="showFilters = !showFilters"
+                        class="flex items-center gap-2 text-sm font-medium transition"
+                        style="color: var(--text-secondary);">
+                    <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
+                    Filtres avancés
+                    <i data-lucide="chevron-down" class="w-3 h-3 transition-transform"
+                       :class="showFilters && 'rotate-180'"></i>
+                    {% if genre or niveau or saison_id or ligue %}
+                    <span class="badge badge-blue text-xs">Actifs</span>
+                    {% endif %}
+                </button>
+
+                <div x-show="showFilters" x-cloak x-transition
+                     class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3 p-4 rounded-xl"
+                     style="background: var(--bg-card); border: 1px solid var(--border-color);">
+                    <!-- Genre -->
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider block mb-1"
+                               style="color: var(--text-muted);">Genre</label>
+                        <select name="genre" class="filter-select">
+                            <option value="">Tous</option>
+                            {% for g in genres %}
+                            <option value="{{ g }}" {% if genre == g %}selected{% endif %}>{{ g }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Niveau -->
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider block mb-1"
+                               style="color: var(--text-muted);">Niveau</label>
+                        <select name="niveau" class="filter-select">
+                            <option value="">Tous</option>
+                            {% for n in niveaux %}
+                            <option value="{{ n }}" {% if niveau == n %}selected{% endif %}>{{ n }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Saison -->
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider block mb-1"
+                               style="color: var(--text-muted);">Saison</label>
+                        <select name="saison_id" class="filter-select">
+                            <option value="">Toutes</option>
+                            {% for s in saisons %}
+                            <option value="{{ s.id }}" {% if saison_id == s.id %}selected{% endif %}>{{ s.code }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Ligue (pour arbitres) -->
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider block mb-1"
+                               style="color: var(--text-muted);">Ligue (arbitres)</label>
+                        <select name="ligue" class="filter-select">
+                            <option value="">Toutes</option>
+                            {% for l in ligues %}
+                            <option value="{{ l }}" {% if ligue == l %}selected{% endif %}>{{ l }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="sm:col-span-2 lg:col-span-4 flex gap-2 pt-2">
+                        <button type="submit" class="pagination-btn"
+                                style="background: var(--accent-blue); color: white; border-color: var(--accent-blue);">
+                            <i data-lucide="search" class="w-4 h-4 mr-1"></i> Rechercher
+                        </button>
+                        {% if genre or niveau or saison_id or ligue %}
+                        <a href="/search{% if query %}?q={{ query }}{% endif %}" class="pagination-btn">
+                            <i data-lucide="x" class="w-4 h-4 mr-1"></i> Réinitialiser filtres
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
         </form>
     </div>
 
     {% if query %}
+    <!-- Active filters display -->
+    {% if genre or niveau or saison_id or ligue %}
+    <div class="flex flex-wrap gap-2 items-center">
+        <span class="text-xs font-semibold uppercase" style="color: var(--text-muted);">Filtres :</span>
+        {% if genre %}
+        <span class="badge badge-blue">Genre : {{ genre }}</span>
+        {% endif %}
+        {% if niveau %}
+        <span class="badge badge-green">Niveau : {{ niveau }}</span>
+        {% endif %}
+        {% if saison_id %}
+        {% for s in saisons %}
+        {% if s.id == saison_id %}
+        <span class="badge badge-purple">Saison : {{ s.code }}</span>
+        {% endif %}
+        {% endfor %}
+        {% endif %}
+        {% if ligue %}
+        <span class="badge badge-gold">Ligue : {{ ligue }}</span>
+        {% endif %}
+    </div>
+    {% endif %}
+
     <!-- Results summary -->
     <div class="flex items-center gap-2" style="color: var(--text-secondary);">
         <span class="font-medium">
@@ -124,8 +229,10 @@
                 <thead>
                     <tr>
                         <th>Nom</th>
-                        <th>Catégorie</th>
                         <th>Genre</th>
+                        <th>Catégorie</th>
+                        <th>Niveau</th>
+                        <th>Saison</th>
                         <th class="text-center">Actions</th>
                     </tr>
                 </thead>
@@ -133,8 +240,28 @@
                     {% for e in equipes %}
                     <tr>
                         <td class="font-semibold">{{ e.nom }}</td>
-                        <td style="color: var(--text-secondary);">{{ e.categorie or '-' }}</td>
-                        <td style="color: var(--text-muted);">{{ e.genre or '-' }}</td>
+                        <td>
+                            {% if e.genre %}
+                            <span class="badge {% if e.genre == 'MASCULIN' %}badge-blue{% elif e.genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %}">
+                                {{ e.genre }}
+                            </span>
+                            {% else %}<span style="color: var(--text-muted);">—</span>{% endif %}
+                        </td>
+                        <td style="color: var(--text-secondary);">{{ e.categorie or '—' }}</td>
+                        <td>
+                            {% if e.niveau %}
+                            <span class="badge badge-green">{{ e.niveau }}</span>
+                            {% elif e.competition and e.competition.niveau %}
+                            <span class="badge badge-green">{{ e.competition.niveau }}</span>
+                            {% else %}
+                            <span style="color: var(--text-muted);">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if e.saison %}
+                            <span class="badge badge-purple">{{ e.saison.code }}</span>
+                            {% else %}<span style="color: var(--text-muted);">—</span>{% endif %}
+                        </td>
                         <td class="text-center">
                             <a href="/equipes/{{ e.id }}" class="badge badge-purple">Voir équipe</a>
                         </td>
@@ -184,6 +311,9 @@
         <div class="text-6xl mb-4">🔍</div>
         <p class="text-lg" style="color: var(--text-secondary);">
             Tapez un nom, prénom ou terme de recherche
+        </p>
+        <p class="text-sm mt-2" style="color: var(--text-muted);">
+            Utilisez les filtres avancés pour affiner par genre, niveau ou saison
         </p>
     </div>
     {% endif %}

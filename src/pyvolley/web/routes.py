@@ -30,6 +30,18 @@ from pyvolley.database.repositories import (
 web_router = APIRouter()
 
 
+def _parse_optional_int(value: Optional[str]) -> Optional[int]:
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped:
+        return None
+    try:
+        return int(stripped)
+    except ValueError:
+        return None
+
+
 # ============== Dashboard ==============
 
 @web_router.get("/", response_class=HTMLResponse)
@@ -79,18 +91,51 @@ async def index(
 async def search_page(
     request: Request,
     q: Optional[str] = Query(None, min_length=2),
+    genre: Optional[str] = Query(None),
+    niveau: Optional[str] = Query(None),
+    saison_id: Optional[int] = Query(None),
+    ligue: Optional[str] = Query(None),
     joueur_repo: JoueurRepository = Depends(get_joueur_repo),
     club_repo: ClubRepository = Depends(get_club_repo),
     equipe_repo: EquipeRepository = Depends(get_equipe_repo),
     arbitre_repo: ArbitreRepository = Depends(get_arbitre_repo),
+    saison_repo: SaisonRepository = Depends(get_saison_repo),
 ):
-    results = {"joueurs": [], "clubs": [], "equipes": [], "arbitres": [], "query": q or ""}
+    results = {
+        "joueurs": [], "clubs": [], "equipes": [], "arbitres": [],
+        "query": q or "",
+        "genre": genre or "",
+        "niveau": niveau or "",
+        "saison_id": saison_id,
+        "ligue": ligue or "",
+    }
+
     if q:
-        results["joueurs"] = joueur_repo.search_by_name(q, limit=30)
+        results["joueurs"] = joueur_repo.search_by_name(
+            q, genre=genre, saison_id=saison_id, limit=30,
+        )
         results["clubs"] = club_repo.search_by_name(q, limit=30)
-        results["equipes"] = equipe_repo.search_by_name(q, limit=30)
-        results["arbitres"] = arbitre_repo.search_by_name(q, limit=30)
-    return templates.TemplateResponse("search.html", {"request": request, **results})
+        results["equipes"] = equipe_repo.search_by_name(
+            q, genre=genre, niveau=niveau, saison_id=saison_id, limit=30,
+        )
+        results["arbitres"] = arbitre_repo.search_by_name(
+            q, ligue=ligue, limit=30,
+        )
+
+    # Options pour les filtres
+    saisons = saison_repo.get_all(limit=20)
+    genres = equipe_repo.get_distinct_genres()
+    niveaux = equipe_repo.get_distinct_niveaux()
+    ligues = arbitre_repo.get_distinct_ligues()
+
+    return templates.TemplateResponse("search.html", {
+        "request": request,
+        **results,
+        "saisons": saisons,
+        "genres": genres,
+        "niveaux": niveaux,
+        "ligues": ligues,
+    })
 
 
 # ============== Joueurs ==============
@@ -99,17 +144,24 @@ async def search_page(
 async def joueurs_list(
     request: Request,
     q: Optional[str] = None,
+    genre: Optional[str] = None,
     page: int = Query(1, ge=1),
     repo: JoueurRepository = Depends(get_joueur_repo),
+    equipe_repo: EquipeRepository = Depends(get_equipe_repo),
 ):
     limit = 50
     offset = (page - 1) * limit
-    joueurs = repo.search_by_name(q, limit=limit) if q else repo.get_all(limit=limit, offset=offset)
+    if q:
+        joueurs = repo.search_by_name(q, genre=genre, limit=limit)
+    else:
+        joueurs = repo.get_all(limit=limit, offset=offset)
     total = repo.count()
+    genres = equipe_repo.get_distinct_genres()
     return templates.TemplateResponse("joueurs/list.html", {
         "request": request, "joueurs": joueurs, "query": q,
         "page": page, "total": total,
         "has_next": offset + limit < total, "has_prev": page > 1,
+        "genre": genre or "", "genres": genres,
     })
 
 
@@ -124,10 +176,12 @@ async def joueur_detail(
     if not joueur:
         return templates.TemplateResponse("error.html",
             {"request": request, "message": "Joueur non trouvé"}, status_code=404)
-    matchs = match_repo.get_by_joueur(joueur_id, limit=100)
+    matchs = match_repo.get_by_joueur(joueur_id, limit=200)
     stats = joueur_repo.get_stats(joueur_id)
+    detailed_stats = joueur_repo.get_detailed_stats(joueur_id)
     return templates.TemplateResponse("joueurs/detail.html", {
-        "request": request, "joueur": joueur, "matchs": matchs, "stats": stats,
+        "request": request, "joueur": joueur, "matchs": matchs,
+        "stats": stats, "detailed_stats": detailed_stats,
     })
 
 
@@ -137,17 +191,36 @@ async def joueur_detail(
 async def equipes_list(
     request: Request,
     q: Optional[str] = None,
+    genre: Optional[str] = None,
+    niveau: Optional[str] = None,
+    categorie: Optional[str] = None,
+    saison_id: Optional[int] = None,
     page: int = Query(1, ge=1),
     repo: EquipeRepository = Depends(get_equipe_repo),
+    saison_repo: SaisonRepository = Depends(get_saison_repo),
 ):
     limit = 50
     offset = (page - 1) * limit
-    equipes = repo.search_by_name(q, limit=limit) if q else repo.get_all(limit=limit, offset=offset)
+    if q or genre or niveau or categorie or saison_id:
+        equipes = repo.search_by_name(
+            q or "%", genre=genre, niveau=niveau,
+            categorie=categorie, saison_id=saison_id, limit=limit,
+        )
+    else:
+        equipes = repo.get_all(limit=limit, offset=offset)
     total = repo.count()
+    saisons = saison_repo.get_all(limit=20)
+    genres = repo.get_distinct_genres()
+    niveaux = repo.get_distinct_niveaux()
+    categories = repo.get_distinct_categories()
     return templates.TemplateResponse("equipes/list.html", {
         "request": request, "equipes": equipes, "query": q,
         "page": page, "total": total,
         "has_next": offset + limit < total, "has_prev": page > 1,
+        "saisons": saisons, "current_saison_id": saison_id,
+        "genre": genre or "", "genres": genres,
+        "niveau": niveau or "", "niveaux": niveaux,
+        "categorie": categorie or "", "categories": categories,
     })
 
 
@@ -158,15 +231,30 @@ async def equipe_detail(
     equipe_repo: EquipeRepository = Depends(get_equipe_repo),
     match_repo: MatchRepository = Depends(get_match_repo),
 ):
-    equipe = equipe_repo.get(equipe_id)
+    equipe = equipe_repo.get_with_details(equipe_id)
     if not equipe:
         return templates.TemplateResponse("error.html",
             {"request": request, "message": "Équipe non trouvée"}, status_code=404)
-    matchs = match_repo.get_by_equipe(equipe_id, limit=100)
+    matchs = match_repo.get_by_equipe(equipe_id, limit=200)
     victoires = sum(1 for m in matchs if _is_winner(m, equipe))
+    roster = equipe_repo.get_roster(equipe_id)
+
+    # Sets stats
+    sets_gagnes = 0
+    sets_perdus = 0
+    for m in matchs:
+        if m.equipe_a_id == equipe.id:
+            sets_gagnes += m.sets_equipe_a
+            sets_perdus += m.sets_equipe_b
+        else:
+            sets_gagnes += m.sets_equipe_b
+            sets_perdus += m.sets_equipe_a
+
     return templates.TemplateResponse("equipes/detail.html", {
         "request": request, "equipe": equipe, "matchs": matchs,
-        "victoires": victoires, "defaites": len(matchs) - victoires,
+        "victoires": victoires, "defaites": len([m for m in matchs if m.match_joue]) - victoires,
+        "roster": roster,
+        "sets_gagnes": sets_gagnes, "sets_perdus": sets_perdus,
     })
 
 
@@ -213,21 +301,36 @@ async def club_detail(
 async def matchs_list(
     request: Request,
     page: int = Query(1, ge=1),
-    saison_id: Optional[int] = None,
+    saison_id: Optional[str] = Query(None),
     competition_id: Optional[int] = None,
+    departements: Optional[str] = None,
     repo: MatchRepository = Depends(get_match_repo),
     saison_repo: SaisonRepository = Depends(get_saison_repo),
 ):
+    saison_id_int = _parse_optional_int(saison_id)
+
+    # Parse départements (comma-separated codes)
+    dept_list = (
+        [d.strip() for d in departements.split(',') if d.strip()]
+        if departements else None
+    )
+
     limit = 50
     offset = (page - 1) * limit
-    matchs = repo.search(saison_id=saison_id, competition_id=competition_id, limit=limit)
+    matchs = repo.search(
+        saison_id=saison_id_int,
+        competition_id=competition_id,
+        departements=dept_list,
+        limit=limit,
+    )
     total = repo.count()
     saisons = saison_repo.get_all(limit=20)
     return templates.TemplateResponse("matchs/list.html", {
         "request": request, "matchs": matchs,
         "page": page, "total": total,
         "has_next": offset + limit < total, "has_prev": page > 1,
-        "saisons": saisons, "current_saison_id": saison_id,
+        "saisons": saisons, "current_saison_id": saison_id_int,
+        "selected_departements": dept_list or [],
     })
 
 
@@ -263,17 +366,23 @@ async def match_detail(
 async def arbitres_list(
     request: Request,
     q: Optional[str] = None,
+    ligue: Optional[str] = None,
     page: int = Query(1, ge=1),
     repo: ArbitreRepository = Depends(get_arbitre_repo),
 ):
     limit = 50
     offset = (page - 1) * limit
-    arbitres = repo.search_by_name(q, limit=limit) if q else repo.get_all(limit=limit, offset=offset)
+    if q:
+        arbitres = repo.search_by_name(q, ligue=ligue, limit=limit)
+    else:
+        arbitres = repo.get_all(limit=limit, offset=offset)
     total = repo.count()
+    ligues = repo.get_distinct_ligues()
     return templates.TemplateResponse("arbitres/list.html", {
         "request": request, "arbitres": arbitres, "query": q,
         "page": page, "total": total,
         "has_next": offset + limit < total, "has_prev": page > 1,
+        "ligue": ligue or "", "ligues": ligues,
     })
 
 
@@ -299,23 +408,67 @@ async def arbitre_detail(
 @web_router.get("/competitions", response_class=HTMLResponse)
 async def competitions_list(
     request: Request,
-    saison_id: Optional[int] = None,
+    saison_id: Optional[str] = Query(None),
+    genre: Optional[str] = None,
+    categorie: Optional[str] = None,
     page: int = Query(1, ge=1),
     repo: CompetitionRepository = Depends(get_competition_repo),
     saison_repo: SaisonRepository = Depends(get_saison_repo),
 ):
+    saison_id_int = _parse_optional_int(saison_id)
+
     limit = 50
-    if saison_id:
-        competitions = repo.get_by_saison(saison_id)
+    if saison_id_int:
+        competitions = repo.get_by_saison(saison_id_int, genre=genre, categorie=categorie)
     else:
         offset = (page - 1) * limit
-        competitions = repo.get_all(limit=limit, offset=offset)
+        competitions = repo.get_all(limit=limit, offset=offset, genre=genre, categorie=categorie)
     total = repo.count()
     saisons = saison_repo.get_all(limit=20)
+    genres = repo.get_distinct_genres()
+    categories = repo.get_distinct_categories()
     return templates.TemplateResponse("competitions/list.html", {
         "request": request, "competitions": competitions, "total": total,
         "page": page, "has_next": False, "has_prev": page > 1,
-        "saisons": saisons, "current_saison_id": saison_id,
+        "saisons": saisons, "current_saison_id": saison_id_int,
+        "genre": genre or "", "genres": genres,
+        "categorie": categorie or "", "categories": categories,
+    })
+
+
+@web_router.get("/competitions/{competition_id}", response_class=HTMLResponse)
+async def competition_detail(
+    request: Request,
+    competition_id: int,
+    competition_repo: CompetitionRepository = Depends(get_competition_repo),
+    match_repo: MatchRepository = Depends(get_match_repo),
+    equipe_repo: EquipeRepository = Depends(get_equipe_repo),
+):
+    """Page de détail d'une compétition avec classement et évolution."""
+    competition = competition_repo.get_with_details(competition_id)
+    if not competition:
+        return templates.TemplateResponse("error.html",
+            {"request": request, "message": "Compétition non trouvée"}, status_code=404)
+
+    # Classement complet avec évolution
+    classement = competition_repo.get_classement(competition_id)
+    evolution_json = []
+    if classement and classement.evolution:
+        evolution_json = [e.model_dump(mode="json") for e in classement.evolution]
+
+    # Matchs de la compétition
+    matchs = match_repo.search(competition_id=competition_id, limit=500)
+
+    # Équipes
+    equipes = competition_repo.get_equipes_for_competition(competition_id)
+
+    return templates.TemplateResponse("competitions/detail.html", {
+        "request": request,
+        "competition": competition,
+        "classement": classement,
+        "evolution_json": evolution_json,
+        "matchs": matchs,
+        "equipes": equipes,
     })
 
 

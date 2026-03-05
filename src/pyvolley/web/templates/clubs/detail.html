@@ -83,17 +83,36 @@
             <a href="/equipes/{{ eq.id }}" class="card card-interactive p-4 no-underline">
                 <div class="flex items-center gap-3">
                     <div class="w-10 h-10 rounded-xl flex items-center justify-center"
+                         {% if eq.genre == 'MASCULIN' %}
+                         style="background: rgba(59,130,246,0.15);">
+                        <i data-lucide="shield" class="w-5 h-5" style="color: var(--accent-blue);"></i>
+                         {% elif eq.genre == 'FEMININ' %}
+                         style="background: rgba(239,68,68,0.15);">
+                        <i data-lucide="shield" class="w-5 h-5" style="color: var(--accent-red-light);"></i>
+                         {% else %}
                          style="background: rgba(16,185,129,0.15);">
                         <i data-lucide="shield" class="w-5 h-5" style="color: var(--accent-green);"></i>
+                         {% endif %}
                     </div>
                     <div class="flex-1 min-w-0">
                         <div class="font-semibold text-white truncate">{{ eq.nom }}</div>
-                        <div class="flex gap-2 mt-1">
+                        <div class="flex flex-wrap gap-1 mt-1">
                             {% if eq.saison %}
                             <span class="badge badge-purple" style="font-size: 0.6rem;">{{ eq.saison.code }}</span>
                             {% endif %}
                             {% if eq.genre %}
-                            <span class="badge" style="font-size: 0.6rem;">{{ eq.genre }}</span>
+                            <span class="badge {% if eq.genre == 'MASCULIN' %}badge-blue{% elif eq.genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %}" style="font-size: 0.6rem;">
+                                {% if eq.genre == 'MASCULIN' %}♂{% elif eq.genre == 'FEMININ' %}♀{% else %}⚥{% endif %} {{ eq.genre }}
+                            </span>
+                            {% endif %}
+                            {% if eq.categorie %}
+                            <span class="badge badge-gold" style="font-size: 0.6rem;">{{ eq.categorie }}</span>
+                            {% endif %}
+                            {% if eq.niveau %}
+                            <span class="badge badge-green" style="font-size: 0.6rem;">{{ eq.niveau }}</span>
+                            {% endif %}
+                            {% if eq.division %}
+                            <span class="badge" style="font-size: 0.6rem;">Div. {{ eq.division }}</span>
                             {% endif %}
                         </div>
                     </div>

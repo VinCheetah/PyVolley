@@ -13,19 +13,74 @@
             </h1>
             <p style="color: var(--text-muted);">{{ total }} équipes enregistrées</p>
         </div>
-        <form action="/equipes" method="get" class="flex gap-2 max-w-md w-full">
+    </div>
+
+    <!-- Search & Filters -->
+    <form action="/equipes" method="get" class="space-y-3">
+        <div class="flex gap-2 max-w-2xl w-full">
             <input type="text" name="q" value="{{ query or '' }}" placeholder="Rechercher une équipe..."
                    class="search-input flex-1">
             <button type="submit" class="pagination-btn" style="background: var(--accent-green); color: white; border-color: var(--accent-green);">
                 <i data-lucide="search" class="w-4 h-4"></i>
             </button>
-            {% if query %}
+            {% if query or genre or niveau or categorie or current_saison_id %}
             <a href="/equipes" class="pagination-btn">
                 <i data-lucide="x" class="w-4 h-4"></i>
             </a>
             {% endif %}
-        </form>
+        </div>
+
+        <div class="flex flex-wrap gap-3">
+            <select name="genre" class="filter-select" onchange="this.form.submit()">
+                <option value="">Genre : Tous</option>
+                {% for g in genres %}
+                <option value="{{ g }}" {% if genre == g %}selected{% endif %}>{{ g }}</option>
+                {% endfor %}
+            </select>
+
+            <select name="categorie" class="filter-select" onchange="this.form.submit()">
+                <option value="">Catégorie : Toutes</option>
+                {% for c in categories %}
+                <option value="{{ c }}" {% if categorie == c %}selected{% endif %}>{{ c }}</option>
+                {% endfor %}
+            </select>
+
+            <select name="niveau" class="filter-select" onchange="this.form.submit()">
+                <option value="">Niveau : Tous</option>
+                {% for n in niveaux %}
+                <option value="{{ n }}" {% if niveau == n %}selected{% endif %}>{{ n }}</option>
+                {% endfor %}
+            </select>
+
+            <select name="saison_id" class="filter-select" onchange="this.form.submit()">
+                <option value="">Saison : Toutes</option>
+                {% for s in saisons %}
+                <option value="{{ s.id }}" {% if current_saison_id == s.id %}selected{% endif %}>{{ s.code }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </form>
+
+    <!-- Active filters -->
+    {% if genre or niveau or categorie or current_saison_id %}
+    <div class="flex flex-wrap gap-2 items-center">
+        <span class="text-xs font-semibold uppercase" style="color: var(--text-muted);">Filtres :</span>
+        {% if genre %}
+        <span class="badge badge-blue">{{ genre }}</span>
+        {% endif %}
+        {% if categorie %}
+        <span class="badge badge-gold">{{ categorie }}</span>
+        {% endif %}
+        {% if niveau %}
+        <span class="badge badge-green">{{ niveau }}</span>
+        {% endif %}
+        {% if current_saison_id %}
+        {% for s in saisons %}{% if s.id == current_saison_id %}
+        <span class="badge badge-purple">{{ s.code }}</span>
+        {% endif %}{% endfor %}
+        {% endif %}
     </div>
+    {% endif %}
 
     <!-- Table -->
     <div class="card overflow-hidden">
@@ -34,8 +89,10 @@
                 <tr>
                     <th>Nom</th>
                     <th>Club</th>
-                    <th>Saison</th>
                     <th>Genre</th>
+                    <th>Catégorie</th>
+                    <th>Niveau</th>
+                    <th>Saison</th>
                     <th class="text-right">Action</th>
                 </tr>
             </thead>
@@ -53,15 +110,25 @@
                         {% endif %}
                     </td>
                     <td>
-                        {% if eq.saison %}
-                        <span class="badge badge-purple">{{ eq.saison.code }}</span>
+                        {% if eq.genre %}
+                        <span class="badge {% if eq.genre == 'MASCULIN' %}badge-blue{% elif eq.genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %}">
+                            {{ eq.genre }}
+                        </span>
+                        {% else %}
+                        <span style="color: var(--text-muted);">—</span>
+                        {% endif %}
+                    </td>
+                    <td style="color: var(--text-secondary);">{{ eq.categorie or '—' }}</td>
+                    <td>
+                        {% if eq.niveau %}
+                        <span class="badge badge-green">{{ eq.niveau }}</span>
                         {% else %}
                         <span style="color: var(--text-muted);">—</span>
                         {% endif %}
                     </td>
                     <td>
-                        {% if eq.genre %}
-                        <span class="badge">{{ eq.genre }}</span>
+                        {% if eq.saison %}
+                        <span class="badge badge-purple">{{ eq.saison.code }}</span>
                         {% else %}
                         <span style="color: var(--text-muted);">—</span>
                         {% endif %}
@@ -74,9 +141,9 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="5" class="text-center py-8" style="color: var(--text-muted);">
-                        {% if query %}
-                        Aucune équipe trouvée pour « {{ query }} »
+                    <td colspan="7" class="text-center py-8" style="color: var(--text-muted);">
+                        {% if query or genre or niveau or categorie %}
+                        Aucune équipe trouvée pour ces critères
                         {% else %}
                         Aucune équipe enregistrée
                         {% endif %}
@@ -88,7 +155,7 @@
     </div>
 
     <!-- Pagination -->
-    {% if not query %}
+    {% if not query and not genre and not niveau and not categorie %}
     <div class="flex justify-center gap-2">
         {% if has_prev %}
         <a href="/equipes?page={{ page - 1 }}" class="pagination-btn">

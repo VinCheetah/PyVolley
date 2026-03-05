@@ -34,6 +34,11 @@
                         <i data-lucide="credit-card" class="w-3 h-3 mr-1"></i>
                         {{ joueur.licence }}
                     </span>
+                    {% if stats.genre %}
+                    <span class="badge {% if stats.genre == 'MASCULIN' %}badge-blue{% elif stats.genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %}">
+                        {{ stats.genre }}
+                    </span>
+                    {% endif %}
                     {% if stats.saisons %}
                     {% for s in stats.saisons %}
                     <span class="badge badge-purple">{{ s }}</span>
@@ -45,10 +50,25 @@
     </div>
 
     <!-- Stats Grid -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
         <div class="stat-card">
             <div class="stat-value gradient-text-blue">{{ stats.matchs_joues or 0 }}</div>
             <div class="stat-label">Matchs joués</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--accent-green);">{{ stats.victoires or 0 }}</div>
+            <div class="stat-label">Victoires</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--accent-red);">{{ stats.defaites or 0 }}</div>
+            <div class="stat-label">Défaites</div>
+        </div>
+        <div class="stat-card">
+            {% set total_played = (stats.victoires or 0) + (stats.defaites or 0) %}
+            <div class="stat-value gradient-text-gold">
+                {% if total_played > 0 %}{{ ((stats.victoires / total_played) * 100)|round(0)|int }}%{% else %}—{% endif %}
+            </div>
+            <div class="stat-label">Taux de victoire</div>
         </div>
         <div class="stat-card">
             <div class="stat-value gradient-text-gold">{{ stats.capitaine_count or 0 }}</div>
@@ -59,10 +79,124 @@
             <div class="stat-label">Fois libéro</div>
         </div>
         <div class="stat-card">
-            <div class="stat-value" style="color: var(--accent-green);">{{ stats.equipes|length if stats.equipes else 0 }}</div>
+            <div class="stat-value" style="color: var(--accent-cyan);">{{ stats.equipes|length if stats.equipes else 0 }}</div>
             <div class="stat-label">Équipes</div>
         </div>
     </div>
+
+    <!-- Win/Loss bar -->
+    {% set total_played = (stats.victoires or 0) + (stats.defaites or 0) %}
+    {% if total_played > 0 %}
+    <div class="card p-4">
+        <div class="flex justify-between text-xs mb-1" style="color: var(--text-muted);">
+            <span class="font-semibold" style="color: var(--accent-green);">V: {{ stats.victoires }}</span>
+            <span class="font-semibold" style="color: var(--accent-red);">D: {{ stats.defaites }}</span>
+        </div>
+        <div class="h-3 rounded-full overflow-hidden" style="background: var(--bg-card-hover);">
+            {% set pct = (stats.victoires / total_played * 100)|round(1) %}
+            <div class="h-full rounded-full transition-all duration-500"
+                 style="width: {{ pct }}%; background: linear-gradient(90deg, var(--accent-green), var(--accent-blue));"></div>
+        </div>
+        <div class="flex justify-between text-xs mt-2" style="color: var(--text-muted);">
+            <span>Sets : <span style="color: var(--accent-cyan);">{{ stats.sets_gagnes or 0 }} G</span> / <span style="color: var(--accent-red);">{{ stats.sets_perdus or 0 }} P</span></span>
+            {% if (stats.sets_gagnes or 0) + (stats.sets_perdus or 0) > 0 %}
+            <span>Ratio sets : {{ ((stats.sets_gagnes / ((stats.sets_gagnes or 0) + (stats.sets_perdus or 0))) * 100)|round(0)|int }}%</span>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Charts row -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        <!-- Results pie chart -->
+        {% if total_played > 0 %}
+        <div class="card p-6">
+            <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+                <i data-lucide="pie-chart" class="w-4 h-4 inline-block mr-1"></i> Résultats
+            </h2>
+            <div class="max-w-xs mx-auto" style="height: 220px;">
+                <canvas id="resultsChart"></canvas>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Activity chart (matches per month) -->
+        {% if detailed_stats.matchs_par_mois %}
+        <div class="card p-6">
+            <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+                <i data-lucide="activity" class="w-4 h-4 inline-block mr-1"></i> Activité
+            </h2>
+            <div style="height: 220px;">
+                <canvas id="activityChart"></canvas>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Season-by-season stats -->
+    {% if detailed_stats.stats_par_saison %}
+    <div class="card overflow-hidden">
+        <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
+            <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                <i data-lucide="calendar" class="w-4 h-4 inline-block mr-1"></i>
+                Parcours par saison
+            </h2>
+        </div>
+        <div class="space-y-0">
+            {% for season in detailed_stats.stats_par_saison %}
+            <div class="p-4 {% if not loop.last %}border-b{% endif %}" style="border-color: var(--border-color);">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                    <div class="flex items-center gap-3">
+                        <span class="badge badge-purple font-bold">{{ season.saison }}</span>
+                        <span class="text-sm">
+                            <span class="font-bold" style="color: var(--accent-blue);">{{ season.matchs }}</span>
+                            <span style="color: var(--text-muted);">matchs</span>
+                        </span>
+                        {% if season.victoires > 0 or season.defaites > 0 %}
+                        <span class="text-sm">
+                            <span style="color: var(--accent-green);">{{ season.victoires }}V</span>
+                            <span style="color: var(--text-muted);">/</span>
+                            <span style="color: var(--accent-red);">{{ season.defaites }}D</span>
+                        </span>
+                        {% endif %}
+                    </div>
+                    <div class="flex flex-wrap gap-2">
+                        {% for eq in season.equipes %}
+                        <a href="/equipes/{{ eq.id }}" class="badge badge-blue text-xs">
+                            {{ eq.nom|truncate_name(25) }}
+                            {% if eq.niveau %}
+                            <span class="ml-1 opacity-75">· {{ eq.niveau }}</span>
+                            {% endif %}
+                        </a>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% if season.competitions %}
+                <div class="flex flex-wrap gap-2 mt-2">
+                    {% for comp in season.competitions %}
+                    <a href="/competitions/{{ comp.id }}" class="badge badge-green text-xs hover:opacity-80 transition">
+                        <i data-lucide="medal" class="w-3 h-3 mr-1"></i>
+                        {{ comp.nom|truncate_name(40) }}
+                        {% if comp.niveau %}· {{ comp.niveau }}{% endif %}
+                    </a>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if season.matchs > 0 %}
+                <div class="mt-2 h-2 rounded-full overflow-hidden" style="background: var(--bg-card-hover); max-width: 200px;">
+                    {% set s_total = season.victoires + season.defaites %}
+                    {% if s_total > 0 %}
+                    <div class="h-full rounded-full"
+                         style="width: {{ (season.victoires / s_total * 100)|round(0) }}%; background: linear-gradient(90deg, var(--accent-green), var(--accent-blue));"></div>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
 
     <!-- Equipes -->
     {% if stats.equipes %}
@@ -72,8 +206,31 @@
         </h2>
         <div class="flex flex-wrap gap-2">
             {% for eq in stats.equipes %}
-            <span class="badge badge-blue">{{ eq }}</span>
+            <a href="/equipes/{{ eq.id }}" class="badge badge-blue">
+                {{ eq.nom }}
+                {% if eq.genre %}
+                <span class="opacity-75">· {{ eq.genre }}</span>
+                {% endif %}
+                {% if eq.niveau %}
+                <span class="opacity-75">· {{ eq.niveau }}</span>
+                {% endif %}
+                {% if eq.saison %}
+                <span class="opacity-75">· {{ eq.saison.code }}</span>
+                {% endif %}
+            </a>
             {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Season performance chart -->
+    {% if detailed_stats.stats_par_saison|length > 1 %}
+    <div class="card p-6">
+        <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+            <i data-lucide="trending-up" class="w-4 h-4 inline-block mr-1"></i> Évolution par saison
+        </h2>
+        <div style="height: 280px;">
+            <canvas id="seasonChart"></canvas>
         </div>
     </div>
     {% endif %}
@@ -135,4 +292,150 @@
     </div>
 
 </div>
+{% endblock %}
+
+{% block extra_scripts %}
+{% set total_played = (stats.victoires or 0) + (stats.defaites or 0) %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const chartColors = {
+        green: '#22c55e', greenBg: 'rgba(34, 197, 94, 0.2)',
+        red: '#ef4444', redBg: 'rgba(239, 68, 68, 0.2)',
+        blue: '#3b82f6', blueBg: 'rgba(59, 130, 246, 0.2)',
+        purple: '#a855f7', purpleBg: 'rgba(168, 85, 247, 0.2)',
+        gold: '#f59e0b', goldBg: 'rgba(245, 158, 11, 0.2)',
+        cyan: '#06b6d4', cyanBg: 'rgba(6, 182, 212, 0.2)',
+    };
+    const gridColor = 'rgba(42, 48, 80, 0.5)';
+    const textColor = '#8b92a8';
+
+    // Results pie chart
+    {% if total_played > 0 %}
+    const resultsCtx = document.getElementById('resultsChart');
+    if (resultsCtx) {
+        new Chart(resultsCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Victoires', 'Défaites'],
+                datasets: [{
+                    data: [{{ stats.victoires or 0 }}, {{ stats.defaites or 0 }}],
+                    backgroundColor: [chartColors.greenBg, chartColors.redBg],
+                    borderColor: [chartColors.green, chartColors.red],
+                    borderWidth: 2,
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                cutout: '65%',
+                plugins: {
+                    legend: { position: 'bottom', labels: { color: textColor, font: { size: 12 } } }
+                }
+            }
+        });
+    }
+    {% endif %}
+
+    // Activity chart (matches per month)
+    {% if detailed_stats.matchs_par_mois %}
+    const activityCtx = document.getElementById('activityChart');
+    if (activityCtx) {
+        const monthsData = {{ detailed_stats.matchs_par_mois | tojson }};
+        const months = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
+        const labels = monthsData.map(d => months[d.month - 1] + ' ' + d.year);
+        const data = monthsData.map(d => d.count);
+
+        new Chart(activityCtx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Matchs',
+                    data: data,
+                    backgroundColor: chartColors.blueBg,
+                    borderColor: chartColors.blue,
+                    borderWidth: 1, borderRadius: 4,
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: true, grid: { color: gridColor }, ticks: { color: textColor, stepSize: 1 } },
+                    x: { grid: { display: false }, ticks: { color: textColor, maxRotation: 45, font: { size: 10 } } }
+                },
+                plugins: { legend: { display: false } }
+            }
+        });
+    }
+    {% endif %}
+
+    // Season evolution chart
+    {% if detailed_stats.stats_par_saison|length > 1 %}
+    const seasonCtx = document.getElementById('seasonChart');
+    if (seasonCtx) {
+        const seasonData = {{ detailed_stats.stats_par_saison | tojson }};
+        const sLabels = seasonData.map(s => s.saison);
+        const sMatchs = seasonData.map(s => s.matchs);
+        const sVictoires = seasonData.map(s => s.victoires);
+        const sDefaites = seasonData.map(s => s.defaites);
+        const sWinRate = seasonData.map(s => {
+            const total = s.victoires + s.defaites;
+            return total > 0 ? Math.round(s.victoires / total * 100) : 0;
+        });
+
+        new Chart(seasonCtx, {
+            type: 'bar',
+            data: {
+                labels: sLabels,
+                datasets: [
+                    {
+                        label: 'Victoires', data: sVictoires,
+                        backgroundColor: chartColors.greenBg,
+                        borderColor: chartColors.green,
+                        borderWidth: 1, borderRadius: 4,
+                        stack: 'results',
+                    },
+                    {
+                        label: 'Défaites', data: sDefaites,
+                        backgroundColor: chartColors.redBg,
+                        borderColor: chartColors.red,
+                        borderWidth: 1, borderRadius: 4,
+                        stack: 'results',
+                    },
+                    {
+                        label: '% Victoire', data: sWinRate,
+                        type: 'line',
+                        borderColor: chartColors.gold,
+                        backgroundColor: chartColors.goldBg,
+                        borderWidth: 2, pointRadius: 4,
+                        tension: 0.3,
+                        yAxisID: 'y1',
+                    }
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true, stacked: true,
+                        grid: { color: gridColor },
+                        ticks: { color: textColor, stepSize: 1 },
+                        title: { display: true, text: 'Matchs', color: textColor }
+                    },
+                    y1: {
+                        beginAtZero: true, max: 100, position: 'right',
+                        grid: { display: false },
+                        ticks: { color: chartColors.gold, callback: v => v + '%' },
+                        title: { display: true, text: '% Victoire', color: chartColors.gold }
+                    },
+                    x: { stacked: true, grid: { display: false }, ticks: { color: textColor } }
+                },
+                plugins: {
+                    legend: { labels: { color: textColor, font: { size: 11 } } }
+                }
+            }
+        });
+    }
+    {% endif %}
+});
+</script>
 {% endblock %}
