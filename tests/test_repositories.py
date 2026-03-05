@@ -99,7 +99,7 @@ class TestClubRepository:
         """Test ajout d'un club."""
         repo = ClubRepository(test_session)
         
-        club = ClubDB(nom="AS Volley Paris", ligue="Île de France")
+        club = ClubDB(nom="AS Volley Paris", ville="Paris")
         result = repo.add(club)
         test_session.commit()
         
@@ -119,16 +119,16 @@ class TestClubRepository:
         
         assert len(results) == 2
     
-    def test_get_by_ligue(self, test_session: Session):
-        """Test recherche par ligue."""
+    def test_search_by_name_club(self, test_session: Session):
+        """Test recherche par nom de club."""
         repo = ClubRepository(test_session)
         
-        repo.add(ClubDB(nom="Club A", ligue="IDF"))
-        repo.add(ClubDB(nom="Club B", ligue="IDF"))
-        repo.add(ClubDB(nom="Club C", ligue="AURA"))
+        repo.add(ClubDB(nom="Club Volley A", departement="75"))
+        repo.add(ClubDB(nom="Club Volley B", departement="75"))
+        repo.add(ClubDB(nom="Club Basket C", departement="69"))
         test_session.commit()
         
-        results = repo.get_by_ligue("IDF")
+        results = repo.search_by_name("Volley")
         
         assert len(results) == 2
 
@@ -179,8 +179,8 @@ class TestMatchRepository:
             code_match="2024-001",
             equipe_a_id=equipe_a.id,
             equipe_b_id=equipe_b.id,
-            score_final="3-1",
-            vainqueur_nom="Équipe A",
+            score_sets="3/1",
+            vainqueur="Équipe A",
         )
         result = match_repo.add(match)
         test_session.commit()
