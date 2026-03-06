@@ -2,9 +2,11 @@
 Routes web pour l'interface utilisateur PyVolley.
 """
 
+import json
 from typing import Optional
 from fastapi import APIRouter, Request, Depends, Query
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+from sqlalchemy.orm import Session
 
 from pyvolley.web.app import templates
 from pyvolley.api.dependencies import (
@@ -15,6 +17,7 @@ from pyvolley.api.dependencies import (
     get_saison_repo,
     get_competition_repo,
     get_arbitre_repo,
+    get_session,
 )
 from pyvolley.database.repositories import (
     JoueurRepository,
@@ -250,11 +253,15 @@ async def equipe_detail(
             sets_gagnes += m.sets_equipe_b
             sets_perdus += m.sets_equipe_a
 
+    # Construire les données d'évolution de niveau
+    niveau_evolution = _build_niveau_evolution(matchs, equipe)
+
     return templates.TemplateResponse("equipes/detail.html", {
         "request": request, "equipe": equipe, "matchs": matchs,
         "victoires": victoires, "defaites": len([m for m in matchs if m.match_joue]) - victoires,
         "roster": roster,
         "sets_gagnes": sets_gagnes, "sets_perdus": sets_perdus,
+        "niveau_evolution_json": json.dumps(niveau_evolution, ensure_ascii=False, default=str),
     })
 
 
@@ -353,10 +360,14 @@ async def match_detail(
     officiels_a = [o for o in (match.officiels or []) if o.equipe == "A"]
     officiels_b = [o for o in (match.officiels or []) if o.equipe == "B"]
 
+    # Construire les données de simulation pour l'embarqué
+    sim_data = _build_simulation_data(match, participants_a, participants_b, officiels_a, officiels_b)
+
     return templates.TemplateResponse("matchs/detail.html", {
         "request": request, "match": match,
         "participants_a": participants_a, "participants_b": participants_b,
         "officiels_a": officiels_a, "officiels_b": officiels_b,
+        "sim_data_json": json.dumps(sim_data, ensure_ascii=False),
     })
 
 
@@ -510,6 +521,49 @@ async def stats_page(
     })
 
 
+# ============== Palmarès / Stats amusantes ==============
+
+@web_router.get("/palmares", response_class=HTMLResponse)
+async def palmares_page(
+    request: Request,
+    saison_id: Optional[int] = Query(None),
+    genre: Optional[str] = Query(None),
+    categorie: Optional[str] = Query(None),
+    niveau_min: Optional[str] = Query(None),
+    niveau_max: Optional[str] = Query(None),
+    departement: Optional[str] = Query(None),
+    session: Session = Depends(get_session),
+):
+    from pyvolley.database.stats_service import StatsAmusantesService, StatsFilters
+
+    service = StatsAmusantesService(session)
+    filters = StatsFilters(
+        saison_id=saison_id,
+        genre=genre,
+        categorie=categorie,
+        niveau_min=niveau_min,
+        niveau_max=niveau_max,
+        departement=departement,
+    )
+
+    all_stats = service.get_all_stats(filters)
+    filter_options = service.get_filter_options()
+
+    return templates.TemplateResponse("palmares.html", {
+        "request": request,
+        **all_stats,
+        "filter_options": filter_options,
+        "current_filters": {
+            "saison_id": saison_id,
+            "genre": genre or "",
+            "categorie": categorie or "",
+            "niveau_min": niveau_min or "",
+            "niveau_max": niveau_max or "",
+            "departement": departement or "",
+        },
+    })
+
+
 # ============== Helpers ==============
 
 def _is_winner(match, equipe) -> bool:
@@ -518,3 +572,207 @@ def _is_winner(match, equipe) -> bool:
     elif match.equipe_b_id == equipe.id:
         return match.sets_equipe_b > match.sets_equipe_a
     return False
+
+
+def _build_simulation_data(match, participants_a, participants_b, officiels_a, officiels_b) -> dict:
+    """Construit les données JSON pour le visualiseur de simulation embarqué."""
+    equipe_a_name = match.equipe_a.nom if match.equipe_a else "Équipe A"
+    equipe_b_name = match.equipe_b.nom if match.equipe_b else "Équipe B"
+
+    # Joueurs
+    joueurs_a = []
+    for p in participants_a:
+        joueurs_a.append({
+            "numero": p.numero_maillot or "?",
+            "nom": p.joueur.nom if p.joueur else "?",
+            "prenom": p.joueur.prenom if p.joueur else "",
+            "est_capitaine": p.est_capitaine,
+            "est_libero": p.est_libero,
+        })
+
+    joueurs_b = []
+    for p in participants_b:
+        joueurs_b.append({
+            "numero": p.numero_maillot or "?",
+            "nom": p.joueur.nom if p.joueur else "?",
+            "prenom": p.joueur.prenom if p.joueur else "",
+            "est_capitaine": p.est_capitaine,
+            "est_libero": p.est_libero,
+        })
+
+    # Officiels
+    off_a = [{"role": o.role, "nom": o.nom, "prenom": o.prenom} for o in officiels_a]
+    off_b = [{"role": o.role, "nom": o.nom, "prenom": o.prenom} for o in officiels_b]
+
+    # Arbitres
+    arbitres = []
+    for am in (match.arbitrages or []):
+        arbitres.append({
+            "nom": am.arbitre.nom if am.arbitre else "?",
+            "prenom": am.arbitre.prenom if am.arbitre else "",
+            "role": am.role,
+        })
+
+    # Sets
+    sets_data = []
+    for s in (match.sets or []):
+        set_entry = {
+            "numero": s.numero,
+            "score_a": s.score_a or 0,
+            "score_b": s.score_b or 0,
+            "heure_debut": s.heure_debut,
+            "heure_fin": s.heure_fin,
+            "duree_minutes": s.duree_minutes,
+            "service_initial": s.service_initial,
+            "formation_a": {},
+            "formation_b": {},
+            "changements_a": [],
+            "changements_b": [],
+            "timeouts_a": [],
+            "timeouts_b": [],
+        }
+
+        # Formations
+        for f in (s.formations or []):
+            key = f"formation_{f.equipe.lower()}"
+            set_entry[key] = {
+                "position_1": f.position_1 or "",
+                "position_2": f.position_2 or "",
+                "position_3": f.position_3 or "",
+                "position_4": f.position_4 or "",
+                "position_5": f.position_5 or "",
+                "position_6": f.position_6 or "",
+            }
+
+        # Changements
+        for c in (s.changements or []):
+            entry = {
+                "joueur_entrant": c.joueur_entrant,
+                "joueur_sortant": c.joueur_sortant,
+                "position": c.position,
+                "score_a": c.score_a,
+                "score_b": c.score_b,
+            }
+            if c.equipe == "A":
+                set_entry["changements_a"].append(entry)
+            else:
+                set_entry["changements_b"].append(entry)
+
+        # Timeouts
+        for t in (s.timeouts or []):
+            entry = {"score_a": t.score_a, "score_b": t.score_b}
+            if t.equipe == "A":
+                set_entry["timeouts_a"].append(entry)
+            else:
+                set_entry["timeouts_b"].append(entry)
+
+        sets_data.append(set_entry)
+
+    # Sanctions
+    sanctions = []
+    for s in (match.sanctions or []):
+        sanctions.append({
+            "type": s.type_sanction,
+            "equipe": s.equipe,
+            "set_numero": s.set_numero,
+            "joueur_numero": s.joueur_numero,
+            "score_a": s.score_a,
+            "score_b": s.score_b,
+        })
+
+    return {
+        "code_match": match.code_match,
+        "date": str(match.date_match) if match.date_match else "",
+        "lieu": match.lieu or "",
+        "salle": match.salle or "",
+        "competition": match.competition.nom if match.competition else "",
+        "journee": match.journee or "",
+        "duree_totale": match.duree_totale or "",
+        "equipe_a": {"nom": equipe_a_name, "joueurs": joueurs_a, "officiels": off_a},
+        "equipe_b": {"nom": equipe_b_name, "joueurs": joueurs_b, "officiels": off_b},
+        "sets_a": match.sets_equipe_a,
+        "sets_b": match.sets_equipe_b,
+        "vainqueur": match.vainqueur or "",
+        "sets": sets_data,
+        "arbitres": arbitres,
+        "sanctions": sanctions,
+    }
+
+
+# Hiérarchie des niveaux de volley (du plus bas au plus haut)
+_NIVEAU_ORDER = {
+    "LOISIR": 0,
+    "DEPARTEMENTAL": 1, "DÉPARTEMENTAL": 1, "DEPARTEMENTALE": 1, "DÉPARTEMENTALE": 1,
+    "REGIONAL": 2, "RÉGIONAL": 2, "REGIONALE": 2, "RÉGIONALE": 2,
+    "PRENATIONAL": 3, "PRÉNATIONAL": 3, "PRENATIONALE": 3, "PRÉNATIONALE": 3,
+    "PRE-NATIONAL": 3, "PRÉ-NATIONAL": 3, "PRE-NATIONALE": 3, "PRÉ-NATIONALE": 3,
+    "NATIONAL": 4, "NATIONALE": 4,
+    "ELITE": 5, "ÉLITE": 5,
+}
+
+
+def _niveau_rank(niveau_str: Optional[str]) -> Optional[int]:
+    """Retourne le rang numérique d'un niveau, ou None si inconnu."""
+    if not niveau_str:
+        return None
+    return _NIVEAU_ORDER.get(niveau_str.upper().strip())
+
+
+def _build_niveau_evolution(matchs, equipe) -> list:
+    """Construit les données d'évolution du niveau pour le graphique.
+
+    Pour chaque match joué, on regarde la compétition / le niveau de l'équipe
+    au moment du match. Cela permet de tracer l'évolution temporelle.
+
+    Retourne une liste triée par date avec :
+    - date: date du match
+    - niveau: nom du niveau
+    - niveau_rank: rang numérique pour l'axe Y
+    - adversaire: nom de l'adversaire
+    - resultat: 'V' ou 'D'
+    - score: 'X-Y'
+    - match_id: id du match
+    - competition: nom de la compétition
+    """
+    points = []
+    for m in matchs:
+        if not m.match_joue or not m.date_match:
+            continue
+
+        # Déterminer le niveau de la compétition du match
+        niveau = None
+        if m.competition:
+            niveau = m.competition.niveau
+        # Sinon essayer via l'équipe elle-même
+        if not niveau and equipe.niveau:
+            niveau = equipe.niveau
+
+        rank = _niveau_rank(niveau)
+        if rank is None and niveau:
+            # Niveau inconnu mais existant : lui donner un rang par défaut
+            rank = 2  # régional par défaut
+
+        is_team_a = m.equipe_a_id == equipe.id
+        opponent = m.equipe_b if is_team_a else m.equipe_a
+        won = (is_team_a and m.sets_equipe_a > m.sets_equipe_b) or \
+              (not is_team_a and m.sets_equipe_b > m.sets_equipe_a)
+
+        if is_team_a:
+            score = f"{m.sets_equipe_a}-{m.sets_equipe_b}"
+        else:
+            score = f"{m.sets_equipe_b}-{m.sets_equipe_a}"
+
+        points.append({
+            "date": str(m.date_match),
+            "niveau": niveau or "Inconnu",
+            "niveau_rank": rank if rank is not None else 2,
+            "adversaire": opponent.nom if opponent else "?",
+            "resultat": "V" if won else "D",
+            "score": score,
+            "match_id": m.id,
+            "competition": m.competition.nom if m.competition else "",
+        })
+
+    # Trier par date
+    points.sort(key=lambda p: p["date"])
+    return points

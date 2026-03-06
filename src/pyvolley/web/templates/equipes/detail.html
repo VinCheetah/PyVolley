@@ -119,6 +119,29 @@
     </div>
     {% endif %}
 
+    <!-- ═══════════════ Évolution du Niveau ═══════════════ -->
+    {% if niveau_evolution_json and niveau_evolution_json != '[]' %}
+    <div class="card p-6">
+        <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+            <i data-lucide="trending-up" class="w-4 h-4 inline-block mr-1"></i> Évolution du niveau de compétition
+        </h2>
+        <div style="height: 320px; position: relative;">
+            <canvas id="niveauChart"></canvas>
+        </div>
+        <div class="flex flex-wrap gap-3 mt-3 justify-center">
+            <div class="flex items-center gap-1 text-xs" style="color: var(--accent-green);">
+                <span class="w-3 h-3 rounded-full inline-block" style="background: var(--accent-green);"></span> Victoire
+            </div>
+            <div class="flex items-center gap-1 text-xs" style="color: var(--accent-red);">
+                <span class="w-3 h-3 rounded-full inline-block" style="background: var(--accent-red);"></span> Défaite
+            </div>
+            <div class="flex items-center gap-1 text-xs" style="color: var(--text-muted);">
+                <span class="w-3 h-3 rounded-full inline-block" style="background: var(--accent-blue); opacity: 0.5;"></span> Taille = nombre de matchs à cette date
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Effectif complet -->
     {% if roster %}
     <div class="card overflow-hidden">
@@ -355,6 +378,238 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                 }
             }
+        }
+    });
+});
+</script>
+{% endif %}
+
+{% if niveau_evolution_json and niveau_evolution_json != '[]' %}
+<!-- Adapter de date pour Chart.js (nécessaire pour l'axe temporel) -->
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const niveauData = {{ niveau_evolution_json|safe }};
+    if (!niveauData || niveauData.length === 0) return;
+
+    const ctx = document.getElementById('niveauChart');
+    if (!ctx) return;
+
+    // Hiérarchie des niveaux pour l'axe Y
+    const NIVEAU_LABELS = {
+        0: 'Loisir',
+        1: 'Départemental',
+        2: 'Régional',
+        3: 'Prénational',
+        4: 'National',
+        5: 'Élite',
+    };
+
+    // Calculer les rangs min/max pour l'échelle
+    const ranks = niveauData.map(d => d.niveau_rank);
+    const minRank = Math.max(0, Math.min(...ranks) - 1);
+    const maxRank = Math.min(5, Math.max(...ranks) + 1);
+
+    // Grouper les matchs par date pour la taille des bulles
+    const dateGroups = {};
+    niveauData.forEach(d => {
+        const key = d.date + '_' + d.niveau_rank;
+        if (!dateGroups[key]) dateGroups[key] = { count: 0, items: [] };
+        dateGroups[key].count++;
+        dateGroups[key].items.push(d);
+    });
+
+    // Calculer la taille max des bulles
+    const maxCount = Math.max(...Object.values(dateGroups).map(g => g.count));
+    const minBubble = 6, maxBubble = maxCount > 1 ? 22 : 10;
+
+    // Préparer les données pour un bubble chart
+    const victories = [];
+    const defeats = [];
+
+    // Ensemble pour tracker quels groupes on a déjà traités
+    const processed = new Set();
+
+    niveauData.forEach(d => {
+        const key = d.date + '_' + d.niveau_rank;
+        if (processed.has(key + '_' + d.resultat)) {
+            // Chercher si déjà ajouté, incrémenter
+            return;
+        }
+
+        const group = dateGroups[key];
+        const winsInGroup = group.items.filter(i => i.resultat === 'V').length;
+        const lossesInGroup = group.items.filter(i => i.resultat === 'D').length;
+
+        const bubbleSize = (sz) => {
+            if (maxCount <= 1) return minBubble;
+            return minBubble + (sz / maxCount) * (maxBubble - minBubble);
+        };
+
+        if (winsInGroup > 0 && !processed.has(key + '_V')) {
+            victories.push({
+                x: d.date,
+                y: d.niveau_rank,
+                r: bubbleSize(winsInGroup),
+                count: winsInGroup,
+                adversaires: group.items.filter(i => i.resultat === 'V').map(i => i.adversaire + ' (' + i.score + ')').join(', '),
+                competition: d.competition,
+                niveau: d.niveau,
+            });
+            processed.add(key + '_V');
+        }
+
+        if (lossesInGroup > 0 && !processed.has(key + '_D')) {
+            defeats.push({
+                x: d.date,
+                y: d.niveau_rank,
+                r: bubbleSize(lossesInGroup),
+                count: lossesInGroup,
+                adversaires: group.items.filter(i => i.resultat === 'D').map(i => i.adversaire + ' (' + i.score + ')').join(', '),
+                competition: d.competition,
+                niveau: d.niveau,
+            });
+            processed.add(key + '_D');
+        }
+    });
+
+    // Ligne de tendance (niveau moyen sur une fenêtre glissante)
+    const lineData = [];
+    const sortedByDate = [...niveauData].sort((a, b) => a.date.localeCompare(b.date));
+    const windowSize = Math.max(1, Math.floor(sortedByDate.length / 8));
+
+    for (let i = 0; i < sortedByDate.length; i++) {
+        const start = Math.max(0, i - windowSize + 1);
+        const window = sortedByDate.slice(start, i + 1);
+        const avg = window.reduce((sum, d) => sum + d.niveau_rank, 0) / window.length;
+        lineData.push({ x: sortedByDate[i].date, y: avg });
+    }
+
+    // Dédupliquer les dates pour la ligne
+    const uniqueLineData = [];
+    const seenDates = new Set();
+    lineData.forEach(d => {
+        if (!seenDates.has(d.x)) {
+            uniqueLineData.push(d);
+            seenDates.add(d.x);
+        } else {
+            // Mettre à jour la dernière entrée pour cette date
+            const last = uniqueLineData[uniqueLineData.length - 1];
+            if (last && last.x === d.x) last.y = d.y;
+        }
+    });
+
+    // Déterminer l'unité temporelle adaptée
+    const dates = niveauData.map(d => new Date(d.date));
+    const timeSpanDays = (Math.max(...dates) - Math.min(...dates)) / (1000 * 60 * 60 * 24);
+    let timeUnit = 'month';
+    if (timeSpanDays < 60) timeUnit = 'week';
+    else if (timeSpanDays < 14) timeUnit = 'day';
+    else if (timeSpanDays > 365) timeUnit = 'quarter';
+
+    new Chart(ctx, {
+        type: 'bubble',
+        data: {
+            datasets: [
+                {
+                    label: 'Victoires',
+                    data: victories,
+                    backgroundColor: 'rgba(34, 197, 94, 0.6)',
+                    borderColor: '#22c55e',
+                    borderWidth: 1.5,
+                    hoverBackgroundColor: 'rgba(34, 197, 94, 0.9)',
+                    order: 2,
+                },
+                {
+                    label: 'Défaites',
+                    data: defeats,
+                    backgroundColor: 'rgba(239, 68, 68, 0.6)',
+                    borderColor: '#ef4444',
+                    borderWidth: 1.5,
+                    hoverBackgroundColor: 'rgba(239, 68, 68, 0.9)',
+                    order: 2,
+                },
+                {
+                    label: 'Tendance',
+                    data: uniqueLineData,
+                    type: 'line',
+                    borderColor: 'rgba(59, 130, 246, 0.5)',
+                    borderWidth: 2,
+                    borderDash: [6, 3],
+                    pointRadius: 0,
+                    pointHoverRadius: 0,
+                    fill: false,
+                    tension: 0.4,
+                    order: 1,
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    type: 'time',
+                    time: {
+                        unit: timeUnit,
+                        displayFormats: {
+                            day: 'dd/MM',
+                            week: 'dd/MM',
+                            month: 'MMM yyyy',
+                            quarter: 'MMM yyyy',
+                        },
+                        tooltipFormat: 'dd/MM/yyyy',
+                    },
+                    grid: { color: 'rgba(42, 48, 80, 0.5)' },
+                    ticks: { color: '#5a6178', font: { size: 11 }, maxRotation: 45 },
+                    title: { display: true, text: 'Date', color: '#8b92a8' },
+                },
+                y: {
+                    min: minRank,
+                    max: maxRank,
+                    grid: { color: 'rgba(42, 48, 80, 0.3)' },
+                    ticks: {
+                        color: '#8b92a8',
+                        font: { size: 11, weight: '600' },
+                        stepSize: 1,
+                        callback: function(value) {
+                            return NIVEAU_LABELS[value] || '';
+                        }
+                    },
+                    title: { display: true, text: 'Niveau', color: '#8b92a8' },
+                }
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: 'rgba(26, 31, 53, 0.95)',
+                    borderColor: 'rgba(42, 48, 80, 0.8)',
+                    borderWidth: 1,
+                    titleFont: { weight: '700' },
+                    bodyFont: { size: 12 },
+                    callbacks: {
+                        title: function(items) {
+                            if (!items.length) return '';
+                            const d = items[0].raw;
+                            return d.x;
+                        },
+                        label: function(ctx) {
+                            const d = ctx.raw;
+                            if (d.r === undefined) return ''; // Ligne de tendance
+                            const lines = [];
+                            lines.push((ctx.dataset.label || '') + ' — ' + d.niveau);
+                            if (d.count > 1) lines.push(d.count + ' matchs');
+                            if (d.adversaires) lines.push('vs ' + d.adversaires);
+                            if (d.competition) lines.push(d.competition);
+                            return lines;
+                        }
+                    }
+                }
+            },
+            interaction: {
+                intersect: true,
+                mode: 'point',
+            },
         }
     });
 });

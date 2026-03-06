@@ -1,0 +1,728 @@
+{% extends "base.html" %}
+{% block title %}Palmarès & Records - PyVolley{% endblock %}
+
+{% block content %}
+
+{# ═══════════ MACROS (must be defined before use) ═══════════ #}
+
+{% macro render_podium(title, icon, color, data, unit) %}
+<div class="card overflow-hidden">
+    <div class="p-4 flex items-center gap-3" style="border-bottom: 1px solid var(--border-color);">
+        <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background: rgba({% if color == 'blue' %}59,130,246{% elif color == 'gold' %}245,158,11{% elif color == 'red' %}239,68,68{% elif color == 'green' %}34,197,94{% elif color == 'purple' %}168,85,247{% else %}59,130,246{% endif %},0.15);">
+            <i data-lucide="{{ icon }}" class="w-5 h-5" style="color: var(--accent-{{ color }});"></i>
+        </div>
+        <h3 class="font-bold text-white">{{ title }}</h3>
+    </div>
+    {% if data %}
+    <div class="divide-y" style="border-color: rgba(42,48,80,0.5);">
+        {% for j in data[:5] %}
+        <div class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-card-hover)] transition">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-full flex items-center justify-center font-black text-sm
+                    {% if loop.index == 1 %}text-yellow-400 bg-yellow-400/15
+                    {% elif loop.index == 2 %}text-gray-300 bg-gray-300/15
+                    {% elif loop.index == 3 %}text-amber-600 bg-amber-600/15
+                    {% else %}text-gray-500 bg-gray-500/10{% endif %}">
+                    {{ loop.index }}
+                </div>
+                <a href="/joueurs/{{ j.id }}" class="font-semibold text-white hover:text-blue-400 transition">
+                    {{ j.nom }} {{ j.prenom }}
+                </a>
+            </div>
+            <div class="text-right">
+                <span class="font-black text-lg gradient-text-{{ color }}">{{ j.valeur }}</span>
+                <span class="text-xs" style="color: var(--text-muted);">{{ unit }}</span>
+                {% if j.taux is defined and j.taux %}
+                <div class="text-xs" style="color: var(--accent-green);">{{ j.taux }}%</div>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="p-6 text-center" style="color: var(--text-muted);">Pas de données disponibles</p>
+    {% endif %}
+</div>
+{% endmacro %}
+
+{% macro render_simple_list(title, icon, color, data, unit) %}
+<div class="card overflow-hidden">
+    <div class="p-4 flex items-center gap-3" style="border-bottom: 1px solid var(--border-color);">
+        <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background: rgba({% if color == 'purple' %}168,85,247{% elif color == 'gold' %}245,158,11{% elif color == 'blue' %}59,130,246{% else %}59,130,246{% endif %},0.15);">
+            <i data-lucide="{{ icon }}" class="w-5 h-5" style="color: var(--accent-{{ color }});"></i>
+        </div>
+        <h3 class="font-bold text-white">{{ title }}</h3>
+    </div>
+    {% if data %}
+    <div class="divide-y" style="border-color: rgba(42,48,80,0.5);">
+        {% for j in data[:5] %}
+        <div class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-card-hover)] transition">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-full flex items-center justify-center font-black text-sm
+                    {% if loop.index == 1 %}text-yellow-400 bg-yellow-400/15
+                    {% elif loop.index == 2 %}text-gray-300 bg-gray-300/15
+                    {% elif loop.index == 3 %}text-amber-600 bg-amber-600/15
+                    {% else %}text-gray-500 bg-gray-500/10{% endif %}">
+                    {{ loop.index }}
+                </div>
+                <a href="/joueurs/{{ j.id }}" class="font-semibold text-white hover:text-blue-400 transition">
+                    {{ j.nom }} {{ j.prenom }}
+                </a>
+            </div>
+            <span class="badge badge-{{ color }}">{{ j.valeur }} {{ unit }}</span>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="p-6 text-center" style="color: var(--text-muted);">Pas de données disponibles</p>
+    {% endif %}
+</div>
+{% endmacro %}
+
+{# ═══════════ PAGE CONTENT ═══════════ #}
+
+<div class="space-y-8" x-data="palmares()">
+
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+        <div>
+            <h1 class="text-3xl font-black tracking-tight">
+                <i data-lucide="trophy" class="w-8 h-8 inline-block mr-2" style="color: var(--accent-gold);"></i>
+                <span class="gradient-text-gold">Palmarès & Records</span>
+            </h1>
+            <p class="mt-1" style="color: var(--text-muted);">
+                Statistiques amusantes, records et classements ludiques du volleyball
+            </p>
+        </div>
+        <button @click="showFilters = !showFilters"
+                class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition"
+                :style="showFilters ? 'background: var(--accent-blue); color: white;' : 'background: var(--bg-card); color: var(--text-secondary); border: 1px solid var(--border-color);'">
+            <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
+            Filtres
+            {% set active_count = [current_filters.saison_id, current_filters.genre, current_filters.categorie, current_filters.niveau_min, current_filters.niveau_max, current_filters.departement] | select | list | length %}
+            {% if active_count > 0 %}
+            <span class="badge badge-gold text-xs">{{ active_count }}</span>
+            {% endif %}
+        </button>
+    </div>
+
+    <!-- Filters Panel -->
+    <div x-show="showFilters" x-cloak x-transition class="card p-6">
+        <form method="get" action="/palmares" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <!-- Saison -->
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">
+                    <i data-lucide="calendar" class="w-3 h-3 inline-block mr-1"></i> Saison
+                </label>
+                <select name="saison_id" class="filter-select">
+                    <option value="">Toutes les saisons</option>
+                    {% for s in filter_options.saisons %}
+                    <option value="{{ s.id }}" {% if current_filters.saison_id == s.id %}selected{% endif %}>
+                        {{ s.code }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Genre -->
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">
+                    <i data-lucide="users" class="w-3 h-3 inline-block mr-1"></i> Genre
+                </label>
+                <select name="genre" class="filter-select">
+                    <option value="">Tous</option>
+                    {% for g in filter_options.genres %}
+                    <option value="{{ g }}" {% if current_filters.genre == g %}selected{% endif %}>{{ g }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Catégorie -->
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">
+                    <i data-lucide="tag" class="w-3 h-3 inline-block mr-1"></i> Catégorie
+                </label>
+                <select name="categorie" class="filter-select">
+                    <option value="">Toutes</option>
+                    {% for c in filter_options.categories %}
+                    <option value="{{ c }}" {% if current_filters.categorie == c %}selected{% endif %}>{{ c }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Niveau minimum -->
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">
+                    <i data-lucide="arrow-up-circle" class="w-3 h-3 inline-block mr-1"></i> Niveau minimum
+                </label>
+                <select name="niveau_min" class="filter-select">
+                    <option value="">Aucun minimum</option>
+                    {% for n in filter_options.niveaux %}
+                    <option value="{{ n }}" {% if current_filters.niveau_min == n %}selected{% endif %}>{{ n }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Niveau maximum -->
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">
+                    <i data-lucide="arrow-down-circle" class="w-3 h-3 inline-block mr-1"></i> Niveau maximum
+                </label>
+                <select name="niveau_max" class="filter-select">
+                    <option value="">Aucun maximum</option>
+                    {% for n in filter_options.niveaux %}
+                    <option value="{{ n }}" {% if current_filters.niveau_max == n %}selected{% endif %}>{{ n }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Département -->
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">
+                    <i data-lucide="map-pin" class="w-3 h-3 inline-block mr-1"></i> Département
+                </label>
+                <select name="departement" class="filter-select">
+                    <option value="">Tous</option>
+                    {% for d in filter_options.departements %}
+                    <option value="{{ d }}" {% if current_filters.departement == d %}selected{% endif %}>{{ d }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Buttons -->
+            <div class="lg:col-span-3 flex items-center gap-3 pt-2">
+                <button type="submit"
+                        class="px-6 py-2 rounded-lg font-semibold text-white text-sm transition"
+                        style="background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));">
+                    <i data-lucide="search" class="w-4 h-4 inline-block mr-1"></i>
+                    Appliquer
+                </button>
+                <a href="/palmares"
+                   class="px-4 py-2 rounded-lg text-sm font-medium transition"
+                   style="color: var(--text-secondary); background: var(--bg-card-hover);">
+                    Réinitialiser
+                </a>
+            </div>
+        </form>
+    </div>
+
+    <!-- ═══════════ NAVIGATION TABS ═══════════ -->
+    <div class="flex flex-wrap gap-2">
+        <button @click="activeTab = 'joueurs'" class="tab-btn"
+                :class="activeTab === 'joueurs' && 'tab-active'">
+            <i data-lucide="user" class="w-4 h-4"></i> Joueurs
+        </button>
+        <button @click="activeTab = 'matchs'" class="tab-btn"
+                :class="activeTab === 'matchs' && 'tab-active'">
+            <i data-lucide="swords" class="w-4 h-4"></i> Matchs
+        </button>
+        <button @click="activeTab = 'equipes'" class="tab-btn"
+                :class="activeTab === 'equipes' && 'tab-active'">
+            <i data-lucide="shield" class="w-4 h-4"></i> Équipes
+        </button>
+        <button @click="activeTab = 'arbitres'" class="tab-btn"
+                :class="activeTab === 'arbitres' && 'tab-active'">
+            <i data-lucide="gavel" class="w-4 h-4"></i> Arbitres
+        </button>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         JOUEURS TAB
+         ═══════════════════════════════════════════════════════════ -->
+    <div x-show="activeTab === 'joueurs'" x-transition>
+
+        <!-- Séries de victoires -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <!-- Record de série de victoires -->
+            <div class="card overflow-hidden">
+                <div class="p-4 flex items-center gap-3" style="border-bottom: 1px solid var(--border-color); background: linear-gradient(135deg, rgba(245,158,11,0.08), transparent);">
+                    <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background: rgba(245,158,11,0.15);">
+                        <i data-lucide="flame" class="w-5 h-5" style="color: var(--accent-gold);"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-white">Meilleures séries de victoires</h3>
+                        <p class="text-xs" style="color: var(--text-muted);">Record historique de victoires consécutives</p>
+                    </div>
+                </div>
+                {% if series_record %}
+                <div class="divide-y" style="border-color: rgba(42,48,80,0.5);">
+                    {% for s in series_record[:5] %}
+                    <div class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-card-hover)] transition">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-full flex items-center justify-center font-black text-sm
+                                {% if loop.index == 1 %}text-yellow-400 bg-yellow-400/15
+                                {% elif loop.index == 2 %}text-gray-300 bg-gray-300/15
+                                {% elif loop.index == 3 %}text-amber-600 bg-amber-600/15
+                                {% else %}text-gray-500 bg-gray-500/10{% endif %}">
+                                {{ loop.index }}
+                            </div>
+                            <div>
+                                <a href="/joueurs/{{ s.id }}" class="font-semibold text-white hover:text-blue-400 transition">
+                                    {{ s.nom }} {{ s.prenom }}
+                                </a>
+                                <div class="text-xs" style="color: var(--text-muted);">{{ s.matchs_total }} matchs joués</div>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <div class="font-black text-xl" style="color: var(--accent-gold);">{{ s.record }}🔥</div>
+                            <div class="text-xs" style="color: var(--text-muted);">victoires d'affilée</div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="p-6 text-center" style="color: var(--text-muted);">Pas de données disponibles</p>
+                {% endif %}
+            </div>
+
+            <!-- Série actuelle -->
+            <div class="card overflow-hidden">
+                <div class="p-4 flex items-center gap-3" style="border-bottom: 1px solid var(--border-color); background: linear-gradient(135deg, rgba(34,197,94,0.08), transparent);">
+                    <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background: rgba(34,197,94,0.15);">
+                        <i data-lucide="zap" class="w-5 h-5" style="color: var(--accent-green);"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-white">Séries en cours</h3>
+                        <p class="text-xs" style="color: var(--text-muted);">Joueurs actuellement sur une série de victoires</p>
+                    </div>
+                </div>
+                {% if series_actuelles %}
+                <div class="divide-y" style="border-color: rgba(42,48,80,0.5);">
+                    {% for s in series_actuelles[:5] %}
+                    <div class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-card-hover)] transition">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-full flex items-center justify-center font-black text-sm
+                                {% if loop.index == 1 %}text-green-400 bg-green-400/15
+                                {% else %}text-gray-500 bg-gray-500/10{% endif %}">
+                                {{ loop.index }}
+                            </div>
+                            <a href="/joueurs/{{ s.id }}" class="font-semibold text-white hover:text-blue-400 transition">
+                                {{ s.nom }} {{ s.prenom }}
+                            </a>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="badge badge-green">{{ s.serie_actuelle }} en cours</span>
+                            <span class="text-xs" style="color: var(--text-muted);">record : {{ s.record }}</span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="p-6 text-center" style="color: var(--text-muted);">Aucune série en cours</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Top joueurs -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            <!-- Plus de matchs -->
+            {{ render_podium("Plus de matchs joués", "swords", "blue", top_matchs, "matchs") }}
+
+            <!-- Plus de victoires -->
+            {{ render_podium("Plus de victoires", "crown", "gold", top_victoires, "victoires") }}
+
+            <!-- Plus de défaites -->
+            {{ render_podium("Plus de défaites", "frown", "red", top_defaites, "défaites") }}
+        </div>
+
+        <!-- Capitaines, Liberos, Fidélité -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Capitaines -->
+            {{ render_simple_list("Capitaines les plus assidus", "shield-check", "purple", top_capitaines, "capitainats") }}
+
+            <!-- Liberos -->
+            {{ render_simple_list("Liberos les plus expérimentés", "shield", "gold", top_liberos, "matchs en libero") }}
+
+            <!-- Fidélité -->
+            <div class="card overflow-hidden">
+                <div class="p-4 flex items-center gap-3" style="border-bottom: 1px solid var(--border-color);">
+                    <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background: rgba(6,182,212,0.15);">
+                        <i data-lucide="heart" class="w-5 h-5" style="color: var(--accent-cyan);"></i>
+                    </div>
+                    <h3 class="font-bold text-white">Joueurs les plus fidèles</h3>
+                </div>
+                {% if top_fideles %}
+                <div class="divide-y" style="border-color: rgba(42,48,80,0.5);">
+                    {% for j in top_fideles[:5] %}
+                    <div class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-card-hover)] transition">
+                        <div>
+                            <a href="/joueurs/{{ j.id }}" class="font-semibold text-white hover:text-blue-400 transition">
+                                {{ j.nom }} {{ j.prenom }}
+                            </a>
+                            <div class="text-xs" style="color: var(--text-muted);">
+                                <a href="/equipes/{{ j.equipe_id }}" class="hover:text-blue-400">{{ j.equipe_nom }}</a>
+                            </div>
+                        </div>
+                        <span class="badge badge-blue">{{ j.valeur }} matchs</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="p-6 text-center" style="color: var(--text-muted);">Pas de données</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         MATCHS TAB
+         ═══════════════════════════════════════════════════════════ -->
+    <div x-show="activeTab === 'matchs'" x-transition>
+
+        <!-- Matchs les plus serrés -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <div class="card overflow-hidden">
+                <div class="p-4 flex items-center gap-3" style="border-bottom: 1px solid var(--border-color); background: linear-gradient(135deg, rgba(168,85,247,0.08), transparent);">
+                    <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background: rgba(168,85,247,0.15);">
+                        <i data-lucide="scale" class="w-5 h-5" style="color: var(--accent-purple);"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-white">Matchs les plus serrés</h3>
+                        <p class="text-xs" style="color: var(--text-muted);">Plus petit écart total de points</p>
+                    </div>
+                </div>
+                {% if matchs_serres %}
+                <div class="divide-y" style="border-color: rgba(42,48,80,0.5);">
+                    {% for m in matchs_serres[:5] %}
+                    <a href="/matchs/{{ m.match_id }}" class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-card-hover)] transition block">
+                        <div>
+                            <div class="font-semibold text-white text-sm">{{ m.equipe_a }} vs {{ m.equipe_b }}</div>
+                            <div class="text-xs" style="color: var(--text-muted);">
+                                {{ m.date|format_date if m.date else '—' }} · Sets {{ m.score_sets }}
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <div class="font-bold" style="color: var(--accent-purple);">{{ m.total_a }}-{{ m.total_b }}</div>
+                            <div class="text-xs" style="color: var(--text-muted);">Δ {{ m.ecart }} pts</div>
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="p-6 text-center" style="color: var(--text-muted);">Pas de données</p>
+                {% endif %}
+            </div>
+
+            <!-- Sets les plus serrés -->
+            <div class="card overflow-hidden">
+                <div class="p-4 flex items-center gap-3" style="border-bottom: 1px solid var(--border-color); background: linear-gradient(135deg, rgba(6,182,212,0.08), transparent);">
+                    <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background: rgba(6,182,212,0.15);">
+                        <i data-lucide="target" class="w-5 h-5" style="color: var(--accent-cyan);"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-white">Sets les plus serrés</h3>
+                        <p class="text-xs" style="color: var(--text-muted);">Extensions épiques et finales intenses</p>
+                    </div>
+                </div>
+                {% if sets_serres %}
+                <div class="divide-y" style="border-color: rgba(42,48,80,0.5);">
+                    {% for s in sets_serres[:5] %}
+                    <a href="/matchs/{{ s.match_id }}" class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-card-hover)] transition block">
+                        <div>
+                            <div class="text-sm">
+                                <span class="font-semibold text-white">Set {{ s.numero }}</span>
+                                <span style="color: var(--text-muted);">—</span>
+                                <span class="text-xs" style="color: var(--text-secondary);">{{ s.equipe_a }} vs {{ s.equipe_b }}</span>
+                            </div>
+                            <div class="text-xs" style="color: var(--text-muted);">
+                                {{ s.date|format_date if s.date else '—' }}
+                                {% if s.duree %} · {{ s.duree }} min{% endif %}
+                            </div>
+                        </div>
+                        <div class="font-black text-lg" style="color: var(--accent-cyan);">
+                            {{ s.score_a }}-{{ s.score_b }}
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="p-6 text-center" style="color: var(--text-muted);">Pas de données</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Domination & Comebacks -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <!-- Plus gros écart -->
+            <div class="card overflow-hidden">
+                <div class="p-4 flex items-center gap-3" style="border-bottom: 1px solid var(--border-color); background: linear-gradient(135deg, rgba(239,68,68,0.08), transparent);">
+                    <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background: rgba(239,68,68,0.15);">
+                        <i data-lucide="trending-up" class="w-5 h-5" style="color: var(--accent-red);"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-white">Plus grosses dominations</h3>
+                        <p class="text-xs" style="color: var(--text-muted);">Sets avec le plus gros écart de points</p>
+                    </div>
+                </div>
+                {% if sets_domination %}
+                <div class="divide-y" style="border-color: rgba(42,48,80,0.5);">
+                    {% for s in sets_domination[:5] %}
+                    <a href="/matchs/{{ s.match_id }}" class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-card-hover)] transition block">
+                        <div>
+                            <div class="font-semibold text-white text-sm">Set {{ s.numero }} — {{ s.dominateur }}</div>
+                            <div class="text-xs" style="color: var(--text-muted);">
+                                {{ s.equipe_a }} vs {{ s.equipe_b }} · {{ s.date|format_date if s.date else '—' }}
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <div class="font-black text-lg" style="color: var(--accent-red);">{{ s.score_a }}-{{ s.score_b }}</div>
+                            <div class="text-xs" style="color: var(--text-muted);">Δ {{ s.ecart }} pts</div>
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="p-6 text-center" style="color: var(--text-muted);">Pas de données</p>
+                {% endif %}
+            </div>
+
+            <!-- Comebacks -->
+            <div class="card overflow-hidden">
+                <div class="p-4 flex items-center gap-3" style="border-bottom: 1px solid var(--border-color); background: linear-gradient(135deg, rgba(34,197,94,0.08), transparent);">
+                    <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background: rgba(34,197,94,0.15);">
+                        <i data-lucide="undo-2" class="w-5 h-5" style="color: var(--accent-green);"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-white">Plus grands comebacks</h3>
+                        <p class="text-xs" style="color: var(--text-muted);">Équipes ayant remonté le plus de sets de retard</p>
+                    </div>
+                </div>
+                {% if comebacks %}
+                <div class="divide-y" style="border-color: rgba(42,48,80,0.5);">
+                    {% for c in comebacks[:5] %}
+                    <a href="/matchs/{{ c.match_id }}" class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-card-hover)] transition block">
+                        <div>
+                            <div class="text-sm">
+                                <span class="font-bold text-green-400">{{ c.comeback_par }}</span>
+                                <span style="color: var(--text-muted);">vs</span>
+                                <span style="color: var(--text-secondary);">{{ c.adversaire }}</span>
+                            </div>
+                            <div class="text-xs" style="color: var(--text-muted);">
+                                {{ c.date|format_date if c.date else '—' }} · Sets : {{ c.set_scores }}
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <div class="font-bold" style="color: var(--accent-green);">
+                                {{ c.score_sets }}
+                            </div>
+                            <div class="text-xs font-semibold" style="color: var(--accent-gold);">
+                                ↑ {{ c.deficit_remonte }} set{{ 's' if c.deficit_remonte > 1 else '' }} remonté{{ 's' if c.deficit_remonte > 1 else '' }}
+                            </div>
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="p-6 text-center" style="color: var(--text-muted);">Pas de données</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Matchs marathon & Points -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Matchs les plus longs -->
+            <div class="card overflow-hidden">
+                <div class="p-4 flex items-center gap-3" style="border-bottom: 1px solid var(--border-color); background: linear-gradient(135deg, rgba(59,130,246,0.08), transparent);">
+                    <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background: rgba(59,130,246,0.15);">
+                        <i data-lucide="clock" class="w-5 h-5" style="color: var(--accent-blue);"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-white">Matchs marathon</h3>
+                        <p class="text-xs" style="color: var(--text-muted);">Les plus longs matchs par durée ou nombre de points</p>
+                    </div>
+                </div>
+                {% if matchs_longs %}
+                <div class="divide-y" style="border-color: rgba(42,48,80,0.5);">
+                    {% for m in matchs_longs[:5] %}
+                    <a href="/matchs/{{ m.match_id }}" class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-card-hover)] transition block">
+                        <div>
+                            <div class="font-semibold text-white text-sm">{{ m.equipe_a }} vs {{ m.equipe_b }}</div>
+                            <div class="text-xs" style="color: var(--text-muted);">
+                                {{ m.date|format_date if m.date else '—' }} · {{ m.score_sets }} · {{ m.nb_sets }} sets
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            {% if m.duree_minutes %}
+                            <div class="font-bold" style="color: var(--accent-blue);">
+                                {{ m.duree_minutes // 60 }}h{{ '%02d' | format(m.duree_minutes % 60) }}
+                            </div>
+                            {% endif %}
+                            <div class="text-xs" style="color: var(--text-muted);">{{ m.total_points }} pts</div>
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="p-6 text-center" style="color: var(--text-muted);">Pas de données</p>
+                {% endif %}
+            </div>
+
+            <!-- Plus de points -->
+            <div class="card overflow-hidden">
+                <div class="p-4 flex items-center gap-3" style="border-bottom: 1px solid var(--border-color); background: linear-gradient(135deg, rgba(245,158,11,0.08), transparent);">
+                    <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background: rgba(245,158,11,0.15);">
+                        <i data-lucide="hash" class="w-5 h-5" style="color: var(--accent-gold);"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-white">Matchs les plus prolifiques</h3>
+                        <p class="text-xs" style="color: var(--text-muted);">Le plus grand nombre total de points marqués</p>
+                    </div>
+                </div>
+                {% if matchs_points %}
+                <div class="divide-y" style="border-color: rgba(42,48,80,0.5);">
+                    {% for m in matchs_points[:5] %}
+                    <a href="/matchs/{{ m.match_id }}" class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-card-hover)] transition block">
+                        <div>
+                            <div class="font-semibold text-white text-sm">{{ m.equipe_a }} vs {{ m.equipe_b }}</div>
+                            <div class="text-xs" style="color: var(--text-muted);">
+                                {{ m.date|format_date if m.date else '—' }} · {{ m.score_sets }} · {{ m.nb_sets }} sets
+                            </div>
+                        </div>
+                        <div class="font-black text-xl" style="color: var(--accent-gold);">
+                            {{ m.total_points }}
+                            <span class="text-xs font-normal" style="color: var(--text-muted);">pts</span>
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="p-6 text-center" style="color: var(--text-muted);">Pas de données</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         ÉQUIPES TAB
+         ═══════════════════════════════════════════════════════════ -->
+    <div x-show="activeTab === 'equipes'" x-transition>
+        <div class="card overflow-hidden">
+            <div class="p-4 flex items-center gap-3" style="border-bottom: 1px solid var(--border-color); background: linear-gradient(135deg, rgba(59,130,246,0.08), transparent);">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background: rgba(59,130,246,0.15);">
+                    <i data-lucide="award" class="w-5 h-5" style="color: var(--accent-blue);"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-white">Meilleures équipes</h3>
+                    <p class="text-xs" style="color: var(--text-muted);">Classement par taux de victoire (minimum 3 matchs)</p>
+                </div>
+            </div>
+            {% if top_equipes %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Équipe</th>
+                        <th>Niveau</th>
+                        <th class="text-center">Matchs</th>
+                        <th class="text-center">V</th>
+                        <th class="text-center">D</th>
+                        <th class="text-right">Taux</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for e in top_equipes %}
+                    <tr>
+                        <td>
+                            <span class="font-black
+                                {% if loop.index == 1 %}text-yellow-400
+                                {% elif loop.index == 2 %}text-gray-300
+                                {% elif loop.index == 3 %}text-amber-600
+                                {% else %}{% endif %}">
+                                {{ loop.index }}
+                            </span>
+                        </td>
+                        <td>
+                            <a href="/equipes/{{ e.id }}" class="font-semibold text-white hover:text-blue-400 transition">
+                                {{ e.nom }}
+                            </a>
+                        </td>
+                        <td>
+                            {% if e.niveau %}
+                            <span class="badge badge-purple text-xs">{{ e.niveau }}</span>
+                            {% endif %}
+                            {% if e.genre %}
+                            <span class="badge text-xs">{{ e.genre }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center font-medium">{{ e.matchs }}</td>
+                        <td class="text-center font-bold" style="color: var(--accent-green);">{{ e.victoires }}</td>
+                        <td class="text-center font-bold" style="color: var(--accent-red);">{{ e.defaites }}</td>
+                        <td class="text-right">
+                            <div class="flex items-center justify-end gap-2">
+                                <div class="w-20 h-2 rounded-full overflow-hidden" style="background: var(--bg-card-hover);">
+                                    <div class="h-full rounded-full" style="width: {{ e.taux }}%; background: linear-gradient(90deg, var(--accent-blue), var(--accent-cyan));"></div>
+                                </div>
+                                <span class="font-bold text-sm gradient-text-blue">{{ e.taux }}%</span>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="p-6 text-center" style="color: var(--text-muted);">Pas de données disponibles</p>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         ARBITRES TAB
+         ═══════════════════════════════════════════════════════════ -->
+    <div x-show="activeTab === 'arbitres'" x-transition>
+        <div class="card overflow-hidden">
+            <div class="p-4 flex items-center gap-3" style="border-bottom: 1px solid var(--border-color); background: linear-gradient(135deg, rgba(168,85,247,0.08), transparent);">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background: rgba(168,85,247,0.15);">
+                    <i data-lucide="gavel" class="w-5 h-5" style="color: var(--accent-purple);"></i>
+                </div>
+                <div>
+                    <h3 class="font-bold text-white">Arbitres les plus actifs</h3>
+                    <p class="text-xs" style="color: var(--text-muted);">Classement par nombre de matchs arbitrés</p>
+                </div>
+            </div>
+            {% if top_arbitres %}
+            <div class="divide-y" style="border-color: rgba(42,48,80,0.5);">
+                {% for a in top_arbitres %}
+                <div class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-card-hover)] transition">
+                    <div class="flex items-center gap-3">
+                        <div class="w-8 h-8 rounded-full flex items-center justify-center font-black text-sm
+                            {% if loop.index == 1 %}text-yellow-400 bg-yellow-400/15
+                            {% elif loop.index == 2 %}text-gray-300 bg-gray-300/15
+                            {% elif loop.index == 3 %}text-amber-600 bg-amber-600/15
+                            {% else %}text-gray-500 bg-gray-500/10{% endif %}">
+                            {{ loop.index }}
+                        </div>
+                        <div>
+                            <a href="/arbitres/{{ a.id }}" class="font-semibold text-white hover:text-blue-400 transition">
+                                {{ a.nom }} {{ a.prenom }}
+                            </a>
+                            {% if a.ligue %}
+                            <div class="text-xs" style="color: var(--text-muted);">{{ a.ligue }}</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <span class="font-black text-xl" style="color: var(--accent-purple);">{{ a.valeur }}</span>
+                        <span class="text-xs" style="color: var(--text-muted);">matchs</span>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="p-6 text-center" style="color: var(--text-muted);">Pas de données disponibles</p>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function palmares() {
+    return {
+        activeTab: 'joueurs',
+        showFilters: {{ 'true' if (current_filters.saison_id or current_filters.genre or current_filters.categorie or current_filters.niveau_min or current_filters.niveau_max or current_filters.departement) else 'false' }},
+    };
+}
+</script>
+{% endblock %}
