@@ -73,6 +73,7 @@ asyncio_mode = "auto"
 addopts = "-v --tb=short"
 markers = [
     "integration: tests d'intégration avec le site FFVB réel",
+    "network: tests nécessitant un accès réseau au site FFVB",
 ]
 
 [tool.black]
