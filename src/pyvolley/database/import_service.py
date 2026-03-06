@@ -271,7 +271,12 @@ class MatchImportService:
 
         return match_db
 
-    def import_matches(self, matches: List[Match]) -> dict:
+    def import_matches(
+        self,
+        matches: List[Match],
+        *,
+        batch_size: int = 200,
+    ) -> dict:
         """Importe plusieurs matchs avec commit par batch.
 
         La détection de doublons se fait en base de données (code_match +
@@ -279,25 +284,68 @@ class MatchImportService:
         cache fichier.  Après un ``reset_db``, tous les matchs seront
         ré-importés même si le cache de parsing n'a pas été vidé.
 
-        Returns:
-            Statistiques d'import : total, imported, duplicates, errors.
-        """
-        stats = {"total": len(matches), "imported": 0, "duplicates": 0, "errors": []}
+        Chaque batch est commité indépendamment afin qu'une erreur ne fasse
+        pas perdre tous les matchs déjà importés.
 
-        for match_data in matches:
+        Returns:
+            Statistiques d'import : total, imported, committed, duplicates,
+            errors (avec détails).
+        """
+        stats: dict = {
+            "total": len(matches),
+            "imported": 0,
+            "committed": 0,
+            "duplicates": 0,
+            "errors": [],
+        }
+        batch_imported = 0
+
+        for i, match_data in enumerate(matches):
             try:
                 result = self.import_match(match_data)
                 if result:
                     stats["imported"] += 1
+                    batch_imported += 1
                 else:
                     stats["duplicates"] += 1
             except Exception as e:
-                stats["errors"].append({"code_match": match_data.code_match, "error": str(e)})
-                logger.warning(f"Import error for {match_data.code_match}: {e}")
+                stats["errors"].append({
+                    "code_match": match_data.code_match,
+                    "error": str(e),
+                })
+                logger.warning("Import error for %s: %s", match_data.code_match, e)
                 self.session.rollback()
                 self.clear_caches()
+                # Le rollback a annulé les matchs non commités de ce batch
+                stats["imported"] -= batch_imported
+                batch_imported = 0
 
-        self.session.commit()
+            # Commit par batch
+            if batch_imported > 0 and (i + 1) % batch_size == 0:
+                try:
+                    self.session.commit()
+                    stats["committed"] += batch_imported
+                    batch_imported = 0
+                except Exception as e:
+                    logger.error("Batch commit failed at index %d: %s", i, e)
+                    self.session.rollback()
+                    self.clear_caches()
+                    stats["errors"].append({"batch_commit": str(e), "index": i})
+                    stats["imported"] -= batch_imported
+                    batch_imported = 0
+
+        # Commit final
+        if batch_imported > 0:
+            try:
+                self.session.commit()
+                stats["committed"] += batch_imported
+            except Exception as e:
+                logger.error("Final commit failed: %s", e)
+                self.session.rollback()
+                self.clear_caches()
+                stats["errors"].append({"final_commit": str(e)})
+                stats["imported"] -= batch_imported
+
         return stats
 
     # =================================================================
@@ -1185,13 +1233,18 @@ class BulkImportService:
         self.import_service = MatchImportService(session)
 
     def import_from_parser_results(
-        self, results: List[dict], commit_batch_size: int = 100
+        self, results: List[dict], commit_batch_size: int = 200
     ) -> dict:
-        """Importe les résultats de parsing par batch."""
+        """Importe les résultats de parsing par batch.
+
+        Chaque batch est commité indépendamment pour éviter de perdre
+        tout le travail en cas d'erreur ponctuelle.
+        """
         stats = {
-            "total": len(results), "imported": 0,
+            "total": len(results), "imported": 0, "committed": 0,
             "duplicates": 0, "skipped": 0, "errors": [],
         }
+        batch_imported = 0
 
         for i, result in enumerate(results):
             try:
@@ -1218,19 +1271,34 @@ class BulkImportService:
                 else:
                     self.import_service.import_match(match)
                     stats["imported"] += 1
+                    batch_imported += 1
 
-                if (i + 1) % commit_batch_size == 0:
-                    self.session.commit()
+                if batch_imported > 0 and (i + 1) % commit_batch_size == 0:
+                    try:
+                        self.session.commit()
+                        stats["committed"] += batch_imported
+                        batch_imported = 0
+                    except Exception as e:
+                        self.session.rollback()
+                        self.import_service.clear_caches()
+                        stats["errors"].append({"batch_commit": str(e), "index": i})
+                        stats["imported"] -= batch_imported
+                        batch_imported = 0
 
             except Exception as e:
                 stats["errors"].append({"index": i, "error": str(e)})
                 self.session.rollback()
                 self.import_service.clear_caches()
+                stats["imported"] -= batch_imported
+                batch_imported = 0
 
-        try:
-            self.session.commit()
-        except Exception as e:
-            stats["errors"].append({"final_commit": str(e)})
-            self.session.rollback()
+        if batch_imported > 0:
+            try:
+                self.session.commit()
+                stats["committed"] += batch_imported
+            except Exception as e:
+                stats["errors"].append({"final_commit": str(e)})
+                self.session.rollback()
+                stats["imported"] -= batch_imported
 
         return stats

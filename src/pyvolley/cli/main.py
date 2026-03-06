@@ -370,7 +370,7 @@ def download(
         title="Résumé du téléchargement"
     ))
     
-    # Générer le rapport si demandé
+    # Générer le rapport (organisé dans data/reports/download/)
     if report:
         report_data = {
             "timestamp": datetime.now().isoformat(),
@@ -383,29 +383,12 @@ def download(
             "error_details": error_list,
             "output_dir": str(output_dir.absolute()),
         }
-        report_path = output_dir / f"download_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        report_dir = Path("data/reports/download")
+        report_dir.mkdir(parents=True, exist_ok=True)
+        report_path = report_dir / f"download_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         with open(report_path, "w", encoding="utf-8") as f:
             json.dump(report_data, f, ensure_ascii=False, indent=2)
-        console.print(f"\n[blue]📊 Rapport généré: {report_path}[/blue]")
-
-
-    # Générer le rapport si demandé
-    if report:
-        report_data = {
-            "timestamp": datetime.now().isoformat(),
-            "saisons": saisons,
-            "entities": entities_to_process,
-            "poule_filter": poule,
-            "downloaded": downloaded,
-            "skipped": skipped,
-            "errors": errors,
-            "error_details": error_list,
-            "output_dir": str(output_dir.absolute()),
-        }
-        report_path = output_dir / f"download_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        with open(report_path, "w", encoding="utf-8") as f:
-            json.dump(report_data, f, ensure_ascii=False, indent=2)
-        console.print(f"\n[blue]📊 Rapport généré: {report_path}[/blue]")
+        console.print(f"\n[blue]📊 Rapport: {report_path}[/blue]")
 
 
 @app.command("download-fast")
@@ -750,10 +733,12 @@ def download_fast(
             "error_details": error_list,
             "output_dir": str(output_dir.absolute()),
         }
-        report_path = output_dir / f"download_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        report_dir = Path("data/reports/download")
+        report_dir.mkdir(parents=True, exist_ok=True)
+        report_path = report_dir / f"download_fast_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         with open(report_path, "w", encoding="utf-8") as f:
             json.dump(report_data, f, ensure_ascii=False, indent=2)
-        console.print(f"\n[blue]📊 Rapport généré: {report_path}[/blue]")
+        console.print(f"\n[blue]📊 Rapport: {report_path}[/blue]")
 
 
 @app.command("list-entities")
@@ -1260,21 +1245,37 @@ def parse(
     # L'import vérifie les doublons directement en base via code_match +
     # saison_id, donc il est fiable même si le cache de parsing contient
     # des entrées pour des matchs supprimés lors d'un reset DB.
+    import_stats: Optional[dict] = None
     if save_db and results:
         console.print("\n[blue]💾 Sauvegarde en base de données...[/blue]")
         
         try:
             from pyvolley.database.connection import DatabaseSession, init_db
             from pyvolley.database.import_service import MatchImportService
+            from pyvolley.database.models import ImportLogDB
             
             init_db()
             
+            committed = 0
             imported = 0
             import_errors = 0
+            import_error_details: list[dict] = []
             duplicates = 0
+            batch_imported = 0
+            BATCH_SIZE = 200
             
             with DatabaseSession() as session:
                 service = MatchImportService(session)
+
+                # Create audit log entry
+                import_log = ImportLogDB(
+                    operation="parse",
+                    source=str(input_path),
+                    total_attempted=len(results),
+                    status="running",
+                )
+                session.add(import_log)
+                session.flush()
                 
                 with Progress(
                     SpinnerColumn(),
@@ -1286,78 +1287,216 @@ def parse(
                 ) as db_progress:
                     db_task = db_progress.add_task("Import DB...", total=len(results))
                     
-                    for r in results:
+                    for idx, r in enumerate(results):
                         try:
                             match_db = service.import_match(r['match'])
                             if match_db:
                                 imported += 1
+                                batch_imported += 1
                             else:
                                 duplicates += 1
                         except Exception as e:
                             import_errors += 1
+                            import_error_details.append({
+                                "code_match": r['match'].code_match,
+                                "error": str(e),
+                            })
                             session.rollback()
                             service.clear_caches()
+                            # Rollback annule les matchs non commités de ce batch
+                            imported -= batch_imported
+                            batch_imported = 0
+                            # Re-add the import_log (lost after rollback)
+                            session.add(import_log)
+                            session.flush()
                             if verbose:
                                 console.print(f"  [red]✗[/red] Import {r['match'].code_match}: {e}")
+                        
+                        # Commit par batch pour éviter de tout perdre
+                        if batch_imported > 0 and (idx + 1) % BATCH_SIZE == 0:
+                            try:
+                                session.commit()
+                                committed += batch_imported
+                                batch_imported = 0
+                            except Exception as e:
+                                session.rollback()
+                                service.clear_caches()
+                                import_error_details.append({"batch_commit": str(e), "index": idx})
+                                imported -= batch_imported
+                                batch_imported = 0
+                                session.add(import_log)
+                                session.flush()
+                        
                         db_progress.update(db_task, advance=1)
                 
+                # Commit final
+                if batch_imported > 0:
+                    try:
+                        session.commit()
+                        committed += batch_imported
+                    except Exception as e:
+                        session.rollback()
+                        service.clear_caches()
+                        import_error_details.append({"final_commit": str(e)})
+                        imported -= batch_imported
+                        session.add(import_log)
+                        session.flush()
+
+                # Update audit log
+                import_log.finished_at = datetime.now()
+                import_log.imported = committed
+                import_log.duplicates = duplicates
+                import_log.errors = import_errors
+                if import_error_details:
+                    import_log.error_details = json.dumps(
+                        import_error_details[:100], ensure_ascii=False
+                    )
+                import_log.status = (
+                    "success" if import_errors == 0
+                    else "partial" if committed > 0
+                    else "failed"
+                )
                 try:
                     session.commit()
-                except Exception as e:
+                except Exception:
                     session.rollback()
-                    console.print(f"[red]Erreur lors du commit final: {e}[/red]")
-            
-            console.print(f"[green]✓ {imported} matchs importés en base de données[/green]")
+
+            import_stats = {
+                "committed": committed,
+                "duplicates": duplicates,
+                "errors": import_errors,
+                "error_details": import_error_details,
+            }
+
+            console.print(f"[green]✓ {committed} matchs importés en base de données[/green]")
             if duplicates:
                 console.print(f"[dim]↳ {duplicates} matchs déjà existants (ignorés)[/dim]")
             if import_errors:
                 console.print(f"[red]✗ {import_errors} erreurs d'import[/red]")
+                for err in import_error_details[:5]:
+                    code = err.get("code_match", err.get("batch_commit", "?"))
+                    msg = err.get("error", err.get("batch_commit", ""))
+                    console.print(f"  [red]↳ {code}: {msg[:80]}[/red]")
+                if import_errors > 5:
+                    console.print(f"  [dim]... et {import_errors - 5} autres erreurs[/dim]")
+            if committed != imported:
+                console.print(
+                    f"[yellow]⚠ Note : {imported - committed} matchs traités mais non "
+                    f"commités (perdus lors de rollbacks d'erreur)[/yellow]"
+                )
                 
         except Exception as e:
             console.print(f"[red]Erreur lors de l'import en base: {e}[/red]")
     
-    # ── Rapport ────────────────────────────────────────────────────────
-    if report:
-        detailed_results = []
-        for r in results:
-            detailed_results.append({
-                'file': r['file'],
-                'match_code': r['match'].code_match if r.get('match') else None,
-                'parse_time_ms': r['parse_time_ms'],
-                'diagnostics': [str(d) for d in r.get('diagnostics', [])],
-            })
-        
-        report_data = {
-            "timestamp": datetime.now().isoformat(),
-            "input_path": str(input_path),
-            "parser": parser.name,
-            "parser_version": parser.version,
-            "total_files": len(pdf_files),
-            "successful": successful,
-            "skipped": skipped,
-            "failed": failed,
-            "warnings_total": warnings_count,
-            "filters": {
-                "saisons": saison or [],
-                "entities": entity or [],
-            },
-            "summary": {
-                "success_rate_percent": successful / len(pdf_files) * 100 if pdf_files else 0,
-                "avg_parse_time_ms": sum(r['parse_time_ms'] for r in results) / len(results) if results else 0,
-            },
-            "errors": error_details[:50],
-            "successful_files_with_diagnostics": [r for r in detailed_results if r['diagnostics']],
+    # ── Rapport (toujours généré quand --save-db, optionnel sinon) ─────
+    _generate_parse_report(
+        input_path=input_path,
+        parser=parser,
+        pdf_files=pdf_files,
+        results=results,
+        successful=successful,
+        skipped=skipped,
+        failed=failed,
+        warnings_count=warnings_count,
+        error_details=error_details,
+        saison=saison,
+        entity=entity,
+        import_stats=import_stats,
+        force=report or save_db,
+    )
+
+
+# ============== Helpers : rapport de parsing organisé ==============
+
+
+def _generate_parse_report(
+    *,
+    input_path: Path,
+    parser,
+    pdf_files: list,
+    results: list[dict],
+    successful: int,
+    skipped: int,
+    failed: int,
+    warnings_count: int,
+    error_details: list[dict],
+    saison: Optional[List[str]],
+    entity: Optional[List[str]],
+    import_stats: Optional[dict],
+    force: bool,
+) -> None:
+    """Génère un rapport de parsing organisé dans data/reports/parse/.
+
+    Les rapports sont toujours générés quand ``--save-db`` est utilisé,
+    ou quand ``--report`` est spécifié.
+    """
+    if not force:
+        return
+
+    detailed_results = []
+    for r in results:
+        detailed_results.append({
+            "file": r["file"],
+            "match_code": r["match"].code_match if r.get("match") else None,
+            "parse_time_ms": r["parse_time_ms"],
+            "diagnostics": [str(d) for d in r.get("diagnostics", [])],
+        })
+
+    report_data: dict = {
+        "timestamp": datetime.now().isoformat(),
+        "input_path": str(input_path),
+        "parser": parser.name,
+        "parser_version": parser.version,
+        "total_files": len(pdf_files),
+        "successful": successful,
+        "skipped": skipped,
+        "failed": failed,
+        "warnings_total": warnings_count,
+        "filters": {
+            "saisons": saison or [],
+            "entities": entity or [],
+        },
+        "summary": {
+            "success_rate_percent": (
+                successful / len(pdf_files) * 100 if pdf_files else 0
+            ),
+            "avg_parse_time_ms": (
+                sum(r["parse_time_ms"] for r in results) / len(results)
+                if results
+                else 0
+            ),
+        },
+        "errors": error_details[:50],
+        "successful_files_with_diagnostics": [
+            r for r in detailed_results if r["diagnostics"]
+        ],
+    }
+
+    # Include import stats if available
+    if import_stats:
+        report_data["import"] = {
+            "committed": import_stats["committed"],
+            "duplicates": import_stats["duplicates"],
+            "errors": import_stats["errors"],
+            "error_details": import_stats.get("error_details", [])[:20],
         }
-        
-        report_dir = Path("data/reports")
-        report_dir.mkdir(parents=True, exist_ok=True)
-        report_path = report_dir / f"parse_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-        with open(report_path, "w", encoding="utf-8") as f:
-            json.dump(report_data, f, ensure_ascii=False, indent=2)
-        
-        console.print(f"\n[blue]📊 Rapport généré: {report_path}[/blue]")
-        if report_data["successful_files_with_diagnostics"]:
-            console.print(f"[yellow]⚠ {len(report_data['successful_files_with_diagnostics'])} fichiers avec avertissements[/yellow]")
+
+    # Organised folder: data/reports/parse/
+    report_dir = Path("data/reports/parse")
+    report_dir.mkdir(parents=True, exist_ok=True)
+    report_path = (
+        report_dir / f"parse_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    )
+
+    with open(report_path, "w", encoding="utf-8") as f:
+        json.dump(report_data, f, ensure_ascii=False, indent=2, default=str)
+
+    console.print(f"\n[blue]📊 Rapport: {report_path}[/blue]")
+    diag_count = len(report_data["successful_files_with_diagnostics"])
+    if diag_count:
+        console.print(
+            f"[yellow]⚠ {diag_count} fichiers avec avertissements[/yellow]"
+        )
 
 
 # ============== Helpers : récapitulatif warnings & collecte ==============
@@ -2048,6 +2187,82 @@ def db_history():
         table.add_row(mig["revision"][:12], mig["description"] or "-", status)
     
     console.print(table)
+
+
+@db_app.command("import-history")
+def db_import_history(
+    limit: int = typer.Option(20, "--limit", "-n", help="Nombre d'entrées à afficher"),
+    operation: Optional[str] = typer.Option(None, "--operation", "-o", help="Filtrer par opération (parse, import, complete-scores)"),
+):
+    """
+    📋 Affiche l'historique des imports en base de données.
+
+    Montre les dernières opérations d'import avec le nombre de matchs
+    importés, doublons ignorés, erreurs rencontrées, etc.
+    """
+    from pyvolley.database.connection import get_db
+    from pyvolley.database.models import ImportLogDB
+    from sqlalchemy import select
+
+    try:
+        with get_db() as session:
+            stmt = (
+                select(ImportLogDB)
+                .order_by(ImportLogDB.started_at.desc())
+                .limit(limit)
+            )
+            if operation:
+                stmt = stmt.where(ImportLogDB.operation == operation)
+
+            logs = list(session.scalars(stmt).all())
+
+        if not logs:
+            console.print("[yellow]Aucun historique d'import trouvé[/yellow]")
+            return
+
+        table = Table(title="📋 Historique des imports")
+        table.add_column("Date", style="cyan", no_wrap=True)
+        table.add_column("Opération", style="white")
+        table.add_column("Source", style="dim", max_width=30)
+        table.add_column("Importés", justify="right", style="green")
+        table.add_column("Doublons", justify="right", style="yellow")
+        table.add_column("Erreurs", justify="right", style="red")
+        table.add_column("Statut", justify="center")
+
+        for log in logs:
+            started = log.started_at.strftime("%Y-%m-%d %H:%M") if log.started_at else "?"
+            source_short = (log.source or "")[-30:] if log.source else "-"
+            status_map = {
+                "running": "[yellow]⏳ En cours[/yellow]",
+                "success": "[green]✓ OK[/green]",
+                "partial": "[yellow]⚠ Partiel[/yellow]",
+                "failed": "[red]✗ Échoué[/red]",
+            }
+            status = status_map.get(log.status, log.status)
+
+            table.add_row(
+                started,
+                log.operation,
+                source_short,
+                str(log.imported),
+                str(log.duplicates),
+                str(log.errors),
+                status,
+            )
+
+        console.print(table)
+
+        # Show total stats
+        total_imported = sum(log.imported for log in logs)
+        total_errors = sum(log.errors for log in logs)
+        console.print(
+            f"\n[dim]Total sur les {len(logs)} dernières opérations : "
+            f"{total_imported} importés, {total_errors} erreurs[/dim]"
+        )
+
+    except Exception as e:
+        console.print(f"[red]✗ Erreur: {e}[/red]")
+        raise typer.Exit(1)
 
 
 def main():

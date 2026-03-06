@@ -9,8 +9,7 @@ using Alembic. It supports:
 - Resetting the database with migrations
 """
 
-import subprocess
-import sys
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -20,70 +19,64 @@ from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import inspect
 
-from ..core.config import get_settings, Settings
+from ..core.config import get_settings
 from .connection import get_engine
+
+logger = logging.getLogger(__name__)
 
 
 def get_alembic_config() -> Config:
     """
     Get Alembic configuration with PyVolley settings.
-    
+
     Returns:
         Alembic Config object configured for PyVolley
     """
     settings = get_settings()
-    
+
     # Find alembic.ini
     project_root = Path(__file__).parent.parent.parent.parent
     alembic_ini = project_root / "alembic.ini"
-    
+
     if not alembic_ini.exists():
         raise FileNotFoundError(
             f"alembic.ini not found at {alembic_ini}. "
             "Please run from the project root directory."
         )
-    
+
     alembic_cfg = Config(str(alembic_ini))
     alembic_cfg.set_main_option("sqlalchemy.url", settings.database_url)
-    
+
     return alembic_cfg
 
 
 def create_migration(message: str, autogenerate: bool = True) -> Optional[str]:
     """
     Create a new migration script.
-    
+
     Args:
         message: Description of the migration
         autogenerate: If True, auto-detect changes from models
-        
+
     Returns:
         Path to the created migration script, or None if no changes detected
     """
     alembic_cfg = get_alembic_config()
-    
+
     try:
-        if autogenerate:
-            script = command.revision(
-                alembic_cfg,
-                message=message,
-                autogenerate=True,
-            )
-        else:
-            script = command.revision(
-                alembic_cfg,
-                message=message,
-                autogenerate=False,
-            )
-        
+        script = command.revision(
+            alembic_cfg,
+            message=message,
+            autogenerate=autogenerate,
+        )
+
         if script:
-            # script peut être un Script ou une liste de Scripts
             if isinstance(script, list):
                 first_script = script[0] if script else None
                 return first_script.path if first_script else None
             return script.path
         return None
-        
+
     except Exception as e:
         raise RuntimeError(f"Failed to create migration: {e}") from e
 
@@ -91,7 +84,7 @@ def create_migration(message: str, autogenerate: bool = True) -> Optional[str]:
 def upgrade(revision: str = "head") -> None:
     """
     Upgrade database to a specific revision.
-    
+
     Args:
         revision: Target revision (default: "head" for latest)
     """
@@ -102,7 +95,7 @@ def upgrade(revision: str = "head") -> None:
 def downgrade(revision: str = "-1") -> None:
     """
     Downgrade database to a previous revision.
-    
+
     Args:
         revision: Target revision (default: "-1" for one step back)
     """
@@ -113,12 +106,12 @@ def downgrade(revision: str = "-1") -> None:
 def get_current_revision() -> Optional[str]:
     """
     Get the current database revision.
-    
+
     Returns:
         Current revision ID, or None if no migrations applied
     """
     engine = get_engine()
-    
+
     with engine.connect() as conn:
         context = MigrationContext.configure(conn)
         return context.get_current_revision()
@@ -127,7 +120,7 @@ def get_current_revision() -> Optional[str]:
 def get_head_revision() -> Optional[str]:
     """
     Get the head (latest) revision from migration scripts.
-    
+
     Returns:
         Head revision ID, or None if no migrations exist
     """
@@ -139,32 +132,50 @@ def get_head_revision() -> Optional[str]:
 def get_pending_migrations() -> list[str]:
     """
     Get list of pending migrations not yet applied.
-    
+
     Returns:
         List of revision IDs that haven't been applied
     """
     alembic_cfg = get_alembic_config()
     script = ScriptDirectory.from_config(alembic_cfg)
     engine = get_engine()
-    
+
     with engine.connect() as conn:
         context = MigrationContext.configure(conn)
         current = context.get_current_revision()
-    
+
+    head = script.get_current_head()
+
+    # If up to date or no migrations exist
+    if current == head:
+        return []
+    if head is None:
+        return []
+
+    # Collect revisions between head and current
     pending = []
-    # Si current est None, on parcourt depuis head jusqu'à la base
-    base_rev = current if current else "base"
-    for revision in script.walk_revisions("head", base_rev):
-        if revision.revision != current:
-            pending.append(revision.revision)
-    
+    try:
+        for rev in script.walk_revisions():
+            if rev.revision == current:
+                break
+            pending.append(rev.revision)
+    except Exception as e:
+        logger.warning("Could not walk revision tree: %s", e)
+        # Fallback: if DB has no revision, everything is pending
+        if current is None:
+            try:
+                for rev in script.walk_revisions():
+                    pending.append(rev.revision)
+            except Exception:
+                pass
+
     return pending
 
 
 def check_migrations_needed() -> bool:
     """
     Check if there are pending migrations to apply.
-    
+
     Returns:
         True if there are pending migrations, False otherwise
     """
@@ -174,46 +185,51 @@ def check_migrations_needed() -> bool:
 def get_migration_history() -> list[dict]:
     """
     Get the history of all migrations.
-    
+
     Returns:
         List of migration info dicts with revision, description, etc.
     """
     alembic_cfg = get_alembic_config()
     script = ScriptDirectory.from_config(alembic_cfg)
     current = get_current_revision()
-    
+
     history = []
-    for revision in script.walk_revisions():
-        history.append({
-            "revision": revision.revision,
-            "down_revision": revision.down_revision,
-            "description": revision.doc,
-            "is_current": revision.revision == current,
-            "is_applied": _is_revision_applied(revision.revision, current, script),
-        })
-    
+
+    # Collect applied revisions by walking from current down
+    applied_revisions: set[str] = set()
+    if current:
+        found_current = False
+        try:
+            for rev in script.walk_revisions():
+                if rev.revision == current:
+                    found_current = True
+                if found_current:
+                    applied_revisions.add(rev.revision)
+        except Exception:
+            applied_revisions.add(current)
+
+    # Walk all revisions from head to base
+    try:
+        for revision in script.walk_revisions():
+            history.append({
+                "revision": revision.revision,
+                "down_revision": revision.down_revision,
+                "description": revision.doc,
+                "is_current": revision.revision == current,
+                "is_applied": revision.revision in applied_revisions,
+            })
+    except Exception as e:
+        logger.warning("Could not build migration history: %s", e)
+
     return history
-
-
-def _is_revision_applied(revision: str, current: Optional[str], script: ScriptDirectory) -> bool:
-    """Check if a revision has been applied."""
-    if current is None:
-        return False
-    
-    # Walk from current back to base, checking if revision is in path
-    for rev in script.walk_revisions(current, "base"):
-        if rev.revision == revision:
-            return True
-    
-    return False
 
 
 def stamp(revision: str = "head") -> None:
     """
     Stamp the database with a specific revision without running migrations.
-    
+
     Useful for initializing alembic on an existing database.
-    
+
     Args:
         revision: Revision to stamp (default: "head")
     """
@@ -224,22 +240,19 @@ def stamp(revision: str = "head") -> None:
 def reset_database_with_migrations() -> None:
     """
     Reset the database and apply all migrations from scratch.
-    
+
     WARNING: This will delete all data!
     """
     from .connection import drop_db
-    
-    # Drop all tables
+
     drop_db()
-    
-    # Apply all migrations
     upgrade("head")
 
 
 def ensure_database_ready() -> None:
     """
     Ensure the database is ready with all migrations applied.
-    
+
     This is the main entry point for database initialization.
     It will:
     1. Check if migrations exist
@@ -248,40 +261,37 @@ def ensure_database_ready() -> None:
     """
     alembic_cfg = get_alembic_config()
     script = ScriptDirectory.from_config(alembic_cfg)
-    
-    # Check if any migrations exist
+
     if script.get_current_head() is None:
-        print("No migrations found. Creating initial migration...")
+        logger.info("No migrations found. Creating initial migration...")
         create_migration("Initial schema", autogenerate=True)
-    
-    # Check for pending migrations
+
     pending = get_pending_migrations()
     if pending:
-        print(f"Applying {len(pending)} pending migration(s)...")
+        logger.info("Applying %d pending migration(s)...", len(pending))
         upgrade("head")
-        print("Migrations applied successfully.")
+        logger.info("Migrations applied successfully.")
     else:
         current = get_current_revision()
         if current is None:
-            # Database exists but no migrations applied yet
-            print("Applying migrations to new database...")
+            logger.info("Applying migrations to new database...")
             upgrade("head")
-            print("Database initialized successfully.")
+            logger.info("Database initialized successfully.")
         else:
-            print("Database is up to date.")
+            logger.debug("Database is up to date.")
 
 
 def check_tables_exist() -> bool:
     """
     Check if the main database tables exist.
-    
+
     Returns:
         True if tables exist, False otherwise
     """
     engine = get_engine()
     inspector = inspect(engine)
     tables = inspector.get_table_names()
-    
+
     required_tables = ["matchs", "clubs", "equipes", "joueurs"]
     return all(table in tables for table in required_tables)
 
@@ -289,30 +299,41 @@ def check_tables_exist() -> bool:
 def get_database_status() -> dict:
     """
     Get comprehensive database status information.
-    
+
     Returns:
         Dict with database status info
     """
     settings = get_settings()
     engine = get_engine()
-    
+
     try:
         inspector = inspect(engine)
         tables = inspector.get_table_names()
+
         current_rev = get_current_revision()
         head_rev = get_head_revision()
-        pending = get_pending_migrations()
-        
+
+        # Compute pending count safely
+        try:
+            pending = get_pending_migrations()
+            pending_count = len(pending)
+        except Exception:
+            pending_count = 0 if current_rev == head_rev else -1
+
         return {
             "connected": True,
             "database_type": "postgresql" if settings.is_postgres else "sqlite",
-            "database_url": settings.database_url.split("@")[-1] if "@" in settings.database_url else settings.database_url,
+            "database_url": (
+                settings.database_url.split("@")[-1]
+                if "@" in settings.database_url
+                else settings.database_url
+            ),
             "tables": tables,
             "table_count": len(tables),
             "current_revision": current_rev,
             "head_revision": head_rev,
-            "pending_migrations": len(pending),
-            "is_up_to_date": len(pending) == 0 and current_rev == head_rev,
+            "pending_migrations": pending_count,
+            "is_up_to_date": current_rev == head_rev and current_rev is not None,
         }
     except Exception as e:
         return {

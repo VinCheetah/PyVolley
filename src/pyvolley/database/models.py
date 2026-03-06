@@ -571,3 +571,50 @@ class OfficielMatchDB(Base):
 
     def __repr__(self) -> str:
         return f"<Officiel {self.role} {self.nom}>"
+
+
+# =====================================================================
+# Journal d'import (audit)
+# =====================================================================
+
+class ImportLogDB(Base):
+    """Historique des opérations d'import en base de données.
+
+    Chaque exécution de ``parse --save-db`` ou ``import_db`` crée une
+    entrée qui résume ce qui a été fait : nombre de matchs importés,
+    doublons ignorés, erreurs rencontrées, durée, etc.
+    """
+    __tablename__ = "import_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    # Quand et quoi
+    started_at: Mapped[dt] = mapped_column(DateTime, default=dt.now)
+    finished_at: Mapped[Optional[dt]] = mapped_column(DateTime, nullable=True)
+    operation: Mapped[str] = mapped_column(String(30))  # "parse", "import", "complete-scores"
+    source: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # chemin ou description
+
+    # Compteurs
+    total_attempted: Mapped[int] = mapped_column(Integer, default=0)
+    imported: Mapped[int] = mapped_column(Integer, default=0)
+    duplicates: Mapped[int] = mapped_column(Integer, default=0)
+    errors: Mapped[int] = mapped_column(Integer, default=0)
+    updated: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Détails (JSON sérialisé)
+    error_details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Statut
+    status: Mapped[str] = mapped_column(String(20), default="running")  # running, success, partial, failed
+
+    __table_args__ = (
+        Index("ix_import_logs_started_at", "started_at"),
+        Index("ix_import_logs_operation", "operation"),
+    )
+
+    def __repr__(self) -> str:
+        return (
+            f"<ImportLog {self.operation} {self.started_at:%Y-%m-%d %H:%M} "
+            f"imported={self.imported} errors={self.errors} status={self.status}>"
+        )
