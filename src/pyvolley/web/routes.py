@@ -683,7 +683,7 @@ def _build_simulation_data(match, participants_a, participants_b, officiels_a, o
     return {
         "code_match": match.code_match,
         "date": str(match.date_match) if match.date_match else "",
-        "lieu": match.lieu or "",
+        "lieu": match.salle or "",
         "salle": match.salle or "",
         "competition": match.competition.nom if match.competition else "",
         "journee": match.journee or "",

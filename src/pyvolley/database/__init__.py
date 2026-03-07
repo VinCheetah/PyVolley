@@ -49,6 +49,7 @@ from .repositories import (
     EntiteFFVBRepository,
 )
 from .import_service import MatchImportService, BulkImportService
+from .export_import_service import ExportImportService
 from .migrations import (
     create_migration,
     upgrade,
@@ -98,6 +99,7 @@ __all__ = [
     # Services
     "MatchImportService",
     "BulkImportService",
+    "ExportImportService",
     # Migrations
     "create_migration",
     "upgrade",

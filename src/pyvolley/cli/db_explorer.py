@@ -502,7 +502,6 @@ def search_matchs(
             conditions.append(
                 or_(
                     MatchDB.code_match.ilike(pattern),
-                    MatchDB.lieu.ilike(pattern),
                     MatchDB.salle.ilike(pattern),
                     MatchDB.vainqueur.ilike(pattern),
                     EquipeDB.nom.ilike(pattern),
@@ -567,7 +566,7 @@ def search_matchs(
         tbl.add_column("Équipe B", style="white", min_width=20, max_width=30, overflow="ellipsis")
         if detail:
             tbl.add_column("Compét.", style="magenta", max_width=12, overflow="ellipsis")
-            tbl.add_column("Lieu", style="dim", max_width=20, overflow="ellipsis")
+            tbl.add_column("Salle", style="dim", max_width=20, overflow="ellipsis")
             tbl.add_column("Durée", style="dim", width=6)
 
         for m in matchs:
@@ -582,7 +581,7 @@ def search_matchs(
                 equipe_a_nom, score_str, equipe_b_nom,
             ]
             if detail:
-                row.extend([comp_code, m.lieu or "-", m.duree_totale or "-"])
+                row.extend([comp_code, m.salle or "-", m.duree_totale or "-"])
             tbl.add_row(*row)
 
         console.print(tbl)
@@ -628,7 +627,7 @@ def match_detail(
             f"[bold cyan]{match.code_match}[/bold cyan]\n\n"
             f"[bold]{eq_a}[/bold]  [bold green]{match.score_sets or '? - ?'}[/bold green]  [bold]{eq_b}[/bold]\n\n"
             f"📅 Date: {date_str}  🕐 Heure: {heure_str}\n"
-            f"📍 Lieu: {match.lieu or '?'}  |  Salle: {match.salle or '?'}\n"
+            f"📍 Salle: {match.salle or '?'}\n"
             f"🏆 Compétition: {match.competition.nom if match.competition else '?'} ({match.competition.code_competition if match.competition else '?'})\n"
             f"📅 Saison: {match.saison.code if match.saison else '?'}\n"
             f"📆 Journée: {match.journee or '?'}\n"
@@ -1380,7 +1379,7 @@ def global_search(
             select(MatchDB).where(
                 or_(
                     MatchDB.code_match.ilike(pattern),
-                    MatchDB.lieu.ilike(pattern),
+                    MatchDB.salle.ilike(pattern),
                     MatchDB.vainqueur.ilike(pattern),
                 )
             ).limit(limit)

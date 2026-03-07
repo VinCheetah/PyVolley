@@ -57,7 +57,7 @@ class HttpClient:
             total=self.MAX_RETRIES,
             backoff_factor=self.RETRY_BACKOFF_FACTOR,
             status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["GET", "HEAD"],
+            allowed_methods=["GET", "HEAD", "POST"],
             raise_on_status=False,
         )
         adapter = HTTPAdapter(max_retries=retry_strategy)
@@ -127,6 +127,44 @@ class HttpClient:
                 raise NetworkError(f"Erreur réseau: {e}")
 
         raise NetworkError(f"Échec après {self.MAX_RETRIES} tentatives: {url} ({last_exc})")
+
+    def post(self, url: str, data=None, **kwargs) -> requests.Response:
+        """Effectue une requête POST avec gestion des erreurs et retry."""
+        last_exc: Optional[Exception] = None
+
+        for attempt in range(1, self.MAX_RETRIES + 1):
+            self.rate_limit()
+            try:
+                response = self._session.post(url, data=data, timeout=self._timeout, **kwargs)
+                response.raise_for_status()
+                return response
+            except requests.exceptions.HTTPError as e:
+                status = e.response.status_code if e.response is not None else 0
+                if status == 404:
+                    raise PageNotFoundError(f"Page non trouvée: {url}")
+                if status == 403 and attempt < self.MAX_RETRIES:
+                    wait = self.RETRY_BACKOFF_FACTOR * (2 ** (attempt - 1))
+                    logger.warning(
+                        "HTTP 403 POST %s – tentative %d/%d, retry dans %.0fs",
+                        url, attempt, self.MAX_RETRIES, wait,
+                    )
+                    time.sleep(wait)
+                    last_exc = e
+                    continue
+                raise NetworkError(f"Erreur HTTP {status}: {url}")
+            except requests.exceptions.RequestException as e:
+                if attempt < self.MAX_RETRIES:
+                    wait = self.RETRY_BACKOFF_FACTOR * (2 ** (attempt - 1))
+                    logger.warning(
+                        "Erreur réseau POST %s – tentative %d/%d, retry dans %.0fs",
+                        url, attempt, self.MAX_RETRIES, wait,
+                    )
+                    time.sleep(wait)
+                    last_exc = e
+                    continue
+                raise NetworkError(f"Erreur réseau: {e}")
+
+        raise NetworkError(f"Échec POST après {self.MAX_RETRIES} tentatives: {url} ({last_exc})")
 
     def get_soup(self, url: str) -> BeautifulSoup:
         """Récupère et parse une page HTML."""

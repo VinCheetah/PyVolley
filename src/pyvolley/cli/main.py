@@ -29,6 +29,235 @@ app = typer.Typer(
 console = Console()
 
 
+# ============== Commande Scrape (Phase 1 : export CSV → DB) ==============
+
+@app.command()
+def scrape(
+    entity: Optional[List[str]] = typer.Option(
+        None,
+        "--entity", "-e",
+        help="Code de l'entité (ex: ABCCS, LIRA). Répétable."
+    ),
+    saison: Optional[str] = typer.Option(
+        None,
+        "--saison", "-s",
+        help="Saison au format YYYY/YYYY (défaut: saison courante)"
+    ),
+    all_entities: bool = typer.Option(
+        False,
+        "--all",
+        help="Scrape toutes les entités (ligues, comités, nationales)"
+    ),
+    entity_type: Optional[str] = typer.Option(
+        None,
+        "--type", "-t",
+        help="Filtrer par type d'entité: nationale, ligue, comite"
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Affiche ce qui serait importé sans modifier la base"
+    ),
+    enrich_clubs: bool = typer.Option(
+        False,
+        "--enrich-clubs",
+        help="Enrichit les clubs avec les données de l'adressier FFVB (coordonnées, salles, dirigeants)"
+    ),
+):
+    """
+    🔄 Scrape les données FFVB et les importe en base de données (Phase 1).
+
+    Utilise l'export CSV de la FFVB pour récupérer tous les matchs d'une
+    ou plusieurs entités en une seule requête HTTP par entité. Les données
+    sont importées dans la base de données avec le statut "discovered".
+
+    Par défaut, tous les matchs sont importés en base. Utilisez --dry-run
+    pour prévisualiser sans modifier la base.
+
+    Utilisez --enrich-clubs pour télécharger l'adressier FFVB et enrichir
+    les clubs avec leurs coordonnées, salles, couleurs et dirigeants.
+
+    Exemples:
+
+        # Scraper et importer une entité
+        pyvolley scrape -e ABCCS
+
+        # Scraper avec enrichissement des clubs
+        pyvolley scrape -e ABCCS --enrich-clubs
+
+        # Scraper plusieurs entités
+        pyvolley scrape -e ABCCS -e LIRA
+
+        # Scraper toutes les ligues
+        pyvolley scrape --type ligue
+
+        # Voir ce qui serait importé (dry-run)
+        pyvolley scrape -e ABCCS --dry-run
+    """
+    from pyvolley.scrapers.ffvb import FFVBScraper
+    from pyvolley.database.connection import DatabaseSession, init_db
+    from pyvolley.database.export_import_service import ExportImportService
+
+    scraper = FFVBScraper()
+
+    if saison is None:
+        saison = scraper._get_current_saison()
+
+    # Déterminer les entités à traiter
+    entities_to_process = []
+    if all_entities:
+        all_ents = scraper.get_entities()
+        if entity_type:
+            all_ents = [e for e in all_ents if e.type == entity_type.lower()]
+        entities_to_process = [e.code for e in all_ents]
+    elif entity_type and not entity:
+        all_ents = scraper.get_entities()
+        entities_to_process = [e.code for e in all_ents if e.type == entity_type.lower()]
+    elif entity:
+        entities_to_process = list(entity)
+
+    if not entities_to_process:
+        console.print("[yellow]Aucune entité spécifiée.[/yellow]")
+        from pyvolley.scrapers.ffvb import FFVBScraper as _s
+        _list_entities(_s())
+        console.print("\n[blue]Utilisez -e CODE, --type TYPE, ou --all[/blue]")
+        raise typer.Exit(0)
+
+    entities_display = ', '.join(entities_to_process[:5])
+    if len(entities_to_process) > 5:
+        entities_display += f"... (+{len(entities_to_process) - 5})"
+
+    mode = "[yellow]DRY-RUN[/yellow]" if dry_run else "[green]IMPORT[/green]"
+    enrich_label = " + [magenta]enrichissement clubs[/magenta]" if enrich_clubs and not dry_run else ""
+    console.print(Panel(
+        f"[bold blue]🔄 Scrape FFVB (Phase 1 - Export CSV)[/bold blue]\n\n"
+        f"Saison:   [cyan]{saison}[/cyan]\n"
+        f"Entité(s): [cyan]{entities_display}[/cyan] ({len(entities_to_process)} au total)\n"
+        f"Mode:     {mode}{enrich_label}",
+        title="Configuration"
+    ))
+
+    if not dry_run:
+        init_db()
+
+    total_matches = 0
+    total_imported = 0
+    total_updated = 0
+    total_duplicates = 0
+    total_errors = 0
+    total_clubs_enriched = 0
+
+    for entite_code in entities_to_process:
+        console.print(f"\n[blue]📂 {entite_code} - Saison {saison}[/blue]")
+
+        try:
+            with console.status(f"[bold blue]Récupération de l'export CSV pour {entite_code}..."):
+                export_matches = scraper.scrape_entity(entite_code, saison)
+        except Exception as e:
+            console.print(f"  [red]Erreur: {e}[/red]")
+            total_errors += 1
+            continue
+
+        if not export_matches:
+            console.print(f"  [yellow]Aucun match trouvé[/yellow]")
+            continue
+
+        total_matches += len(export_matches)
+
+        # Résumé des poules
+        from pyvolley.scrapers.ffvb.export_scraper import get_unique_poules
+        poules = get_unique_poules(export_matches)
+        played = sum(1 for m in export_matches if m.match_joue)
+        console.print(
+            f"  [green]✓ {len(export_matches)} match(s) récupéré(s)[/green] "
+            f"({played} joués, {len(poules)} poules)"
+        )
+
+        if dry_run:
+            console.print(f"  Poules: {', '.join(sorted(poules.keys()))}")
+            continue
+
+        # Import en base de données
+        try:
+            with DatabaseSession() as session:
+                service = ExportImportService(session)
+                stats = service.import_matches(export_matches, entite_code, saison)
+
+                imported = stats.get("imported", 0)
+                updated = stats.get("updated", 0)
+                duplicates = stats.get("duplicates", 0)
+                errors = stats.get("errors", 0)
+
+                total_imported += imported
+                total_updated += updated
+                total_duplicates += duplicates
+                total_errors += errors
+
+                parts = []
+                if imported:
+                    parts.append(f"[green]+{imported} créés[/green]")
+                if updated:
+                    parts.append(f"[cyan]~{updated} mis à jour[/cyan]")
+                if duplicates:
+                    parts.append(f"[dim]{duplicates} inchangés[/dim]")
+                if errors:
+                    parts.append(f"[red]{errors} erreurs[/red]")
+                console.print(f"  DB: {' | '.join(parts) or '[dim]aucun changement[/dim]'}")
+
+                # Enrichissement des clubs via adressier
+                if enrich_clubs:
+                    try:
+                        from pyvolley.scrapers.ffvb.adressier_scraper import fetch_adressier
+                        poule_codes = sorted(poules.keys())
+                        with console.status(
+                            f"[bold magenta]Téléchargement adressier pour {entite_code} "
+                            f"({len(poule_codes)} poules)..."
+                        ):
+                            clubs_info = fetch_adressier(
+                                scraper.client, scraper.base_url,
+                                entite_code, saison, poule_codes,
+                            )
+                        if clubs_info:
+                            club_stats = service.enrich_clubs(
+                                clubs_info, entite_code, saison, scraper.base_url,
+                            )
+                            enriched = club_stats.get("enriched", 0)
+                            created = club_stats.get("created", 0)
+                            total_clubs_enriched += enriched + created
+                            console.print(
+                                f"  Clubs: [magenta]{enriched} enrichis[/magenta] | "
+                                f"[green]+{created} créés[/green]"
+                            )
+                    except Exception as e:
+                        console.print(f"  [red]Erreur enrichissement clubs: {e}[/red]")
+
+                session.commit()
+        except Exception as e:
+            console.print(f"  [red]Erreur import: {e}[/red]")
+            total_errors += 1
+
+    # Résumé
+    console.print()
+    result_parts = [f"Matchs récupérés:  [cyan]{total_matches}[/cyan]"]
+    if not dry_run:
+        result_parts.append(f"Créés en base:     [green]{total_imported}[/green]")
+        result_parts.append(f"Mis à jour:        [cyan]{total_updated}[/cyan]")
+        if total_duplicates:
+            result_parts.append(f"Inchangés:         [dim]{total_duplicates}[/dim]")
+        if total_clubs_enriched:
+            result_parts.append(f"Clubs enrichis:    [magenta]{total_clubs_enriched}[/magenta]")
+    if total_errors:
+        result_parts.append(f"Erreurs:           [red]{total_errors}[/red]")
+
+    title = "🔍 Résultats (dry-run)" if dry_run else "✅ Résultats"
+    console.print(Panel("\n".join(result_parts), title=title))
+
+    if dry_run and total_matches:
+        console.print(
+            f"\n[blue]💡 Relancez sans --dry-run pour importer en base.[/blue]"
+        )
+
+
 # ============== Commandes Download ==============
 
 @app.command()
@@ -187,71 +416,47 @@ def download(
     
     # Collecter tous les matchs pour toutes les entités et saisons
     all_matches = []
-    total_poules = 0
-    
     for current_saison in saisons:
         for current_entity in entities_to_process:
             console.print(f"\n[blue]📂 {current_entity} - Saison {current_saison}[/blue]")
             
-            # Récupérer les poules
+            # Récupérer les matchs via export CSV (une seule requête)
             try:
-                with console.status(f"[bold blue]Récupération des poules pour {current_entity}..."):
-                    poules_list = scraper.get_poules_for_entity(current_entity, current_saison)
+                with console.status(f"[bold blue]Récupération des matchs pour {current_entity} (export CSV)..."):
+                    export_matches = scraper.scrape_entity(
+                        current_entity, current_saison, poule=poule,
+                    )
             except Exception as e:
-                console.print(f"  [red]Erreur lors de la récupération des poules: {e}[/red]")
+                console.print(f"  [red]Erreur lors de la récupération: {e}[/red]")
                 continue
             
-            if not poules_list:
-                console.print(f"  [yellow]Aucune poule trouvée[/yellow]")
+            if not export_matches:
+                console.print(f"  [yellow]Aucun match trouvé[/yellow]")
                 continue
-            
-            # Filtrer par poule si spécifiée
-            if poule:
-                poules_list = [p for p in poules_list if p.code == poule]
-                if not poules_list:
-                    console.print(f"  [yellow]Poule {poule} non trouvée[/yellow]")
-                    continue
             
             # Filtrer pour le mode --pro (seulement les compétitions LNV)
             if pro:
-                poules_list = [p for p in poules_list if p.code in pro_poule_codes]
-                if not poules_list:
-                    console.print(f"  [yellow]Aucune poule pro trouvée[/yellow]")
+                export_matches = [m for m in export_matches if m.poule_code in pro_poule_codes]
+                if not export_matches:
+                    console.print(f"  [yellow]Aucun match pro trouvé[/yellow]")
                     continue
             
-            total_poules += len(poules_list)
-            console.print(f"  [green]✓ {len(poules_list)} poule(s) trouvée(s)[/green]")
+            # Convertir en MatchInfo pour le téléchargement
+            from pyvolley.scrapers.base import MatchInfo as _MatchInfo
+            for em in export_matches:
+                mi = _MatchInfo(
+                    code=em.code_match,
+                    entite_code=em.entite_code,
+                    saison=em.saison,
+                    poule_code=em.poule_code,
+                    journee=em.journee,
+                    pdf_url=em.feuille_match_url,
+                )
+                mi.poule_nom = em.poule_code
+                mi.entity_code = current_entity
+                all_matches.append(mi)
             
-            # Collecter les matchs
-            poule_errors = 0
-            with Progress(
-                SpinnerColumn(),
-                TextColumn("[progress.description]{task.description}"),
-                BarColumn(),
-                TaskProgressColumn(),
-                console=console,
-                transient=True,
-            ) as progress:
-                task = progress.add_task("Récupération des matchs...", total=len(poules_list))
-                
-                for p in poules_list:
-                    try:
-                        matches = list(scraper.get_matches_for_poule(
-                            current_entity, p.code, current_saison,
-                            is_division=p.is_division,
-                        ))
-                        for m in matches:
-                            m.poule_nom = p.nom
-                            m.entity_code = current_entity  # Ajouter le code entité
-                            m.saison = current_saison       # Ajouter la saison
-                        all_matches.extend(matches)
-                        progress.update(task, advance=1, description=f"  {p.code}: {len(matches)} match(s)")
-                    except Exception as e:
-                        poule_errors += 1
-                        progress.update(task, advance=1, description=f"  [red]{p.code}: erreur ({e})[/red]")
-
-            if poule_errors:
-                console.print(f"  [yellow]⚠ {poule_errors} poule(s) avec erreurs (ignorées)[/yellow]")
+            console.print(f"  [green]✓ {len(export_matches)} match(s) trouvé(s)[/green]")
             
             # Si on a atteint la limite globale, on s'arrête
             if limit and len(all_matches) >= limit:
@@ -316,7 +521,7 @@ def download(
             if organize:
                 # Organiser par saison/entité/poule
                 saison_folder = match_saison.replace("/", "-")
-                poule_nom_safe = _sanitize_filename(getattr(match, 'poule_nom', match.competition_code or 'autres'))
+                poule_nom_safe = _sanitize_filename(getattr(match, 'poule_nom', match.poule_code or 'autres'))
                 match_dir = output_dir / saison_folder / match_entity / poule_nom_safe
             else:
                 match_dir = output_dir
@@ -520,44 +725,43 @@ def download_fast(
         _list_entities(scraper)
         raise typer.Exit(0)
 
-    # Phase 1 : collecte des matchs (séquentiel, rapide)
+    # Phase 1 : collecte des matchs via export CSV (une requête par entité)
     all_matches = []
     for current_saison in saisons:
         for current_entity in entities_to_process:
             console.print(f"\n[blue]📂 {current_entity} - Saison {current_saison}[/blue]")
             try:
-                with console.status(f"[bold blue]Récupération des poules pour {current_entity}..."):
-                    poules_list = scraper.get_poules_for_entity(current_entity, current_saison)
+                with console.status(f"[bold blue]Récupération des matchs (export CSV)..."):
+                    export_matches = scraper.scrape_entity(
+                        current_entity, current_saison, poule=poule,
+                    )
             except Exception as e:
                 console.print(f"  [red]Erreur: {e}[/red]")
                 continue
 
-            if not poules_list:
-                console.print(f"  [yellow]Aucune poule trouvée[/yellow]")
+            if not export_matches:
+                console.print(f"  [yellow]Aucun match trouvé[/yellow]")
                 continue
 
-            if poule:
-                poules_list = [p for p in poules_list if p.code == poule]
             if pro:
-                poules_list = [p for p in poules_list if p.code in pro_poule_codes]
+                export_matches = [m for m in export_matches if m.poule_code in pro_poule_codes]
 
-            with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"),
-                          BarColumn(), TaskProgressColumn(), console=console, transient=True) as progress:
-                task_id = progress.add_task("Récupération des matchs...", total=len(poules_list))
-                for p in poules_list:
-                    try:
-                        matches = list(scraper.get_matches_for_poule(
-                            current_entity, p.code, current_saison,
-                            is_division=p.is_division,
-                        ))
-                        for m in matches:
-                            m.poule_nom = p.nom
-                            m.entity_code = current_entity
-                            m.saison = current_saison
-                        all_matches.extend(matches)
-                        progress.update(task_id, advance=1, description=f"  {p.code}: {len(matches)} match(s)")
-                    except Exception:
-                        progress.update(task_id, advance=1, description=f"  [red]{p.code}: erreur[/red]")
+            # Convertir en MatchInfo pour le téléchargement
+            from pyvolley.scrapers.base import MatchInfo as _MatchInfo
+            for em in export_matches:
+                mi = _MatchInfo(
+                    code=em.code_match,
+                    entite_code=em.entite_code,
+                    saison=em.saison,
+                    poule_code=em.poule_code,
+                    journee=em.journee,
+                    pdf_url=em.feuille_match_url,
+                )
+                mi.poule_nom = em.poule_code
+                mi.entity_code = current_entity
+                all_matches.append(mi)
+
+            console.print(f"  [green]✓ {len(export_matches)} match(s) trouvé(s)[/green]")
 
             if limit and len(all_matches) >= limit:
                 all_matches = all_matches[:limit]
@@ -602,7 +806,7 @@ def download_fast(
                 if organize:
                     saison_folder = match_saison.replace("/", "-")
                     poule_nom_safe = _sanitize_filename(
-                        getattr(match, 'poule_nom', match.competition_code or 'autres'))
+                        getattr(match, 'poule_nom', match.poule_code or 'autres'))
                     match_dir = output_dir / saison_folder / match_entity / poule_nom_safe
                 else:
                     match_dir = output_dir
@@ -643,7 +847,7 @@ def download_fast(
                         if not match.pdf_url:
                             from pyvolley.scrapers.ffvb.utils import build_pdf_url
                             match.pdf_url = build_pdf_url(
-                                scraper.base_url, match.ligue_code,
+                                scraper.base_url, match.entite_code,
                                 match.code, match.saison,
                             )
                         try:
@@ -673,7 +877,7 @@ def download_fast(
                                 if response is None:
                                     from pyvolley.scrapers.ffvb.utils import build_pdf_url
                                     ffvb_url = build_pdf_url(
-                                        scraper.base_url, match.ligue_code,
+                                        scraper.base_url, match.entite_code,
                                         match.code, match.saison,
                                     )
                                     response = await client.get(ffvb_url)
@@ -767,7 +971,7 @@ def list_poules(
         saison = scraper._get_current_saison()
     
     with console.status(f"[bold blue]Récupération des poules pour {entity}..."):
-        poules = scraper.get_poules_for_entity(entity, saison)
+        poules = scraper.discover_poules(entity, saison)
     
     if not poules:
         console.print(f"[yellow]Aucune poule trouvée pour {entity}[/yellow]")
@@ -787,35 +991,58 @@ def list_poules(
 @app.command("list-matches")
 def list_matches(
     entity: str = typer.Argument(..., help="Code de l'entité"),
-    poule: str = typer.Argument(..., help="Code de la poule"),
+    poule: Optional[str] = typer.Option(None, "--poule", "-p", help="Code de la poule (filtre)"),
     saison: Optional[str] = typer.Option(None, "--saison", "-s", help="Saison YYYY/YYYY"),
     limit: int = typer.Option(50, "--limit", "-n", help="Nombre max de matchs à afficher"),
 ):
     """
-    📋 Liste les matchs disponibles pour une poule.
+    📋 Liste les matchs disponibles pour une entité (via export CSV).
+
+    Exemples:
+
+        # Lister tous les matchs d'une entité
+        pyvolley list-matches ABCCS
+
+        # Filtrer par poule
+        pyvolley list-matches ABCCS -p PMA
     """
     from pyvolley.scrapers.ffvb import FFVBScraper
-    
+
     scraper = FFVBScraper()
-    
+
     if saison is None:
         saison = scraper._get_current_saison()
-    
-    with console.status(f"[bold blue]Récupération des matchs pour {entity}/{poule}..."):
-        # Chercher si la poule est une division pour utiliser le bon paramètre URL
-        poules_info = scraper.get_poules_for_entity(entity, saison)
-        is_division = any(p.code == poule and p.is_division for p in poules_info)
-        matches = list(scraper.get_matches_for_poule(entity, poule, saison, is_division=is_division))
-    
-    if not matches:
+
+    with console.status(f"[bold blue]Récupération des matchs pour {entity}..."):
+        export_matches = scraper.scrape_entity(entity, saison, poule=poule)
+
+    if not export_matches:
         console.print(f"[yellow]Aucun match trouvé[/yellow]")
         return
-    
-    _display_matches_table(matches[:limit], saison)
-    
-    if len(matches) > limit:
-        console.print(f"\n[yellow]... et {len(matches) - limit} autres matchs[/yellow]")
-    console.print(f"\n[green]Total: {len(matches)} match(s)[/green]")
+
+    table = Table(title=f"📋 Matchs - {entity} - Saison {saison}")
+    table.add_column("Code", style="cyan", no_wrap=True)
+    table.add_column("Poule", style="white")
+    table.add_column("Date", style="dim")
+    table.add_column("Équipe A", style="white")
+    table.add_column("Équipe B", style="white")
+    table.add_column("Score", style="green")
+    table.add_column("PDF", style="green")
+
+    for m in export_matches[:limit]:
+        date_str = m.date.strftime("%d/%m/%Y") if m.date else "-"
+        score = f"{m.score_a}-{m.score_b}" if m.score_a is not None else "-"
+        has_pdf = "✓" if m.feuille_match_url else "✗"
+        table.add_row(
+            m.code_match, m.poule_code or "-", date_str,
+            m.equipe_a_nom or "-", m.equipe_b_nom or "-", score, has_pdf,
+        )
+
+    console.print(table)
+
+    if len(export_matches) > limit:
+        console.print(f"\n[yellow]... et {len(export_matches) - limit} autres matchs[/yellow]")
+    console.print(f"\n[green]Total: {len(export_matches)} match(s)[/green]")
 
 
 def _list_entities(scraper):
@@ -856,16 +1083,16 @@ def _list_entities(scraper):
 
 
 def _display_matches_table(matches, saison: str):
-    """Affiche un tableau de matchs."""
+    """Affiche un tableau de matchs (MatchInfo)."""
     table = Table(title=f"📋 Matchs - Saison {saison}")
     table.add_column("Code", style="cyan", no_wrap=True)
-    table.add_column("Compétition", style="white")
+    table.add_column("Poule", style="white")
     table.add_column("PDF", style="green")
-    
+
     for m in matches:
         has_pdf = "✓" if m.pdf_url else "✗"
-        table.add_row(m.code, m.competition_code or "-", has_pdf)
-    
+        table.add_row(m.code, m.poule_code or "-", has_pdf)
+
     console.print(table)
 
 
@@ -1671,181 +1898,6 @@ def _copy_to_category(src_file: str, dest_folder: Path) -> None:
         shutil.copy2(str(src), str(dest))
 
 
-# ============== Commande complétion de scores ==============
-
-@app.command("complete-scores")
-def complete_scores(
-    saison: str = typer.Argument(
-        ...,
-        help="Saison à compléter (ex: 2025-2026)"
-    ),
-    entity: Optional[List[str]] = typer.Option(
-        None,
-        "--entity", "-e",
-        help="Restreindre à certaines entités. Répétable: -e LIRA -e ABCCS"
-    ),
-    dry_run: bool = typer.Option(
-        False,
-        "--dry-run",
-        help="Affiche ce qui serait créé/modifié sans modifier la base"
-    ),
-    summary_only: bool = typer.Option(
-        False,
-        "--summary",
-        help="Affiche uniquement l'état de complétion sans rien modifier"
-    ),
-):
-    """
-    🔄 Synchronise et complète les matchs depuis le site FFVB.
-
-    Récupère les calendriers FFVB en ligne pour chaque poule de la saison.
-    Crée les matchs manquants (feuille absente, matchs à venir) et complète
-    les scores des matchs existants.
-
-    Exemples:
-
-        # Voir l'état de complétion pour une saison
-        pyvolley complete-scores 2025-2026 --summary
-
-        # Voir ce qui serait créé/modifié (dry-run)
-        pyvolley complete-scores 2025-2026 --dry-run
-
-        # Synchroniser effectivement
-        pyvolley complete-scores 2025-2026
-
-        # Restreindre à une entité
-        pyvolley complete-scores 2025-2026 -e LIRA
-    """
-    from pyvolley.database.connection import DatabaseSession, init_db
-    from pyvolley.database.score_completion import ScoreCompletionService
-
-    init_db()
-
-    with DatabaseSession() as session:
-        service = ScoreCompletionService(session)
-
-        # ── Mode summary : juste afficher l'état ──
-        if summary_only:
-            summary = service.get_completion_summary(saison)
-            if "error" in summary:
-                console.print(f"[red]Erreur: {summary['error']}[/red]")
-                raise typer.Exit(1)
-
-            console.print(Panel(
-                f"[bold blue]Saison: {summary['saison']}[/bold blue]\n\n"
-                f"Total matchs:        [cyan]{summary['total_matches']}[/cyan]\n"
-                f"Matchs joués:        [cyan]{summary['match_joue']}[/cyan]\n"
-                f"Matchs à venir:      [yellow]{summary['upcoming']}[/yellow]\n"
-                f"Avec détails:        [green]{summary['with_details']}[/green]\n"
-                f"Sans détails:        [yellow]{summary['without_details']}[/yellow]\n"
-                f"Complétion:          [{'green' if summary['completion_pct'] > 80 else 'yellow'}]"
-                f"{summary['completion_pct']:.1f}%[/{'green' if summary['completion_pct'] > 80 else 'yellow'}]",
-                title="📊 État de complétion des scores"
-            ))
-
-            if summary['by_source']:
-                table = Table(title="Sources des scores")
-                table.add_column("Source", style="cyan")
-                table.add_column("Matchs", justify="right", style="white")
-                for src, count in sorted(summary['by_source'].items()):
-                    label = {
-                        "pdf": "📄 PDF (feuille de match)",
-                        "online": "🌐 En ligne (FFVB)",
-                        "manual": "✏️ Manuel",
-                        "none": "❌ Pas de score",
-                    }.get(src, src)
-                    table.add_row(label, str(count))
-                console.print(table)
-
-            raise typer.Exit(0)
-
-        # ── Mode complétion / synchronisation ──
-        mode = "[yellow]DRY-RUN[/yellow]" if dry_run else "[green]MISE À JOUR[/green]"
-        entity_display = ", ".join(entity) if entity else "toutes"
-
-        console.print(Panel(
-            f"[bold blue]🔄 Synchronisation & complétion des scores[/bold blue]\n\n"
-            f"Saison:   [cyan]{saison}[/cyan]\n"
-            f"Entités:  [cyan]{entity_display}[/cyan]\n"
-            f"Mode:     {mode}",
-            title="Configuration"
-        ))
-
-        def on_progress(poule_code, n_online, n_created, n_updated):
-            status = ""
-            if n_created:
-                status += f"[green]+{n_created} créés[/green] "
-            if n_updated:
-                status += f"[cyan]~{n_updated} mis à jour[/cyan] "
-            if not status:
-                status = "[dim]aucun changement[/dim]"
-            console.print(
-                f"  [bold]{poule_code}[/bold]: "
-                f"{n_online} matchs en ligne → {status}"
-            )
-
-        console.print()
-        console.print("[bold]Traitement des poules :[/bold]")
-
-        stats = service.complete_scores_for_saison(
-            saison,
-            entity_codes=entity,
-            dry_run=dry_run,
-            progress_callback=on_progress,
-        )
-
-        # ── Afficher les résultats ──
-        console.print()
-
-        result_lines = [
-            f"Poules traitées:        [cyan]{stats['poules_processed']}[/cyan]",
-            f"Matchs en ligne:        [cyan]{stats['total_online']}[/cyan]",
-        ]
-
-        if stats['matches_created']:
-            result_lines.append(
-                f"Matchs créés:           [green]{stats['matches_created']}[/green]"
-                f"  (dont [yellow]{stats['upcoming_created']}[/yellow] à venir)"
-            )
-        if stats['matches_updated']:
-            result_lines.append(
-                f"Scores mis à jour:      [green]{stats['matches_updated']}[/green]"
-            )
-        if stats['metadata_updated']:
-            result_lines.append(
-                f"Métadonnées mises à jour: [cyan]{stats['metadata_updated']}[/cyan]"
-            )
-        if stats['arbitres_added']:
-            result_lines.append(
-                f"Arbitres ajoutés:       [cyan]{stats['arbitres_added']}[/cyan]"
-            )
-        if stats['already_complete']:
-            result_lines.append(
-                f"Déjà complets:          [dim]{stats['already_complete']}[/dim]"
-            )
-        if stats['skipped_exempt']:
-            result_lines.append(
-                f"Exemptions ignorées:    [dim]{stats['skipped_exempt']}[/dim]"
-            )
-
-        title = "🔍 Résultats (dry-run)" if dry_run else "✅ Résultats"
-        console.print(Panel("\n".join(result_lines), title=title))
-
-        if stats['errors']:
-            console.print(f"\n[red]Erreurs ({len(stats['errors'])}):[/red]")
-            for err in stats['errors'][:10]:
-                console.print(f"  [red]• {err}[/red]")
-            if len(stats['errors']) > 10:
-                console.print(f"  [dim]... et {len(stats['errors']) - 10} autres[/dim]")
-
-        if dry_run and (stats['matches_created'] + stats['matches_updated'] > 0):
-            total_changes = stats['matches_created'] + stats['matches_updated']
-            console.print(
-                f"\n[blue]💡 {total_changes} changements possibles. "
-                f"Relancez sans --dry-run pour appliquer.[/blue]"
-            )
-
-
 @app.command()
 def simulate(
     source: Path = typer.Argument(
@@ -1915,40 +1967,6 @@ def simulate(
     except Exception as e:
         console.print(f"[red]Erreur: {e}[/red]")
         raise typer.Exit(1)
-
-
-@app.command()
-def import_db(
-    input_file: Path = typer.Argument(
-        ...,
-        help="Fichier JSON à importer"
-    ),
-):
-    """
-    💾 Importe les données parsées dans la base de données.
-    """
-    from pyvolley.database.connection import get_db, init_db
-    from pyvolley.database.import_service import MatchImportService
-    
-    if not input_file.exists():
-        console.print(f"[red]Erreur: {input_file} n'existe pas[/red]")
-        raise typer.Exit(1)
-    
-    # Initialiser la base de données
-    init_db()
-    
-    # Charger les données
-    with open(input_file, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    
-    console.print(f"[blue]Import de {len(data)} matchs...[/blue]")
-    
-    with get_db() as session:
-        service = MatchImportService(session)
-        # TODO: Convertir les dicts en objets MatchData
-        console.print("[yellow]Import non implémenté - données brutes[/yellow]")
-    
-    console.print("[green]✓ Import terminé[/green]")
 
 
 @app.command()

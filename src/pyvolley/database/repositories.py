@@ -592,10 +592,10 @@ class MatchRepository(BaseRepository[MatchDB]):
                         MatchDB.equipe_b_id.in_(club_equipe_ids),
                     )
                 )
-            # 2. Via le lieu du match (mapping ville → département)
+            # 2. Via la salle du match (mapping ville → département)
             cities = get_cities_for_departments(departements)
             if cities:
-                conditions.append(MatchDB.lieu.in_(cities))
+                conditions.append(MatchDB.salle.in_(cities))
             # 3. Via l'entité organisatrice de la compétition
             # Trouver les entités dont les départements correspondent
             dept_set = set(departements)

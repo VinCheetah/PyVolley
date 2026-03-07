@@ -180,7 +180,7 @@ class EquipeReport(Report):
         tbl.add_column("Adversaire", style="white", max_width=25, overflow="ellipsis")
         tbl.add_column("Score", style="green", justify="center", width=7)
         tbl.add_column("Résultat", style="bold", justify="center", width=8)
-        tbl.add_column("Lieu", style="dim", max_width=15, overflow="ellipsis")
+        tbl.add_column("Salle", style="dim", max_width=15, overflow="ellipsis")
 
         for m in matchs:
             is_a = m.equipe_a_id == e.id
@@ -201,7 +201,7 @@ class EquipeReport(Report):
                 adversaire,
                 m.score_sets or "-",
                 resultat,
-                f"{m.lieu or '-'} ({domicile})",
+                f"{m.salle or '-'} ({domicile})",
             )
         self._add(ReportSection(key="matchs", title="Matchs", content=tbl, order=30))
 

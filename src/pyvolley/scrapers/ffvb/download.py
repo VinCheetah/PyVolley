@@ -82,7 +82,7 @@ def download_match_pdf(
     try:
         if not match.pdf_url:
             match.pdf_url = build_pdf_url(
-                ctx.base_url, match.ligue_code, match.code, match.saison
+                ctx.base_url, match.entite_code, match.code, match.saison
             )
 
         response = None
@@ -93,7 +93,7 @@ def download_match_pdf(
             if response is None:
                 # Fallback : PDF FFVB classique
                 ffvb_url = build_pdf_url(
-                    ctx.base_url, match.ligue_code, match.code, match.saison,
+                    ctx.base_url, match.entite_code, match.code, match.saison,
                 )
                 logger.info(
                     "Fallback FFVB pour %s (external URL failed)", match.code,
@@ -151,72 +151,15 @@ def search_by_code(
 
             return MatchInfo(
                 code=match_code,
-                competition_code=competition_code,
-                ligue_code=entity_code,
+                entite_code=entity_code,
                 saison=saison,
+                poule_code=competition_code,
                 pdf_url=pdf_url,
             )
     except requests.RequestException:
         pass
 
     return None
-
-
-def download_all_matches_for_entity(
-    ctx: ScrapeContext,
-    entity_code: str,
-    base_output_dir: Path,
-    saison: str,
-    poules: list[PouleInfo],
-    skip_existing: bool = True,
-    organize_by_poule: bool = True,
-) -> list[ScrapeResult]:
-    """Télécharge toutes les feuilles de match d'une entité."""
-    from pyvolley.scrapers.ffvb.matches import get_matches_for_poule
-
-    base_output_dir = Path(base_output_dir)
-    results: list[ScrapeResult] = []
-
-    for poule in poules:
-        if organize_by_poule:
-            saison_folder = saison.replace("/", "-")
-            output_dir = base_output_dir / saison_folder / entity_code / poule.code
-        else:
-            output_dir = base_output_dir
-
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        try:
-            matches = list(get_matches_for_poule(
-                ctx, entity_code, poule.code, saison,
-                is_division=poule.is_division,
-            ))
-        except Exception as e:
-            logger.warning(
-                "Erreur lors de la récupération des matchs %s/%s saison %s : %s",
-                entity_code, poule.code, saison, e,
-            )
-            results.append(ScrapeResult(
-                success=False,
-                message=f"Erreur calendrier {poule.code}: {e}",
-                error=e,
-            ))
-            continue
-
-        for match in matches:
-            filepath = output_dir / match.filename
-
-            if skip_existing and filepath.exists():
-                results.append(ScrapeResult(
-                    success=True,
-                    message=f"Skipped (exists): {match.filename}",
-                ))
-                continue
-
-            result = download_match_pdf(ctx, match, output_dir)
-            results.append(result)
-
-    return results
 
 
 def collect_all_pdf_urls(
@@ -237,8 +180,8 @@ def collect_all_pdf_urls(
         try:
             for match in get_all_matches_fn(entity_code, saison):
                 all_matches.append({
-                    "entity_code": match.ligue_code,
-                    "poule_code": match.competition_code,
+                    "entity_code": match.entite_code,
+                    "poule_code": match.poule_code,
                     "match_code": match.code,
                     "saison": match.saison,
                     "pdf_url": match.pdf_url,

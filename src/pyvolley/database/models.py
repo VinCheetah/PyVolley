@@ -64,6 +64,7 @@ class EntiteFFVBDB(Base):
     code: Mapped[str] = mapped_column(String(20), unique=True, index=True)  # "ABCCS", "LIRA"
     nom: Mapped[str] = mapped_column(String(200))
     type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # "nationale", "ligue", "comite"
+    url_calendrier: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
     # Relations
     competitions: Mapped[List["CompetitionDB"]] = relationship(back_populates="entite")
@@ -77,7 +78,12 @@ class EntiteFFVBDB(Base):
 # =====================================================================
 
 class ClubDB(Base):
-    """Club de volleyball (entité permanente)."""
+    """Club de volleyball (entité permanente).
+
+    Les champs d'adressier (couleurs, président, correspondant, adresse, etc.)
+    sont enrichis automatiquement depuis l'endpoint ``adressier_pdf.php``
+    de la FFVB lors du scraping Phase 1.
+    """
     __tablename__ = "clubs"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -86,15 +92,66 @@ class ClubDB(Base):
     code_ffvb: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, unique=True)
     ville: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     departement: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)
+    ligue: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    couleurs: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+    # Dirigeants
+    president: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    entraineur: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    entraineur_adjoint: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+
+    # Correspondant (contact principal)
+    correspondant_nom: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    correspondant_adresse: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    correspondant_ville: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    correspondant_telephone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    correspondant_portable: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    correspondant_email: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+
+    # URLs (construites à partir du code FFVB)
+    url_planning: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    url_classement: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
     # Relations
     equipes: Mapped[List["EquipeDB"]] = relationship(back_populates="club")
     aliases: Mapped[List["ClubAliasDB"]] = relationship(
         back_populates="club", cascade="all, delete-orphan"
     )
+    salles: Mapped[List["SalleClubDB"]] = relationship(
+        back_populates="club", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"<Club {self.nom}>"
+
+
+class SalleClubDB(Base):
+    """Salle d'un club (depuis l'adressier FFVB).
+
+    Un club peut avoir jusqu'à 2 salles (S1 et S2 dans l'adressier).
+    """
+    __tablename__ = "salles_club"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    club_id: Mapped[int] = mapped_column(ForeignKey("clubs.id", ondelete="CASCADE"))
+    numero: Mapped[int] = mapped_column(Integer)  # 1 ou 2
+
+    nom: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    adresse: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    ville: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    telephone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    sol: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    capacite: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    transport: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
+    club: Mapped["ClubDB"] = relationship(back_populates="salles")
+
+    __table_args__ = (
+        UniqueConstraint("club_id", "numero", name="uq_salle_club_numero"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<SalleClub {self.nom} (club_id={self.club_id})>"
 
 
 class ClubAliasDB(Base):
@@ -163,6 +220,7 @@ class PouleDB(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     code: Mapped[str] = mapped_column(String(20))  # "EMA", "PMA", "1FA"
     nom: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    url_calendrier: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
     competition_id: Mapped[int] = mapped_column(ForeignKey("competitions.id", ondelete="CASCADE"))
 
@@ -260,11 +318,14 @@ class MatchDB(Base):
     # Date et lieu
     date_match: Mapped[Optional[dt_date]] = mapped_column(Date, nullable=True)
     heure_match: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
-    lieu: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     salle: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
 
     # Journée
     journee: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+
+    # Codes clubs FFVB (depuis l'export CSV)
+    club_a_code_ffvb: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
+    club_b_code_ffvb: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
 
     # Foreign keys
     saison_id: Mapped[Optional[int]] = mapped_column(ForeignKey("saisons.id"), nullable=True)
@@ -287,8 +348,17 @@ class MatchDB(Base):
         String(20), nullable=True
     )  # "pdf", "online", "manual"
 
+    # Forfait
+    forfait: Mapped[bool] = mapped_column(Boolean, default=False)
+
     # Remarques
     remarques: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Pipeline status
+    parsing_status: Mapped[str] = mapped_column(
+        String(20), default="discovered"
+    )  # "discovered", "downloaded", "parsed", "error"
+    source_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
     # Métadonnées
     source_pdf: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
@@ -323,6 +393,7 @@ class MatchDB(Base):
         Index("ix_matchs_date", "date_match"),
         Index("ix_matchs_competition", "competition_id"),
         Index("ix_matchs_has_details", "has_details", "saison_id"),
+        Index("ix_matchs_parsing_status", "parsing_status"),
         # Partial index pour les matchs sans saison (empêche les doublons
         # quand saison_id IS NULL)
         Index(
@@ -464,6 +535,7 @@ class ArbitreDB(Base):
     nom: Mapped[str] = mapped_column(String(100), index=True)
     prenom: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     ligue: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    comite_departemental: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
     # Relations
     arbitrages: Mapped[List["ArbitreMatchDB"]] = relationship(back_populates="arbitre")

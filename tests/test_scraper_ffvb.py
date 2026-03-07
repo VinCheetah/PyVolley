@@ -156,9 +156,9 @@ class TestFFVBScraperIntegration:
             assert entity.nom
             assert entity.type in ["nationale", "ligue", "comite", "autre"]
     
-    def test_get_poules_for_abccs(self, scraper):
-        """Vérifie la récupération des poules pour ABCCS."""
-        poules = scraper.get_poules_for_entity("ABCCS", "2025/2026")
+    def test_discover_poules_for_abccs(self, scraper):
+        """Vérifie la découverte des poules pour ABCCS via export CSV."""
+        poules = scraper.discover_poules("ABCCS", "2025/2026")
         
         assert len(poules) > 0
         # Vérifier les poules attendues
@@ -166,9 +166,9 @@ class TestFFVBScraperIntegration:
         assert "EFA" in poule_codes
         assert "EMA" in poule_codes
     
-    def test_get_poules_for_ligue_lira(self, scraper):
-        """Vérifie la récupération des poules pour une ligue (LIRA)."""
-        poules = scraper.get_poules_for_entity("LIRA", "2025/2026")
+    def test_discover_poules_for_ligue_lira(self, scraper):
+        """Vérifie la découverte des poules pour une ligue (LIRA)."""
+        poules = scraper.discover_poules("LIRA", "2025/2026")
         
         assert len(poules) > 0
         # Vérifier qu'on a des poules typiques de ligue
@@ -176,28 +176,40 @@ class TestFFVBScraperIntegration:
         # LIRA a des poules comme PMA (Prénational Masculin A)
         assert any(code.startswith("P") for code in poule_codes), "Devrait avoir des poules Prénationales"
     
-    def test_get_matches_for_poule(self, scraper):
-        """Vérifie la récupération des matchs pour une poule."""
-        matches = list(scraper.get_matches_for_poule("ABCCS", "EFA", "2025/2026"))
+    def test_scrape_entity(self, scraper):
+        """Vérifie la récupération des matchs via export CSV."""
+        matches = scraper.scrape_entity("ABCCS", "2025/2026", poule="EFA")
         
         assert len(matches) > 0
         
-        # Vérifier la structure
+        # Vérifier la structure ExportMatchInfo
         for match in matches[:5]:
-            assert match.code.startswith("EFA")
-            assert match.ligue_code == "ABCCS"
+            assert match.code_match.startswith("EFA")
+            assert match.entite_code == "ABCCS"
+            assert match.saison == "2025/2026"
+            assert match.feuille_match_url
+    
+    def test_get_matches_iterator(self, scraper):
+        """Vérifie la conversion en MatchInfo via get_matches."""
+        matches = list(scraper.get_matches("ABCCS", "2025/2026"))
+        
+        assert len(matches) > 0
+        for match in matches[:5]:
+            assert match.entite_code == "ABCCS"
+            assert match.code
             assert match.pdf_url
-            assert "ffvolley_fdme.php" in match.pdf_url
     
     def test_download_pdf(self, scraper):
         """Vérifie le téléchargement d'un PDF."""
-        # Récupérer un match
-        matches = list(scraper.get_matches_for_poule("ABCCS", "EFA", "2025/2026"))
-        assert len(matches) > 0
+        # Récupérer un match via get_matches
+        matches = list(scraper.get_matches("ABCCS", "2025/2026"))
+        # Filtrer les matchs EFA
+        efa_matches = [m for m in matches if m.code.startswith("EFA")]
+        assert len(efa_matches) > 0
         
         # Télécharger dans un dossier temporaire
         with tempfile.TemporaryDirectory() as tmpdir:
-            result = scraper.download_match_pdf(matches[0], Path(tmpdir))
+            result = scraper.download_match_pdf(efa_matches[0], Path(tmpdir))
             
             assert result.success
             assert result.data
@@ -214,24 +226,25 @@ class TestFFVBScraperIntegration:
         
         assert match is not None
         assert match.code == "EFA001"
-        assert match.ligue_code == "ABCCS"
+        assert match.entite_code == "ABCCS"
 
 
 # ============== Tests de robustesse ==============
 
+@pytest.mark.integration
 class TestErrorHandling:
-    """Tests de gestion des erreurs."""
+    """Tests de gestion des erreurs (requêtes réelles)."""
     
     def test_invalid_entity_code(self, scraper):
         """Vérifie le comportement avec un code entité invalide."""
-        poules = scraper.get_poules_for_entity("INVALID_CODE", "2025/2026")
+        poules = scraper.discover_poules("INVALID_CODE", "2025/2026")
         # Devrait retourner une liste vide plutôt qu'une erreur
         assert poules == []
     
-    def test_invalid_poule_code(self, scraper):
+    def test_invalid_poule_filter(self, scraper):
         """Vérifie le comportement avec un code poule invalide."""
-        matches = list(scraper.get_matches_for_poule("ABCCS", "INVALID", "2025/2026"))
-        # Devrait retourner une liste vide plutôt qu'une erreur
+        matches = scraper.scrape_entity("ABCCS", "2025/2026", poule="INVALID")
+        # Le filtrage client-side garantit une liste vide
         assert matches == []
 
 
