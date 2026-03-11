@@ -28,6 +28,39 @@ class Base(DeclarativeBase):
 
 
 # =====================================================================
+# Personne
+# =====================================================================
+
+class PersonneDB(Base):
+    """Personne référencée dans le système (joueur, officiel, etc.)."""
+    __tablename__ = "personnes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    licence: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
+    nom: Mapped[str] = mapped_column(String(100), index=True)
+    prenom: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    categorie: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # joueur, officiel, arbitre...
+    created_at: Mapped[dt] = mapped_column(DateTime, default=dt.now)
+    updated_at: Mapped[dt] = mapped_column(DateTime, default=dt.now, onupdate=dt.now)
+
+    joueurs: Mapped[List["JoueurDB"]] = relationship(back_populates="personne")
+    officiels_match: Mapped[List["OfficielMatchDB"]] = relationship(back_populates="personne")
+
+    __table_args__ = (
+        Index("ix_personnes_nom_prenom", "nom", "prenom"),
+    )
+
+    @property
+    def nom_complet(self) -> str:
+        if self.prenom:
+            return f"{self.nom} {self.prenom}"
+        return self.nom
+
+    def __repr__(self) -> str:
+        return f"<Personne {self.nom_complet} ({self.licence or 'sans-licence'})>"
+
+
+# =====================================================================
 # Saison
 # =====================================================================
 
@@ -186,6 +219,10 @@ class CompetitionDB(Base):
     niveau: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     division: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
+    # URLs FFVB
+    url_calendrier: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    url_classement: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
     # Foreign keys
     saison_id: Mapped[int] = mapped_column(ForeignKey("saisons.id"))
     entite_id: Mapped[Optional[int]] = mapped_column(ForeignKey("entites_ffvb.id"), nullable=True)
@@ -220,7 +257,9 @@ class PouleDB(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     code: Mapped[str] = mapped_column(String(20))  # "EMA", "PMA", "1FA"
     nom: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    tour: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # Tour number (1, 2, 3... or 99 for finals)
     url_calendrier: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    url_classement: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
     competition_id: Mapped[int] = mapped_column(ForeignKey("competitions.id", ondelete="CASCADE"))
 
@@ -229,6 +268,7 @@ class PouleDB(Base):
 
     __table_args__ = (
         UniqueConstraint("code", "competition_id", name="uq_poule_code_competition"),
+        Index("ix_poules_tour", "competition_id", "tour"),
     )
 
     def __repr__(self) -> str:
@@ -288,9 +328,11 @@ class JoueurDB(Base):
     licence: Mapped[str] = mapped_column(String(20), unique=True, index=True)
     nom: Mapped[str] = mapped_column(String(100), index=True)
     prenom: Mapped[str] = mapped_column(String(100))
+    personne_id: Mapped[Optional[int]] = mapped_column(ForeignKey("personnes.id"), nullable=True)
 
     # Relations
     participations: Mapped[List["ParticipationMatchDB"]] = relationship(back_populates="joueur")
+    personne: Mapped[Optional["PersonneDB"]] = relationship(back_populates="joueurs")
 
     __table_args__ = (
         Index("ix_joueurs_nom_prenom", "nom", "prenom"),
@@ -408,6 +450,24 @@ class MatchDB(Base):
     @property
     def is_played(self) -> bool:
         return self.vainqueur is not None or self.sets_equipe_a > 0
+
+    @property
+    def statut(self) -> str:
+        """Statut calculé du match.
+
+        Retourne l'un des états suivants :
+        - 'forfait'       : le match a été déclaré forfait
+        - 'joué'          : le match a été joué (résultat disponible)
+        - 'à_venir'       : le match est programmé dans le futur
+        - 'sans_résultat' : le match est passé mais aucun résultat n'a été saisi
+        """
+        if self.forfait:
+            return "forfait"
+        if self.match_joue or self.vainqueur is not None or (self.sets_equipe_a or 0) > 0:
+            return "joué"
+        if self.date_match and self.date_match > dt_date.today():
+            return "à_venir"
+        return "sans_résultat"
 
     def __repr__(self) -> str:
         return f"<Match {self.code_match}>"
@@ -638,8 +698,10 @@ class OfficielMatchDB(Base):
     nom: Mapped[str] = mapped_column(String(100))
     prenom: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     licence: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    personne_id: Mapped[Optional[int]] = mapped_column(ForeignKey("personnes.id"), nullable=True)
 
     match: Mapped["MatchDB"] = relationship(back_populates="officiels")
+    personne: Mapped[Optional["PersonneDB"]] = relationship(back_populates="officiels_match")
 
     def __repr__(self) -> str:
         return f"<Officiel {self.role} {self.nom}>"

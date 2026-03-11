@@ -412,7 +412,7 @@ def _match_to_response(m) -> MatchResponse:
         code_match=m.code_match,
         date=m.date_match,
         heure=m.heure_match,
-        lieu=m.lieu,
+        lieu=getattr(m, 'lieu', None) or m.salle,
         equipe_a_nom=m.equipe_a.nom if m.equipe_a else "???",
         equipe_b_nom=m.equipe_b.nom if m.equipe_b else "???",
         score_sets=m.score_sets,
@@ -420,6 +420,10 @@ def _match_to_response(m) -> MatchResponse:
         sets_equipe_b=m.sets_equipe_b,
         vainqueur=m.vainqueur,
         has_details=m.has_details,
+        competition_nom=m.competition.nom if m.competition else None,
+        genre=m.competition.genre if m.competition else None,
+        categorie=m.competition.categorie if m.competition else None,
+        journee=m.journee,
     )
 
 
@@ -511,7 +515,7 @@ def _match_to_detail(match) -> MatchDetail:
         code_match=match.code_match,
         date=match.date_match,
         heure=match.heure_match,
-        lieu=match.lieu,
+        lieu=getattr(match, 'lieu', None) or match.salle,
         salle=match.salle,
         equipe_a_nom=match.equipe_a.nom if match.equipe_a else "???",
         equipe_b_nom=match.equipe_b.nom if match.equipe_b else "???",
@@ -523,6 +527,9 @@ def _match_to_detail(match) -> MatchDetail:
         vainqueur=match.vainqueur,
         has_details=match.has_details,
         competition_nom=match.competition.nom if match.competition else None,
+        genre=match.competition.genre if match.competition else None,
+        categorie=match.competition.categorie if match.competition else None,
+        division_code=match.competition.division if match.competition else None,
         saison_code=match.saison.code if match.saison else None,
         journee=match.journee,
         duree_totale=match.duree_totale,

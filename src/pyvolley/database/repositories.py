@@ -6,7 +6,7 @@ et fournir des méthodes de recherche avancées.
 """
 
 from typing import Optional, List, Type, TypeVar, Generic
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, subqueryload
 from sqlalchemy import select, func, or_, case, extract, distinct, desc, asc, and_, literal_column
 
 from pyvolley.database.models import (
@@ -395,6 +395,19 @@ class ClubRepository(BaseRepository[ClubDB]):
         )
         return match.club if match else None
 
+    def get_with_details(self, club_id: int) -> Optional[ClubDB]:
+        """Récupère un club avec ses salles et aliases (eager loading)."""
+        from pyvolley.database.models import SalleClubDB
+        stmt = (
+            select(ClubDB)
+            .options(
+                joinedload(ClubDB.salles),
+                joinedload(ClubDB.aliases),
+            )
+            .where(ClubDB.id == club_id)
+        )
+        return self.session.scalar(stmt)
+
 
 # ─── Equipe ────────────────────────────────────────────────────────
 
@@ -553,6 +566,7 @@ class MatchRepository(BaseRepository[MatchDB]):
                 joinedload(MatchDB.equipe_b),
                 joinedload(MatchDB.competition).joinedload(CompetitionDB.entite),
                 joinedload(MatchDB.saison),
+                joinedload(MatchDB.poule),
             )
         )
         if competition_id:
@@ -672,6 +686,7 @@ class MatchRepository(BaseRepository[MatchDB]):
                 joinedload(MatchDB.equipe_b),
                 joinedload(MatchDB.competition).joinedload(CompetitionDB.entite),
                 joinedload(MatchDB.saison),
+                joinedload(MatchDB.poule),
             )
             .where(MatchDB.id == match_id)
         )
@@ -721,7 +736,8 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
         super().__init__(session, CompetitionDB)
 
     def get_by_saison(self, saison_id: int, genre: Optional[str] = None,
-                      categorie: Optional[str] = None) -> List[CompetitionDB]:
+                      categorie: Optional[str] = None,
+                      exclude_code_only: bool = False) -> List[CompetitionDB]:
         stmt = (
             select(CompetitionDB)
             .options(joinedload(CompetitionDB.saison))
@@ -731,12 +747,17 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
             stmt = stmt.where(CompetitionDB.genre == genre)
         if categorie:
             stmt = stmt.where(CompetitionDB.categorie == categorie)
+        if exclude_code_only:
+            # Exclude competitions whose name is just its code (e.g. "PFA", "VMB")
+            # These are individual FFVB poules imported as competitions.
+            stmt = stmt.where(CompetitionDB.nom != CompetitionDB.code_competition)
         stmt = stmt.order_by(CompetitionDB.genre, CompetitionDB.categorie, CompetitionDB.nom)
         return list(self.session.scalars(stmt).unique())
 
     def get_all(self, limit: int = 100, offset: int = 0,
                 genre: Optional[str] = None,
-                categorie: Optional[str] = None) -> List[CompetitionDB]:
+                categorie: Optional[str] = None,
+                exclude_code_only: bool = False) -> List[CompetitionDB]:
         stmt = (
             select(CompetitionDB)
             .options(joinedload(CompetitionDB.saison))
@@ -745,6 +766,8 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
             stmt = stmt.where(CompetitionDB.genre == genre)
         if categorie:
             stmt = stmt.where(CompetitionDB.categorie == categorie)
+        if exclude_code_only:
+            stmt = stmt.where(CompetitionDB.nom != CompetitionDB.code_competition)
         stmt = stmt.order_by(CompetitionDB.genre, CompetitionDB.categorie, CompetitionDB.nom)
         stmt = stmt.limit(limit).offset(offset)
         return list(self.session.scalars(stmt).unique())
@@ -780,22 +803,25 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
         ))
 
     def get_with_details(self, competition_id: int) -> Optional[CompetitionDB]:
-        """Charge une compétition avec ses relations (saison, entité, poules)."""
+        """Charge une compétition avec ses relations (saison, entité, poules + matchs)."""
         stmt = (
             select(CompetitionDB)
             .options(
                 joinedload(CompetitionDB.saison),
                 joinedload(CompetitionDB.entite),
-                joinedload(CompetitionDB.poules),
+                joinedload(CompetitionDB.poules).subqueryload(PouleDB.matchs),
             )
             .where(CompetitionDB.id == competition_id)
         )
         return self.session.scalar(stmt)
 
-    def get_matchs_for_classement(self, competition_id: int) -> List[MatchData]:
+    def get_matchs_for_classement(
+        self, competition_id: int, *, poule_id: Optional[int] = None
+    ) -> List[MatchData]:
         """Récupère les matchs d'une compétition sous forme de MatchData.
 
         Inclut les scores de chaque set pour calculer les points totaux.
+        Si poule_id est fourni, seuls les matchs de cette poule sont retournés.
         """
         stmt = (
             select(MatchDB)
@@ -807,6 +833,8 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
             .where(MatchDB.competition_id == competition_id)
             .order_by(MatchDB.date_match.asc(), MatchDB.journee.asc())
         )
+        if poule_id is not None:
+            stmt = stmt.where(MatchDB.poule_id == poule_id)
         matchs_db = list(self.session.scalars(stmt).unique())
 
         result: List[MatchData] = []
@@ -862,6 +890,42 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
             organisateur=organisateur,
         )
 
+    def get_classements_par_poule(
+        self, competition_id: int
+    ) -> List[tuple["PouleDB", ClassementComplet]]:
+        """Calcule un classement séparé pour chaque poule d'une compétition.
+
+        Returns:
+            Liste de tuples (PouleDB, ClassementComplet) triée par code de poule.
+        """
+        comp = self.get_with_details(competition_id)
+        if not comp or not comp.poules:
+            return []
+
+        organisateur = comp.entite.nom if comp.entite else None
+        result = []
+
+        for poule in sorted(comp.poules, key=lambda p: p.code):
+            matchs_data = self.get_matchs_for_classement(
+                competition_id, poule_id=poule.id
+            )
+            if not matchs_data:
+                continue
+            classement = calculer_classement_complet(
+                matchs=matchs_data,
+                competition_id=comp.id,
+                competition_nom=f"{comp.nom} — {poule.nom or poule.code}",
+                saison=comp.saison.code if comp.saison else None,
+                genre=comp.genre,
+                categorie=comp.categorie,
+                niveau=comp.niveau,
+                division=comp.division,
+                organisateur=organisateur,
+            )
+            result.append((poule, classement))
+
+        return result
+
     def get_equipes_for_competition(self, competition_id: int) -> List[EquipeDB]:
         """Retourne les équipes inscrites dans une compétition."""
         return list(self.session.scalars(
@@ -870,6 +934,43 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
             .where(EquipeDB.competition_id == competition_id)
             .order_by(EquipeDB.nom)
         ).unique())
+
+    def get_classement_for_poule(self, poule_id: int) -> Optional[ClassementComplet]:
+        """Calcule le classement pour une poule spécifique.
+
+        Pour le mode multi-poule où chaque poule est aussi vue comme
+        une compétition à part entière (avec ses propres stats/évolution).
+        """
+        poule = self.session.scalar(
+            select(PouleDB)
+            .options(
+                joinedload(PouleDB.competition).joinedload(CompetitionDB.saison),
+                joinedload(PouleDB.competition).joinedload(CompetitionDB.entite),
+            )
+            .where(PouleDB.id == poule_id)
+        )
+        if not poule or not poule.competition:
+            return None
+
+        comp = poule.competition
+        matchs_data = self.get_matchs_for_classement(
+            comp.id, poule_id=poule_id
+        )
+        if not matchs_data:
+            return None
+
+        organisateur = comp.entite.nom if comp.entite else None
+        return calculer_classement_complet(
+            matchs=matchs_data,
+            competition_id=comp.id,
+            competition_nom=f"{comp.nom} — {poule.nom or poule.code}",
+            saison=comp.saison.code if comp.saison else None,
+            genre=comp.genre,
+            categorie=comp.categorie,
+            niveau=comp.niveau,
+            division=comp.division,
+            organisateur=organisateur,
+        )
 
 
 # ─── Poule ─────────────────────────────────────────────────────────
@@ -882,6 +983,20 @@ class PouleRepository(BaseRepository[PouleDB]):
         return list(self.session.scalars(
             select(PouleDB).where(PouleDB.competition_id == competition_id)
         ))
+
+    def get_with_details(self, poule_id: int) -> Optional[PouleDB]:
+        """Charge une poule avec ses relations (compétition, saison, entité, matchs)."""
+        stmt = (
+            select(PouleDB)
+            .options(
+                joinedload(PouleDB.competition).joinedload(CompetitionDB.saison),
+                joinedload(PouleDB.competition).joinedload(CompetitionDB.entite),
+                joinedload(PouleDB.competition).joinedload(CompetitionDB.poules),
+                joinedload(PouleDB.matchs),
+            )
+            .where(PouleDB.id == poule_id)
+        )
+        return self.session.scalar(stmt)
 
 
 # ─── EntiteFFVB ────────────────────────────────────────────────────

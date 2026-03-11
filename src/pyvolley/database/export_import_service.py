@@ -27,7 +27,7 @@ from pyvolley.scrapers.ffvb.adressier_scraper import AdressierClubInfo, SalleInf
 from pyvolley.database.models import (
     SaisonDB, EntiteFFVBDB, CompetitionDB, PouleDB,
     ClubDB, ClubAliasDB, EquipeDB, MatchDB,
-    ArbitreDB, ArbitreMatchDB, ImportLogDB,
+    ArbitreDB, ArbitreMatchDB, ImportLogDB, SetDB,
     SalleClubDB,
 )
 
@@ -118,7 +118,15 @@ class ExportImportService:
 
         # Résoudre les entités parentes
         saison = self._get_or_create_saison(saison_db_code)
-        entite = self._get_or_create_entite(entite_code)
+
+        # Détecter le nom/type d'entité depuis les métadonnées enrichies
+        entite_nom = None
+        entite_type_hint = None
+        if matches:
+            first = matches[0]
+            entite_nom = getattr(first, 'entite_nom', None)
+            entite_type_hint = getattr(first, 'entite_type', None)
+        entite = self._get_or_create_entite(entite_code, nom=entite_nom)
 
         for match_info in matches:
             try:
@@ -178,7 +186,11 @@ class ExportImportService:
             match_info, saison, entite
         )
         poule = self._get_or_create_poule(
-            match_info.poule_code, competition
+            match_info.poule_code, competition,
+            poule_nom=match_info.competition_nom,
+            entite_code=match_info.entite_code,
+            saison_code=match_info.saison,
+            poule_code_ffvb=match_info.poule_code_ffvb,
         )
 
         # Résoudre les clubs et équipes
@@ -186,11 +198,13 @@ class ExportImportService:
             match_info.equipe_a_nom,
             match_info.club_a_code_ffvb,
             saison, competition,
+            match_info=match_info,
         )
         equipe_b = self._resolve_equipe(
             match_info.equipe_b_nom,
             match_info.club_b_code_ffvb,
             saison, competition,
+            match_info=match_info,
         )
 
         match_db = MatchDB(
@@ -219,6 +233,12 @@ class ExportImportService:
 
         self.session.add(match_db)
         self.session.flush()
+
+        # Scores détaillés de sets depuis l'export CSV (phase scraping)
+        if match_info.sets:
+            self._replace_match_sets_from_export(match_db, match_info)
+            match_db.has_details = True
+            match_db.score_source = "export"
 
         # Arbitres
         for arb_info in match_info.arbitres:
@@ -266,10 +286,36 @@ class ExportImportService:
             existing.score_source = "export"
             updated = True
 
+        # Ajouter/rafraîchir les sets détaillés si disponibles en export
+        if match_info.sets and existing.parsing_status != "parsed":
+            old_scores = [(s.score_a, s.score_b) for s in existing.sets if s.score_a is not None and s.score_b is not None]
+            if old_scores != match_info.sets:
+                self._replace_match_sets_from_export(existing, match_info)
+                existing.has_details = True
+                existing.score_source = "export"
+                updated = True
+
         if updated:
             existing.updated_at = datetime.now()
             return "updated"
         return "duplicates"
+
+    def _replace_match_sets_from_export(self, match_db: MatchDB, match_info: ExportMatchInfo) -> None:
+        """Remplace les sets d'un match par les scores détaillés de l'export."""
+        for old_set in list(match_db.sets):
+            self.session.delete(old_set)
+        self.session.flush()
+
+        for idx, (score_a, score_b) in enumerate(match_info.sets, start=1):
+            self.session.add(
+                SetDB(
+                    match_id=match_db.id,
+                    numero=idx,
+                    score_a=score_a,
+                    score_b=score_b,
+                )
+            )
+        self.session.flush()
 
     # =================================================================
     # Résolution des entités
@@ -292,22 +338,36 @@ class ExportImportService:
         self._saison_cache[code] = saison
         return saison
 
-    def _get_or_create_entite(self, code: str) -> EntiteFFVBDB:
-        """Récupère ou crée une entité FFVB."""
+    def _get_or_create_entite(self, code: str, nom: Optional[str] = None) -> EntiteFFVBDB:
+        """Récupère ou crée une entité FFVB.
+
+        Args:
+            code: Code de l'entité (ex: "ABCCS", "LIRA", "PTRA38").
+            nom: Nom optionnel de l'entité (pour enrichir).
+        """
         if code in self._entite_cache:
-            return self._entite_cache[code]
+            entite = self._entite_cache[code]
+            # Enrichir le nom si on a mieux que le code
+            if nom and entite.nom == code:
+                entite.nom = nom
+            return entite
 
         entite = self.session.execute(
             select(EntiteFFVBDB).where(EntiteFFVBDB.code == code)
         ).scalar_one_or_none()
 
         if not entite:
+            from pyvolley.scrapers.ffvb.entities import detect_entity_type
+            entity_type = detect_entity_type(code, nom or "")
             entite = EntiteFFVBDB(
                 code=code,
-                nom=code,  # sera enrichi plus tard
+                nom=nom or code,
+                type=entity_type,
             )
             self.session.add(entite)
             self.session.flush()
+        elif nom and entite.nom == code:
+            entite.nom = nom
 
         self._entite_cache[code] = entite
         return entite
@@ -318,27 +378,110 @@ class ExportImportService:
         saison: SaisonDB,
         entite: EntiteFFVBDB,
     ) -> CompetitionDB:
-        """Résout ou crée une compétition depuis le code du match."""
-        # Utiliser le code poule comme nom de compétition par défaut
-        cache_key = (match_info.poule_code, saison.id)
+        """Résout ou crée une compétition depuis les métadonnées du match.
+
+        Utilise les champs ``competition_nom``, ``competition_groupe``,
+        ``genre``, ``categorie_age``, ``niveau``, ``division`` renseignés
+        par ``enrich_matches_with_competition_info`` pour créer des
+        compétitions riches et bien structurées.
+
+        Le regroupement se fait par ``competition_groupe`` (heading parent
+        de la page d'accueil FFVB) : toutes les poules d'un même groupe
+        partagent la même compétition. Par exemple, les poules EMA, EMB,
+        EMC sont toutes rattachées à la compétition « ELITE MASCULINE ».
+
+        Quand ``competition_groupe`` n'est pas disponible, on utilise le
+        code de poule comme clé de regroupement.
+        """
+        # Clé de regroupement : les poules d'un même heading partagent
+        # une compétition. Le heading est typiquement "ELITE MASCULINE",
+        # "NATIONALE 2 FÉMININE", etc.
+        comp_key_name = match_info.competition_groupe or match_info.poule_code
+        genre = match_info.genre
+        categorie = match_info.categorie_age
+
+        cache_key = (comp_key_name, saison.id, genre, categorie)
         if cache_key in self._competition_cache:
             return self._competition_cache[cache_key]
 
-        competition = self.session.execute(
-            select(CompetitionDB).where(
-                CompetitionDB.code_competition == match_info.poule_code,
+        # Chercher par nom + saison + genre + catégorie
+        stmt = (
+            select(CompetitionDB)
+            .where(
+                CompetitionDB.nom == comp_key_name,
                 CompetitionDB.saison_id == saison.id,
             )
-        ).scalar_one_or_none()
+        )
+        if genre:
+            stmt = stmt.where(CompetitionDB.genre == genre)
+        else:
+            stmt = stmt.where(CompetitionDB.genre.is_(None))
+        if categorie:
+            stmt = stmt.where(CompetitionDB.categorie == categorie)
+        else:
+            stmt = stmt.where(CompetitionDB.categorie.is_(None))
+
+        competition = self.session.execute(stmt).scalar_one_or_none()
 
         if not competition:
+            # Extraire un code court
+            code_comp = match_info.poule_code
+            if match_info.division_code:
+                # Compétitions jeunes : utiliser le code division
+                code_comp = match_info.division_code
+            elif match_info.competition_groupe:
+                # Essayer d'extraire un code depuis le nom du groupe
+                m = re.match(r'^([A-Z0-9]{2,6})\s*-', match_info.competition_groupe)
+                if m:
+                    code_comp = m.group(1)
+
+            # Déterminer le niveau et la division
+            niveau = match_info.niveau
+            division = match_info.division or match_info.division_code
+
+            # Construire les URLs FFVB pour la compétition
+            url_cal = None
+            url_cls = None
+            if match_info.entite_code and match_info.saison:
+                from pyvolley.core.config import settings
+                base_url = settings.ffvb_base_url
+                from pyvolley.scrapers.ffvb.utils import build_home_url
+                url_cal = build_home_url(
+                    base_url, match_info.entite_code, match_info.saison,
+                )
+
             competition = CompetitionDB(
-                nom=f"Compétition {match_info.poule_code}",
-                code_competition=match_info.poule_code,
+                nom=comp_key_name,
+                code_competition=code_comp,
+                genre=genre,
+                categorie=categorie,
+                niveau=niveau,
+                division=division,
                 saison_id=saison.id,
                 entite_id=entite.id,
+                url_calendrier=url_cal,
             )
             self.session.add(competition)
+            self.session.flush()
+
+        # Enrichir si des métadonnées manquent
+        updated = False
+        if not competition.genre and genre:
+            competition.genre = genre
+            updated = True
+        if not competition.categorie and categorie:
+            competition.categorie = categorie
+            updated = True
+        if not competition.niveau and match_info.niveau:
+            competition.niveau = match_info.niveau
+            updated = True
+        if not competition.division and match_info.division:
+            competition.division = match_info.division
+            updated = True
+        if not competition.entite_id and entite:
+            competition.entite_id = entite.id
+            updated = True
+        if updated:
             self.session.flush()
 
         self._competition_cache[cache_key] = competition
@@ -348,8 +491,22 @@ class ExportImportService:
         self,
         poule_code: str,
         competition: CompetitionDB,
+        poule_nom: Optional[str] = None,
+        entite_code: Optional[str] = None,
+        saison_code: Optional[str] = None,
+        poule_code_ffvb: Optional[str] = None,
     ) -> PouleDB:
-        """Résout ou crée une poule."""
+        """Résout ou crée une poule.
+
+        Args:
+            poule_code: Code de la poule (ex: "EMA", "2FA").
+            competition: Compétition parente.
+            poule_nom: Nom complet optionnel (ex: "ELITE MASCULINE - POULE A").
+            entite_code: Code entité pour construire les URLs FFVB.
+            saison_code: Saison pour construire les URLs FFVB.
+            poule_code_ffvb: Code poule FFVB résolu (ex: "DSF" pour "DSFA").
+                Si non fourni, utilise poule_code pour les URLs.
+        """
         cache_key = (poule_code, competition.id)
         if cache_key in self._poule_cache:
             return self._poule_cache[cache_key]
@@ -362,13 +519,37 @@ class ExportImportService:
         ).scalar_one_or_none()
 
         if not poule:
+            nom = poule_nom or f"Poule {poule_code}"
+            # Construire les URLs FFVB
+            # Utiliser le code FFVB résolu pour les URLs (3 lettres vs 4 lettres)
+            url_poule_code = poule_code_ffvb or poule_code
+            url_cal = None
+            url_cls = None
+            if entite_code and saison_code:
+                from pyvolley.core.config import settings
+                base_url = settings.ffvb_base_url
+                from pyvolley.scrapers.ffvb.utils import (
+                    build_competition_calendar_url,
+                    build_classement_url,
+                )
+                url_cal = build_competition_calendar_url(
+                    base_url, entite_code, saison_code, url_poule_code,
+                )
+                url_cls = build_classement_url(
+                    base_url, entite_code, saison_code, url_poule_code,
+                )
             poule = PouleDB(
                 code=poule_code,
-                nom=f"Poule {poule_code}",
+                nom=nom,
                 competition_id=competition.id,
+                url_calendrier=url_cal,
+                url_classement=url_cls,
             )
             self.session.add(poule)
             self.session.flush()
+        elif poule_nom and poule.nom == f"Poule {poule_code}":
+            # Enrichir le nom si on a mieux
+            poule.nom = poule_nom
 
         self._poule_cache[cache_key] = poule
         return poule
@@ -454,6 +635,7 @@ class ExportImportService:
         code_ffvb: Optional[str],
         saison: SaisonDB,
         competition: Optional[CompetitionDB],
+        match_info: Optional[ExportMatchInfo] = None,
     ) -> Optional[EquipeDB]:
         """Résout ou crée une équipe."""
         if not nom:
@@ -474,8 +656,29 @@ class ExportImportService:
 
         if not equipe:
             club = self._resolve_club(nom, code_ffvb)
+
+            # Extraire genre, catégorie, niveau, division
+            genre = None
+            categorie = None
+            niveau = None
+            division = None
+            if match_info:
+                genre = match_info.genre
+                categorie = match_info.categorie_age
+                niveau = match_info.niveau
+                division = match_info.division
+            elif competition:
+                genre = competition.genre
+                categorie = competition.categorie
+                niveau = competition.niveau
+                division = competition.division
+
             equipe = EquipeDB(
                 nom=nom,
+                genre=genre,
+                categorie=categorie,
+                niveau=niveau,
+                division=division,
                 club_id=club.id if club else None,
                 saison_id=saison.id,
                 competition_id=comp_id,

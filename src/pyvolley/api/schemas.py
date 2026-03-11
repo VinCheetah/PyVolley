@@ -189,13 +189,17 @@ class MatchResponse(BaseModel):
     sets_equipe_b: int = 0
     vainqueur: Optional[str] = None
     has_details: bool = False
+    # Métadonnées de compétition (via relation)
+    competition_nom: Optional[str] = None
+    genre: Optional[str] = None
+    categorie: Optional[str] = None
+    journee: Optional[str] = None
 
 
 class MatchDetail(MatchResponse):
     salle: Optional[str] = None
-    competition_nom: Optional[str] = None
     saison_code: Optional[str] = None
-    journee: Optional[str] = None
+    division_code: Optional[str] = None
     duree_totale: Optional[str] = None
     remarques: Optional[str] = None
     equipe_a_id: Optional[int] = None

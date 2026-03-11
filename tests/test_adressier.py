@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from pyvolley.database.models import Base, ClubDB, SalleClubDB
+from pyvolley.database.models import Base, ClubDB, SalleClubDB, SetDB
 from pyvolley.database.export_import_service import ExportImportService
 from pyvolley.scrapers.ffvb.adressier_scraper import (
     AdressierClubInfo,
@@ -702,3 +702,44 @@ class TestImportMatchWithSourceUrl:
         # Vérifier les équipes
         equipes = adressier_session.execute(select(EquipeDB)).scalars().all()
         assert len(equipes) == 2
+
+    def test_export_import_persists_detailed_sets(self, adressier_session):
+        """Les scores détaillés de sets sont stockés dès l'import export."""
+        from pyvolley.scrapers.ffvb.export_scraper import ExportMatchInfo
+        from pyvolley.database.models import MatchDB
+
+        service = ExportImportService(adressier_session)
+        matches = [
+            ExportMatchInfo(
+                code_match="EMA777",
+                entite_code="ABCCS",
+                poule_code="EMA",
+                saison="2025/2026",
+                equipe_a_nom="GRENOBLE VUC",
+                equipe_b_nom="HARNES VB",
+                club_a_code_ffvb="0382201",
+                club_b_code_ffvb="0622126",
+                match_joue=True,
+                score_sets="3/1",
+                sets=[(25, 20), (23, 25), (25, 19), (25, 18)],
+                vainqueur="GRENOBLE VUC",
+            )
+        ]
+
+        stats = service.import_matches(matches, "ABCCS", "2025/2026")
+        adressier_session.flush()
+
+        assert stats["imported"] == 1
+
+        match = adressier_session.execute(
+            select(MatchDB).where(MatchDB.code_match == "EMA777")
+        ).scalar_one()
+        assert match.has_details is True
+        assert match.score_source == "export"
+
+        sets = adressier_session.execute(
+            select(SetDB).where(SetDB.match_id == match.id).order_by(SetDB.numero)
+        ).scalars().all()
+        assert len(sets) == 4
+        assert (sets[0].score_a, sets[0].score_b) == (25, 20)
+        assert (sets[3].score_a, sets[3].score_b) == (25, 18)

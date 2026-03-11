@@ -295,6 +295,7 @@ class TestParseExportCsv:
         assert m.score_sets == "3/0"
 
     def test_xxxxx_opponent(self):
+        """Les matchs avec adversaire 'xxxxx' sont filtrés (placeholders)."""
         csv_data = self._make_csv(
             "ABCCS;01;2FA001;2025-09-28;15:00;0136082;TEAM A;;xxxxx;"
             ";;;SALLE X;"
@@ -302,10 +303,8 @@ class TestParseExportCsv:
         )
         matches = parse_export_csv(csv_data, "ABCCS", "2025/2026", BASE_URL)
 
-        assert len(matches) == 1
-        m = matches[0]
-        assert m.equipe_a_nom == "TEAM A"
-        assert m.equipe_b_nom is None  # xxxxx filtered out
+        # Les matchs "xxxxx" sont désormais filtrés
+        assert len(matches) == 0
 
     def test_arbitre_licence_zero_filtered(self):
         csv_data = self._make_csv(

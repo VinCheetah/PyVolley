@@ -8,6 +8,7 @@ compétitions, poules) et création des liens entre elles.
 
 import re
 import logging
+import hashlib
 from typing import Optional, List, Any, Union
 from datetime import datetime, date as datetime_date, time as datetime_time
 
@@ -21,6 +22,7 @@ from .models import (
     FormationDB, ChangementDB, TimeoutDB,
     ArbitreDB, ArbitreMatchDB, SaisonDB, CompetitionDB, PouleDB,
     EntiteFFVBDB, ParticipationMatchDB, SanctionDB, OfficielMatchDB,
+    PersonneDB,
 )
 
 logger = logging.getLogger(__name__)
@@ -163,6 +165,7 @@ class MatchImportService:
         self._club_cache: dict[str, ClubDB] = {}
         self._equipe_cache: dict[tuple, EquipeDB] = {}
         self._joueur_cache: dict[str, JoueurDB] = {}
+        self._personne_cache: dict[str, PersonneDB] = {}
         self._arbitre_cache: dict[str, ArbitreDB] = {}
         self._competition_cache: dict[tuple[str, int, Optional[str], Optional[str]], CompetitionDB] = {}
         self._poule_cache: dict[tuple[str, int], PouleDB] = {}
@@ -181,6 +184,7 @@ class MatchImportService:
         self._club_cache.clear()
         self._equipe_cache.clear()
         self._joueur_cache.clear()
+        self._personne_cache.clear()
         self._arbitre_cache.clear()
         self._competition_cache.clear()
         self._poule_cache.clear()
@@ -517,7 +521,11 @@ class MatchImportService:
     def _get_or_create_poule(
         self, match_data: Match, competition: Optional[CompetitionDB]
     ) -> Optional[PouleDB]:
-        """Crée ou récupère la poule."""
+        """Crée ou récupère la poule.
+        
+        Pour les compétitions jeunes (ACJEUNES), infère automatiquement
+        le numéro de tour à partir du code poule.
+        """
         poule_code = getattr(match_data, 'competition_code', None)
         if not poule_code or not competition:
             return None
@@ -545,6 +553,15 @@ class MatchImportService:
         self.session.flush()
         self._poule_cache[cache_key] = poule
         return poule
+
+    @staticmethod
+    def _is_youth_competition(competition: CompetitionDB) -> bool:
+        """Checks if a competition is a Coupe de France Jeunes."""
+        if competition.nom and competition.nom.startswith("CdF Jeunes"):
+            return True
+        if competition.entite and competition.entite.code == "ACJEUNES":
+            return True
+        return False
 
     @staticmethod
     def _extract_code_from_competition_name(nom: str) -> str:
@@ -915,18 +932,23 @@ class MatchImportService:
         seen_licences: set[str] = set()
         unique_joueurs: list = []
         for jd in all_joueurs:
-            key = jd.licence or f"{jd.nom}_{jd.prenom}"
+            licence_str = (jd.licence or "").strip()
+            if licence_str and licence_str != "0":
+                key = f"LIC:{licence_str}"
+            else:
+                numero = (jd.numero or "").strip()
+                key = f"NAME:{jd.nom.strip().upper()}|{jd.prenom.strip().upper()}|{numero}"
             if key in seen_licences:
                 continue
             seen_licences.add(key)
             unique_joueurs.append(jd)
 
         for joueur_data in unique_joueurs:
-            licence = joueur_data.licence
-            if not licence or licence.strip() == "":
-                licence = f"TEMP_{hash(f'{joueur_data.nom}_{joueur_data.prenom}') % 100000:06d}"
-
-            joueur_db = self._get_or_create_joueur(licence, joueur_data.nom, joueur_data.prenom)
+            joueur_db = self._get_or_create_joueur(
+                joueur_data.licence,
+                joueur_data.nom,
+                joueur_data.prenom,
+            )
 
             # Vérifier via le set en mémoire (fiable même sans autoflush)
             part_key = (match_db.id, joueur_db.id)
@@ -960,22 +982,134 @@ class MatchImportService:
             self.session.add(participation)
             self._participation_seen.add(part_key)
 
-    def _get_or_create_joueur(self, licence: str, nom: str, prenom: str) -> JoueurDB:
-        """Crée ou récupère un joueur par sa licence."""
-        if licence in self._joueur_cache:
-            return self._joueur_cache[licence]
+    def _build_no_licence_key(self, nom: str, prenom: str) -> str:
+        normalized = f"{nom.strip().upper()}|{prenom.strip().upper()}"
+        digest = hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:12]
+        return f"NL-{digest}"
+
+    def _get_or_create_personne(
+        self,
+        *,
+        licence: Optional[str],
+        nom: str,
+        prenom: Optional[str],
+        categorie: str,
+    ) -> PersonneDB:
+        licence_norm = (licence or "").strip()
+        prenom_norm = (prenom or "").strip() or None
+
+        if licence_norm and licence_norm != "0":
+            cache_key = f"LIC:{licence_norm}"
+            if cache_key in self._personne_cache:
+                return self._personne_cache[cache_key]
+            existing = self.session.scalar(
+                select(PersonneDB).where(PersonneDB.licence == licence_norm)
+            )
+            if existing:
+                if not existing.prenom and prenom_norm:
+                    existing.prenom = prenom_norm
+                if not existing.categorie:
+                    existing.categorie = categorie
+                self._personne_cache[cache_key] = existing
+                return existing
+            personne = PersonneDB(
+                licence=licence_norm,
+                nom=nom.strip().upper(),
+                prenom=prenom_norm,
+                categorie=categorie,
+            )
+            self.session.add(personne)
+            self.session.flush()
+            self._personne_cache[cache_key] = personne
+            return personne
+
+        cache_key = f"NAME:{nom.strip().upper()}|{(prenom_norm or '').upper()}|{categorie}"
+        if cache_key in self._personne_cache:
+            return self._personne_cache[cache_key]
 
         existing = self.session.scalar(
-            select(JoueurDB).where(JoueurDB.licence == licence)
+            select(PersonneDB).where(
+                PersonneDB.nom == nom.strip().upper(),
+                PersonneDB.prenom == prenom_norm,
+                PersonneDB.categorie == categorie,
+            )
         )
         if existing:
-            self._joueur_cache[licence] = existing
+            self._personne_cache[cache_key] = existing
             return existing
 
-        joueur = JoueurDB(licence=licence, nom=nom, prenom=prenom)
+        personne = PersonneDB(
+            licence=None,
+            nom=nom.strip().upper(),
+            prenom=prenom_norm,
+            categorie=categorie,
+        )
+        self.session.add(personne)
+        self.session.flush()
+        self._personne_cache[cache_key] = personne
+        return personne
+
+    def _get_or_create_joueur(self, licence: Optional[str], nom: str, prenom: str) -> JoueurDB:
+        """Crée ou récupère un joueur en évitant les collisions sur licence 0/manquante."""
+        licence_norm = (licence or "").strip()
+        has_real_licence = bool(licence_norm and licence_norm != "0")
+
+        if has_real_licence:
+            cache_key = f"LIC:{licence_norm}"
+            if cache_key in self._joueur_cache:
+                return self._joueur_cache[cache_key]
+
+            existing = self.session.scalar(
+                select(JoueurDB).where(JoueurDB.licence == licence_norm)
+            )
+            if existing:
+                self._joueur_cache[cache_key] = existing
+                return existing
+
+            personne = self._get_or_create_personne(
+                licence=licence_norm,
+                nom=nom,
+                prenom=prenom,
+                categorie="joueur",
+            )
+            joueur = JoueurDB(
+                licence=licence_norm,
+                nom=nom,
+                prenom=prenom,
+                personne_id=personne.id,
+            )
+            self.session.add(joueur)
+            self.session.flush()
+            self._joueur_cache[cache_key] = joueur
+            return joueur
+
+        fallback_licence = self._build_no_licence_key(nom, prenom)
+        cache_key = f"NO_LIC:{fallback_licence}"
+        if cache_key in self._joueur_cache:
+            return self._joueur_cache[cache_key]
+
+        existing = self.session.scalar(
+            select(JoueurDB).where(JoueurDB.licence == fallback_licence)
+        )
+        if existing:
+            self._joueur_cache[cache_key] = existing
+            return existing
+
+        personne = self._get_or_create_personne(
+            licence=None,
+            nom=nom,
+            prenom=prenom,
+            categorie="joueur",
+        )
+        joueur = JoueurDB(
+            licence=fallback_licence,
+            nom=nom,
+            prenom=prenom,
+            personne_id=personne.id,
+        )
         self.session.add(joueur)
         self.session.flush()
-        self._joueur_cache[licence] = joueur
+        self._joueur_cache[cache_key] = joueur
         return joueur
 
     # =================================================================
@@ -1060,6 +1194,12 @@ class MatchImportService:
     ) -> None:
         """Importe les officiels d'équipe (entraîneurs, managers)."""
         for off in officiels:
+            personne = self._get_or_create_personne(
+                licence=off.licence,
+                nom=off.nom,
+                prenom=off.prenom,
+                categorie="officiel",
+            )
             off_db = OfficielMatchDB(
                 match_id=match_db.id,
                 equipe=equipe_label,
@@ -1067,6 +1207,7 @@ class MatchImportService:
                 nom=off.nom,
                 prenom=off.prenom,
                 licence=off.licence,
+                personne_id=personne.id,
             )
             self.session.add(off_db)
 
@@ -1177,6 +1318,228 @@ class MatchImportService:
             code_match, saison_id, source, score_sets,
         )
         return match_db
+
+    # =================================================================
+    # Enrichissement depuis un PDF parsé (Phase 2)
+    # =================================================================
+
+    def enrich_from_pdf(
+        self,
+        match_db: MatchDB,
+        parsed: Match,
+        *,
+        force: bool = False,
+    ) -> bool:
+        """Enrichit un match existant en base avec les données d'un PDF parsé.
+
+        C'est la méthode clé qui relie la Phase 1 (scrape CSV → DB) à la
+        Phase 2 (parse PDF → enrichissement). Elle met à jour le match avec
+        les données détaillées extraites du PDF : compositions, formations,
+        changements, timeouts, sanctions, arbitres, officiels.
+
+        Les scores et métadonnées ne sont **pas** écrasés si déjà présents
+        depuis l'export CSV (sauf si ``force=True``).
+
+        Args:
+            match_db: Enregistrement en base à enrichir.
+            parsed: Match Pydantic extrait du parser PDF.
+            force: Si True, écrase les données existantes y compris les scores.
+
+        Returns:
+            True si le match a été enrichi, False si rien n'a changé.
+        """
+        if not force and match_db.parsing_status == "parsed" and match_db.has_details:
+            logger.debug(
+                "enrich_from_pdf: match %s déjà parsé, ignoré",
+                match_db.code_match,
+            )
+            return False
+
+        updated = False
+        saison = match_db.saison
+
+        # ── Métadonnées du match (compléter, ne pas écraser) ──
+        if parsed.date and (not match_db.date_match or force):
+            match_db.date_match = self._parse_date(parsed.date)
+            updated = True
+        if parsed.heure and (not match_db.heure_match or force):
+            match_db.heure_match = self._time_to_string(parsed.heure)
+            updated = True
+        if parsed.salle and (not match_db.salle or force):
+            match_db.salle = parsed.salle
+            updated = True
+        if parsed.lieu and (not match_db.salle or force):
+            match_db.salle = match_db.salle or parsed.lieu
+            updated = True
+        if parsed.journee and (not match_db.journee or force):
+            match_db.journee = parsed.journee
+            updated = True
+
+        # ── Résultat (mettre à jour si plus riche ou si forcé) ──
+        if parsed.match_joue and (not match_db.match_joue or force):
+            match_db.match_joue = True
+            updated = True
+        if parsed.vainqueur_nom and (not match_db.vainqueur or force):
+            match_db.vainqueur = parsed.vainqueur_nom
+            updated = True
+        if parsed.score_final and (not match_db.score_sets or force):
+            match_db.score_sets = parsed.score_final
+            updated = True
+        if (parsed.sets_a or parsed.sets_b) and (
+            (match_db.sets_equipe_a == 0 and match_db.sets_equipe_b == 0) or force
+        ):
+            match_db.sets_equipe_a = parsed.sets_a
+            match_db.sets_equipe_b = parsed.sets_b
+            updated = True
+        if parsed.duree_totale and (not match_db.duree_totale or force):
+            match_db.duree_totale = parsed.duree_totale
+            updated = True
+
+        # ── Remarques ──
+        if parsed.remarques:
+            if match_db.remarques:
+                if parsed.remarques not in match_db.remarques:
+                    match_db.remarques = f"{match_db.remarques} | {parsed.remarques}"
+                    updated = True
+            else:
+                match_db.remarques = parsed.remarques
+                updated = True
+
+        # ── Sets détaillés (supprimer les anciens, recréer) ──
+        if parsed.sets:
+            # Supprimer les sets existants (scores basiques de l'export)
+            for old_set in list(match_db.sets):
+                self.session.delete(old_set)
+            self.session.flush()
+
+            self._import_sets(match_db, parsed.sets)
+            match_db.has_details = True
+            match_db.score_source = "pdf"
+            updated = True
+
+        # ── Équipes & Joueurs ──
+        if parsed.equipe_a:
+            equipe_a_db = self._resolve_equipe(
+                parsed.equipe_a, parsed, saison,
+                match_db.competition,
+            )
+            if equipe_a_db:
+                if not match_db.equipe_a_id or force:
+                    match_db.equipe_a_id = equipe_a_db.id
+                    updated = True
+                self._import_joueurs(match_db, parsed.equipe_a, equipe_a_db)
+
+        if parsed.equipe_b:
+            equipe_b_db = self._resolve_equipe(
+                parsed.equipe_b, parsed, saison,
+                match_db.competition,
+            )
+            if equipe_b_db:
+                if not match_db.equipe_b_id or force:
+                    match_db.equipe_b_id = equipe_b_db.id
+                    updated = True
+                self._import_joueurs(match_db, parsed.equipe_b, equipe_b_db)
+
+        self.session.flush()
+
+        # ── Arbitres ──
+        if parsed.arbitres:
+            # Supprimer les anciennes associations (souvent basiques depuis l'export)
+            for old_am in list(match_db.arbitrages):
+                self.session.delete(old_am)
+            self.session.flush()
+            self._import_arbitres(match_db, parsed.arbitres)
+            updated = True
+
+        # ── Sanctions ──
+        if parsed.sanctions:
+            # Supprimer les anciennes sanctions
+            for old_s in list(match_db.sanctions):
+                self.session.delete(old_s)
+            self.session.flush()
+            self._import_sanctions(match_db, parsed.sanctions)
+            updated = True
+
+        # ── Officiels d'équipe ──
+        if parsed.equipe_a and parsed.equipe_a.officiels:
+            for old_off in [o for o in match_db.officiels if o.equipe == "A"]:
+                self.session.delete(old_off)
+            self.session.flush()
+            self._import_officiels(match_db, parsed.equipe_a.officiels, "A")
+            updated = True
+        if parsed.equipe_b and parsed.equipe_b.officiels:
+            for old_off in [o for o in match_db.officiels if o.equipe == "B"]:
+                self.session.delete(old_off)
+            self.session.flush()
+            self._import_officiels(match_db, parsed.equipe_b.officiels, "B")
+            updated = True
+
+        # ── Statut et métadonnées ──
+        if updated:
+            match_db.parsing_status = "parsed"
+            match_db.source_pdf = parsed.source_pdf
+            match_db.parsed_at = parsed.parsed_at or datetime.now()
+            match_db.updated_at = datetime.now()
+            self.session.flush()
+
+        return updated
+
+    # =================================================================
+    # Requêtes de statut pour le pipeline
+    # =================================================================
+
+    def get_matches_by_status(
+        self,
+        status: str,
+        saison_id: Optional[int] = None,
+        *,
+        limit: Optional[int] = None,
+        played_only: bool = False,
+    ) -> list[MatchDB]:
+        """Récupère les matchs par statut de parsing.
+
+        Args:
+            status: Statut souhaité ("discovered", "downloaded", "parsed", "error").
+            saison_id: Filtrer par saison (optionnel).
+            limit: Nombre max de résultats.
+            played_only: Ne retourner que les matchs joués (match_joue=True).
+
+        Returns:
+            Liste de MatchDB correspondants.
+        """
+        stmt = select(MatchDB).where(MatchDB.parsing_status == status)
+        if saison_id is not None:
+            stmt = stmt.where(MatchDB.saison_id == saison_id)
+        if played_only:
+            stmt = stmt.where(MatchDB.match_joue == True)  # noqa: E712
+        stmt = stmt.order_by(MatchDB.code_match)
+        if limit:
+            stmt = stmt.limit(limit)
+        return list(self.session.scalars(stmt).all())
+
+    def get_parsing_status_summary(
+        self,
+        saison_id: Optional[int] = None,
+    ) -> dict[str, int]:
+        """Retourne un résumé du nombre de matchs par statut de parsing.
+
+        Returns:
+            Dict {"discovered": N, "downloaded": N, "parsed": N, "error": N, ...}
+        """
+        from sqlalchemy import func
+
+        stmt = (
+            select(
+                MatchDB.parsing_status,
+                func.count(MatchDB.id),
+            )
+            .group_by(MatchDB.parsing_status)
+        )
+        if saison_id is not None:
+            stmt = stmt.where(MatchDB.saison_id == saison_id)
+
+        result = self.session.execute(stmt).all()
+        return {status: count for status, count in result}
 
     def get_matches_without_scores(
         self, saison_id: Optional[int] = None,
