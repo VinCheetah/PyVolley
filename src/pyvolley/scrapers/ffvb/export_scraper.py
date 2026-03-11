@@ -104,8 +104,11 @@ class ExportMatchInfo:
     """
     code_match: str
     entite_code: str
-    poule_code: str       # Déduit du code_match (ex: "PMA" de "PMAA001")
-    saison: str
+    entite_nom: Optional[str] = None  # Nom de l'entité (enrichi)
+    entite_type: Optional[str] = None  # Type d'entité (enrichi)
+    poule_code: str = ""  # Déduit du code_match (ex: "PMA" de "PMAA001")
+    poule_code_ffvb: Optional[str] = None  # Code FFVB résolu (ex: "DSF" pour "DSFA")
+    saison: str = ""
     journee: Optional[str] = None
 
     # Équipes (avec codes club FFVB)
@@ -136,6 +139,21 @@ class ExportMatchInfo:
     # URL de la feuille de match (construite automatiquement)
     feuille_match_url: Optional[str] = None
 
+    # Phase aller/retour
+    phase_aller_retour: Optional[str] = None     # "ALLER", "RETOUR", None
+
+    # ── Métadonnées de compétition (enrichies par competition_info) ──
+    competition_nom: Optional[str] = None       # "ELITE MASCULINE - POULE A"
+    competition_groupe: Optional[str] = None     # "ELITE MASCULINE" (heading parent)
+    genre: Optional[str] = None                  # "MASCULIN", "FEMININ", "MIXTE"
+    categorie_age: Optional[str] = None          # "SENIOR", "M18", "M15", "M13", ...
+    niveau: Optional[str] = None                 # "ELITE", "NATIONALE", "REGIONALE", ...
+    division: Optional[str] = None               # "1", "2", "3"
+    division_code: Optional[str] = None          # Code division jeune (CMX, JFX, BMX...)
+    type_competition: Optional[str] = None       # "CHAMPIONNAT", "COUPE", "TOURNOI"
+    phase: Optional[str] = None                  # "POULE", "PLAY_OFF", "BARRAGE", ...
+    poule_lettre: Optional[str] = None           # "A", "B", "C", ...
+
     @property
     def sets_equipe_a(self) -> int:
         """Nombre de sets gagnés par l'équipe A."""
@@ -150,22 +168,97 @@ class ExportMatchInfo:
 def _extract_poule_code(code_match: str) -> str:
     """Extrait le code de poule du code match.
 
-    Le code match est de la forme ``XXXANNN`` ou ``XXXNNN`` où :
-    - XXX = code poule (2-4 lettres)
-    - A = lettre de poule optionnelle (A, B, C, ...)
-    - NNN = numéro de match (chiffres)
+    Le code match est de la forme ``XXXNNN`` où :
+    - XXX = code poule (2-4 caractères alphanumériques)
+    - NNN = numéro de match (3 chiffres)
+
+    La stratégie : on sépare le préfixe alphanumérique du suffixe
+    numérique de 3 chiffres. On ne peut PAS utiliser un quantificateur
+    lazy car les codes peuvent contenir des chiffres (ex. "CX1001"
+    doit donner "CX1", pas "CX").
 
     Exemples :
-      - "PMAA001" → "PMA"
-      - "EMA051"  → "EMA"
-      - "1FA008"  → "1FA"
-      - "SN1A003" → "SN1A"
+      - "PMAA001" → "PMAA"  (4 lettres + 001)
+      - "EMA051"  → "EMA"   (3 lettres + 051)
+      - "1FA008"  → "1FA"   (1 chiffre + 2 lettres + 008)
+      - "SN1A003" → "SN1A"  (2 lettres + 1 chiffre + 1 lettre + 003)
+      - "CX1001"  → "CX1"   (2 lettres + 1 chiffre + 001)
+      - "BG5006"  → "BG5"   (2 lettres + 1 chiffre + 006)
     """
-    match = re.match(r'^([A-Z0-9]+?)\d{2,}$', code_match)
+    # Séparer le suffixe numérique (exactement 3 chiffres en fin de match code)
+    match = re.match(r'^(.+?)(\d{3})$', code_match)
     if match:
         return match.group(1)
     # Fallback: prendre les 3 premiers caractères
     return code_match[:3] if len(code_match) >= 3 else code_match
+
+
+def normalize_poule_code(poule_code: str) -> tuple[str, Optional[str]]:
+    """Normalise un code de poule en supprimant le suffixe aller/retour.
+
+    Certaines compétitions ajoutent un 'A' (aller) ou 'R' (retour) à la fin
+    du code de poule de 3 lettres. Cela ne représente PAS une poule différente
+    mais simplement une phase de la même compétition.
+
+    Exemples :
+      - "DSFA" → ("DSF", "ALLER")
+      - "DSFR" → ("DSF", "RETOUR")
+      - "PRMA" → Ambigu : pourrait être Poule A ou phase aller.
+                 On réserve la normalisation aux codes de 4+ lettres
+                 dont le suffixe A/R ne fait pas partie du code de base.
+      - "EMA"  → ("EMA", None)  — pas de suffixe
+      - "EFA"  → ("EFA", None)  — le A fait partie du code (Poule A)
+
+    La détection se fait par heuristique :
+    - Code de 4+ caractères
+    - Dernière lettre = A ou R
+    - L'avant-dernière lettre N'EST PAS M ou F (sinon c'est genre + poule_lettre)
+
+    Returns:
+        Tuple (code_base, phase) où phase est "ALLER", "RETOUR" ou None.
+    """
+    if not poule_code or len(poule_code) < 4:
+        return poule_code, None
+
+    upper = poule_code.upper()
+    last = upper[-1]
+    before_last = upper[-2]
+
+    # Si le dernier caractère est A ou R et l'avant-dernier N'EST PAS
+    # M ou F (qui indiquerait genre + lettre de poule), c'est une phase
+    if last in ('A', 'R') and before_last not in ('M', 'F'):
+        # Vérifier qu'il ne s'agit pas d'un code comme SN1A (compétition à poule unique)
+        # Heuristique : le code de base doit avoir >= 3 caractères
+        base = upper[:-1]
+        if len(base) >= 3:
+            phase = "ALLER" if last == 'A' else "RETOUR"
+            return base, phase
+
+    return poule_code, None
+
+
+def is_empty_match(equipe_a_nom: Optional[str], equipe_b_nom: Optional[str],
+                   code_match: str) -> bool:
+    """Détermine si un match est un placeholder vide (xxxxx).
+
+    Ces entrées représentent une absence de match et ne doivent pas
+    être importées ni affichées.
+
+    Returns:
+        True si le match est un placeholder vide.
+    """
+    placeholder = {"xxxxx", "xxxxx ", " xxxxx", "xxxx", "xxx"}
+
+    if equipe_a_nom and equipe_a_nom.strip().lower() in placeholder:
+        return True
+    if equipe_b_nom and equipe_b_nom.strip().lower() in placeholder:
+        return True
+
+    # Les deux équipes manquantes = match vide
+    if not equipe_a_nom and not equipe_b_nom:
+        return True
+
+    return False
 
 
 def _parse_set_score(score_str: str) -> Optional[tuple[int, int]]:
@@ -369,12 +462,21 @@ def parse_export_csv(
         # Poule déduite du code match
         poule_code = _extract_poule_code(code_match)
 
+        # Aller/Retour : normaliser le code de poule
+        poule_code_base, phase_ar = normalize_poule_code(poule_code)
+
         # Équipes
         equipe_a_nom = _clean_str(row[COL_EQA_NOM])
         equipe_b_nom = _clean_str(row[COL_EQB_NOM])
-        # Filtrer le placeholder "xxxxx" utilisé pour les matchs sans adversaire
-        if equipe_b_nom and equipe_b_nom.lower() == "xxxxx":
-            equipe_b_nom = None
+
+        # Filtrer les matchs vides / placeholders (xxxxx)
+        if is_empty_match(equipe_a_nom, equipe_b_nom, code_match):
+            logger.debug(
+                "Match vide ignoré: %s (%s vs %s)",
+                code_match, equipe_a_nom, equipe_b_nom,
+            )
+            continue
+
         club_a_code = _clean_str(row[COL_EQA_NO])
         club_b_code = _clean_str(row[COL_EQB_NO])
 
@@ -481,6 +583,7 @@ def parse_export_csv(
             code_match=code_match,
             entite_code=entite_code,
             poule_code=poule_code,
+            poule_code_ffvb=poule_code_base if phase_ar else None,
             saison=saison,
             journee=journee,
             equipe_a_nom=equipe_a_nom,
@@ -499,6 +602,7 @@ def parse_export_csv(
             juges_de_ligne=juges,
             marqueurs=marqueurs,
             feuille_match_url=feuille_url,
+            phase_aller_retour=phase_ar,
         )
 
         matches.append(match_info)
@@ -540,3 +644,138 @@ def get_unique_clubs(matches: list[ExportMatchInfo]) -> set[str]:
         if m.club_b_code_ffvb:
             clubs.add(m.club_b_code_ffvb)
     return clubs
+
+
+def enrich_matches_with_competition_info(
+    matches: list[ExportMatchInfo],
+    client: HttpClient,
+    base_url: str,
+    entite_code: str,
+    saison: str,
+) -> list[ExportMatchInfo]:
+    """Enrichit les matchs avec les métadonnées de compétition.
+
+    Scrape la page d'accueil FFVB (``vbspo_home.php``) pour construire
+    l'index de toutes les compétitions de l'entité, puis l'utilise pour
+    enrichir chaque match avec : genre, catégorie, niveau, division,
+    nom de compétition, etc.
+
+    Les matchs dont le code de poule n'est pas trouvé dans l'index sont
+    enrichis par analyse du code seul (fallback ``enrich_competition_meta_from_code``).
+
+    Args:
+        matches: Liste de matchs à enrichir (modifiés in-place).
+        client: Client HTTP.
+        base_url: URL de base FFVB.
+        entite_code: Code de l'entité.
+        saison: Saison au format "YYYY/YYYY".
+
+    Returns:
+        La même liste de matchs (enrichis in-place).
+    """
+    from pyvolley.scrapers.ffvb.competition_info import (
+        build_competition_index,
+        enrich_competition_meta_from_code,
+    )
+
+    # Construire l'index des compétitions (ou le récupérer du cache)
+    index = build_competition_index(client, base_url, entite_code, saison)
+
+    enriched = 0
+    prefix_enriched = 0
+    fallback = 0
+
+    for match in matches:
+        # Enrichir les infos entité
+        if not match.entite_nom and index.entite_nom != entite_code:
+            match.entite_nom = index.entite_nom
+        if not match.entite_type and index.entite_type != "autre":
+            match.entite_type = index.entite_type
+
+        meta = index.get(match.poule_code)
+
+        # Si pas trouvé, essayer le code de base (sans suffixe aller/retour).
+        # Le CSV produit des codes 4+ lettres (ex: DSFA, DSFR, PRMA, JFAA)
+        # alors que l'index FFVB utilise des codes 3 lettres (DSF, PRM, JFA).
+        # Le suffixe A/R représente la phase aller/retour.
+        resolved_base_code = None
+        if not meta and match.poule_code_ffvb:
+            # Utiliser directement le code base déjà normalisé
+            meta = index.get(match.poule_code_ffvb)
+            if meta:
+                resolved_base_code = match.poule_code_ffvb
+
+        if not meta and len(match.poule_code) >= 4:
+            for prefix_len in range(len(match.poule_code) - 1, 1, -1):
+                prefix = match.poule_code[:prefix_len]
+                meta = index.get(prefix)
+                if meta:
+                    resolved_base_code = prefix
+                    break
+
+        if meta:
+            match.competition_nom = meta.nom_complet
+            match.competition_groupe = meta.categorie_groupe
+            match.genre = meta.genre
+            match.categorie_age = meta.categorie_age
+            match.niveau = meta.niveau
+            match.division = meta.division
+            match.type_competition = meta.type_competition
+            match.phase = meta.phase
+            match.poule_lettre = meta.poule_lettre
+            if resolved_base_code:
+                match.poule_code_ffvb = resolved_base_code
+                prefix_enriched += 1
+            else:
+                match.poule_code_ffvb = match.poule_code
+                enriched += 1
+        else:
+            # Fallback : enrichir à partir du code seul
+            fb_meta = enrich_competition_meta_from_code(
+                match.poule_code,
+                entite_type=index.entite_type,
+            )
+            match.genre = fb_meta.genre
+            match.categorie_age = fb_meta.categorie_age
+            match.niveau = fb_meta.niveau
+            match.division = fb_meta.division
+            match.poule_lettre = fb_meta.poule_lettre
+            fallback += 1
+
+    logger.info(
+        "Enrichissement compétitions %s: %d enrichis (index), %d via préfixe, %d fallback (code), %d total",
+        entite_code, enriched, prefix_enriched, fallback, len(matches),
+    )
+
+    return matches
+
+
+def fetch_and_enrich_export(
+    client: HttpClient,
+    base_url: str,
+    entite_code: str,
+    saison: str,
+    *,
+    poule: Optional[str] = None,
+) -> list[ExportMatchInfo]:
+    """Télécharge l'export CSV et enrichit avec les métadonnées de compétition.
+
+    Combinaison de ``fetch_export`` + ``enrich_matches_with_competition_info``
+    en un seul appel pratique.
+
+    Args:
+        client: Client HTTP.
+        base_url: URL de base FFVB.
+        entite_code: Code de l'entité.
+        saison: Saison au format "YYYY/YYYY".
+        poule: Code de poule optionnel.
+
+    Returns:
+        Liste de matchs enrichis.
+    """
+    matches = fetch_export(client, base_url, entite_code, saison, poule=poule)
+    if matches:
+        enrich_matches_with_competition_info(
+            matches, client, base_url, entite_code, saison,
+        )
+    return matches

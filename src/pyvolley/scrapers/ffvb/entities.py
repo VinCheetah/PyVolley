@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 # Entités non listées dans le menu déroulant du site mais accessibles directement
 HIDDEN_ENTITIES = [
     EntityInfo(code="AALNV", nom="Compétitions Professionnelles LNV", type="nationale"),
+    EntityInfo(code="ACJEUNES", nom="Coupe de France Jeunes", type="nationale"),
 ]
 
 

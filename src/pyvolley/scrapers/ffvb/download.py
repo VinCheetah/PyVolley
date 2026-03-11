@@ -146,7 +146,7 @@ def search_by_code(
         ctx.client.rate_limit()
         response = ctx.client.session.head(pdf_url, timeout=ctx.client.timeout)
         if response.status_code == 200:
-            poule_match = re.match(r"([A-Z]+)", match_code)
+            poule_match = re.match(r"([A-Z]{2}[A-Z0-9])", match_code)
             competition_code = poule_match.group(1) if poule_match else match_code[:3]
 
             return MatchInfo(

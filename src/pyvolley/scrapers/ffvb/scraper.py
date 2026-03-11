@@ -9,6 +9,7 @@ Ce module compose les sous-modules :
   - export_scraper : extraction de donnees depuis l'export CSV
   - entities : decouverte des entites (ligues, comites)
   - download : telechargement de PDFs
+  - jeunes : scraping des competitions jeunes (Coupe de France Jeunes)
 """
 
 from __future__ import annotations
@@ -31,6 +32,7 @@ from pyvolley.scrapers.ffvb import entities as _ent
 from pyvolley.scrapers.ffvb.export_scraper import (
     ExportMatchInfo,
     fetch_export,
+    fetch_and_enrich_export,
     get_unique_clubs,
     get_unique_poules,
 )
@@ -40,6 +42,7 @@ from pyvolley.scrapers.ffvb.utils import (
     detect_categorie,
     detect_genre,
     get_current_saison,
+    is_youth_entity,
 )
 
 logger = logging.getLogger(__name__)
@@ -110,22 +113,37 @@ class FFVBScraper(BaseScraper):
         saison: Optional[str] = None,
         *,
         poule: Optional[str] = None,
+        divisions: Optional[list[str]] = None,
     ) -> list[ExportMatchInfo]:
         """Recupere tous les matchs d'une entite via l'export CSV.
 
         C'est la methode principale de la Phase 1. Une seule requete HTTP
         retourne toutes les donnees structurees.
 
+        Pour les entites jeunes (ACJEUNES), l'export global est trop lent.
+        La methode route automatiquement vers ``scrape_youth_entity``
+        qui itere par division.
+
         Args:
-            entite_code: Code de l'entite (ex: ABCCS)
+            entite_code: Code de l'entite (ex: ABCCS, ACJEUNES)
             saison: Saison (ex: 2025/2026). Par defaut : saison courante.
             poule: Code poule optionnel pour filtrer.
+            divisions: Pour jeunes uniquement — codes division a scraper.
 
         Returns:
             Liste de ExportMatchInfo avec toutes les metadonnees.
         """
         saison = saison or get_current_saison()
-        return fetch_export(
+
+        # Routage specifique pour les entites jeunes
+        if is_youth_entity(entite_code):
+            all_matches: list[ExportMatchInfo] = []
+            by_div = self.scrape_youth_entity(saison, divisions=divisions)
+            for div_matches in by_div.values():
+                all_matches.extend(div_matches)
+            return all_matches
+
+        return fetch_and_enrich_export(
             self._client,
             self._base_url,
             entite_code,
@@ -267,3 +285,117 @@ class FFVBScraper(BaseScraper):
     @staticmethod
     def _detect_categorie(nom: str) -> Optional[str]:
         return detect_categorie(nom)
+
+    # -- Coupe de France Jeunes (ACJEUNES) ---------------------------------
+
+    def get_youth_cup_index(
+        self,
+        saison: Optional[str] = None,
+        *,
+        force_refresh: bool = False,
+    ):
+        """Recupere l'index complet de la Coupe de France Jeunes.
+
+        Scrape la page de navigation jeunes pour decouvrir toutes les
+        categories, divisions et tours disponibles.
+
+        Args:
+            saison: Saison (defaut: saison courante).
+            force_refresh: Force le re-scraping (ignore le cache).
+
+        Returns:
+            YouthCupIndex complet.
+        """
+        from pyvolley.scrapers.ffvb.jeunes import get_youth_cup_index
+
+        saison = saison or get_current_saison()
+        return get_youth_cup_index(
+            self._client, self._base_url, saison,
+            force_refresh=force_refresh,
+        )
+
+    def scrape_youth_division(
+        self,
+        division: str,
+        saison: Optional[str] = None,
+    ) -> list[ExportMatchInfo]:
+        """Scrape une division jeune via l'export CSV.
+
+        Telecharge le CSV complet ACJEUNES (avec cache) puis filtre
+        les matchs appartenant a la division demandee en se basant
+        sur le code de poule de chaque match.
+
+        Args:
+            division: Code division (ex: CMX, JFX, BMX).
+            saison: Saison.
+
+        Returns:
+            Liste de ExportMatchInfo pour cette division.
+        """
+        from pyvolley.scrapers.ffvb.jeunes import fetch_youth_export
+
+        saison = saison or get_current_saison()
+        return fetch_youth_export(
+            self._client, self._base_url, saison, division=division,
+        )
+
+    def scrape_youth_tour(
+        self,
+        division: str,
+        tour: int,
+        saison: Optional[str] = None,
+    ):
+        """Scrape un tour specifique d'une division jeune.
+
+        Parse la page calendrier HTML d'un tour pour decouvrir les
+        poules, les classements et les resultats de matchs.
+
+        Args:
+            division: Code division (ex: CMX).
+            tour: Numero du tour (1, 2, 3...).
+            saison: Saison.
+
+        Returns:
+            Liste de YouthPouleInfo avec equipes et matchs.
+        """
+        from pyvolley.scrapers.ffvb.jeunes import scrape_youth_tour
+
+        saison = saison or get_current_saison()
+        return scrape_youth_tour(
+            self._client, self._base_url, saison, division, tour,
+        )
+
+    def scrape_youth_entity(
+        self,
+        saison: Optional[str] = None,
+        *,
+        divisions: Optional[list[str]] = None,
+    ) -> dict[str, list[ExportMatchInfo]]:
+        """Scrape toutes les divisions jeunes (ou un sous-ensemble).
+
+        Telecharge le CSV complet ACJEUNES en UNE requete, puis repartit
+        les matchs par division en se basant sur le code de poule.
+
+        Args:
+            saison: Saison.
+            divisions: Liste optionnelle de codes division a scraper.
+                Par defaut: toutes les divisions trouvees.
+
+        Returns:
+            Dict {division_code: [ExportMatchInfo]}.
+        """
+        from pyvolley.scrapers.ffvb.jeunes import fetch_youth_export_by_division
+
+        saison = saison or get_current_saison()
+        all_by_div = fetch_youth_export_by_division(
+            self._client, self._base_url, saison,
+        )
+
+        # Filtrer par divisions demandees si necessaire
+        if divisions:
+            div_set = set(divisions)
+            all_by_div = {
+                k: v for k, v in all_by_div.items() if k in div_set
+            }
+
+        return all_by_div
