@@ -52,6 +52,7 @@ dist/
 # Database
 pyvolley.db
 data/*.db
+data
 
 # OS
 .DS_Store
@@ -59,4 +60,4 @@ Thumbs.db
 
 PyVolley/
 
-feuilles_match/
+skills/
