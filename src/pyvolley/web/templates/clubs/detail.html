@@ -41,13 +41,45 @@
                     {% if club.departement %}
                     <span class="badge badge-purple">Dép. {{ club.departement }}</span>
                     {% endif %}
+                    {% if club.ligue %}
+                    <span class="badge badge-green">
+                        <i data-lucide="landmark" class="w-3 h-3 mr-1"></i>
+                        {{ club.ligue }}
+                    </span>
+                    {% endif %}
+                    {% if club.couleurs %}
+                    <span class="badge badge-gold">
+                        <i data-lucide="palette" class="w-3 h-3 mr-1"></i>
+                        {{ club.couleurs }}
+                    </span>
+                    {% endif %}
                 </div>
+                {% if club.url_planning or club.url_classement %}
+                <div class="flex flex-wrap gap-2 mt-3">
+                    {% if club.url_planning %}
+                    <a href="{{ club.url_planning }}" target="_blank" rel="noopener noreferrer"
+                       class="badge badge-blue hover:opacity-80 transition">
+                        <i data-lucide="calendar-days" class="w-3 h-3 mr-1"></i>
+                        Planning FFVB
+                        <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
+                    </a>
+                    {% endif %}
+                    {% if club.url_classement %}
+                    <a href="{{ club.url_classement }}" target="_blank" rel="noopener noreferrer"
+                       class="badge badge-green hover:opacity-80 transition">
+                        <i data-lucide="list-ordered" class="w-3 h-3 mr-1"></i>
+                        Classement FFVB
+                        <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
+                    </a>
+                    {% endif %}
+                </div>
+                {% endif %}
             </div>
         </div>
     </div>
 
     <!-- Stats -->
-    <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div class="stat-card">
             <div class="stat-value gradient-text-gold">{{ equipes|length }}</div>
             <div class="stat-label">Équipes</div>
@@ -63,23 +95,209 @@
             <div class="stat-label">Saisons</div>
         </div>
         <div class="stat-card">
+            {% set salles_count = club.salles|length if club.salles else 0 %}
+            <div class="stat-value" style="color: var(--accent-cyan);">{{ salles_count }}</div>
+            <div class="stat-label">Salles</div>
+        </div>
+        <div class="stat-card">
             {% set aliases_count = club.aliases|length if club.aliases else 0 %}
             <div class="stat-value" style="color: var(--text-secondary);">{{ aliases_count }}</div>
             <div class="stat-label">Alias</div>
         </div>
     </div>
 
+    <!-- Informations & Dirigeants -->
+    {% set has_dirigeants = club.president or club.entraineur or club.entraineur_adjoint %}
+    {% set has_contact = club.correspondant_nom or club.correspondant_email or club.correspondant_telephone or club.correspondant_portable %}
+    {% if has_dirigeants or has_contact %}
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        <!-- Dirigeants -->
+        {% if has_dirigeants %}
+        <div class="card p-6">
+            <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+                <i data-lucide="users" class="w-4 h-4 inline-block mr-1"></i> Dirigeants
+            </h2>
+            <dl class="space-y-3">
+                {% if club.president %}
+                <div class="flex justify-between items-center py-1" style="border-bottom: 1px solid rgba(42,48,80,0.3);">
+                    <dt style="color: var(--text-secondary);">
+                        <i data-lucide="crown" class="w-3 h-3 inline-block mr-1" style="color: var(--accent-gold);"></i>
+                        Président(e)
+                    </dt>
+                    <dd class="font-medium text-white">{{ club.president }}</dd>
+                </div>
+                {% endif %}
+                {% if club.entraineur %}
+                <div class="flex justify-between items-center py-1" style="border-bottom: 1px solid rgba(42,48,80,0.3);">
+                    <dt style="color: var(--text-secondary);">
+                        <i data-lucide="clipboard-list" class="w-3 h-3 inline-block mr-1" style="color: var(--accent-blue);"></i>
+                        Entraîneur
+                    </dt>
+                    <dd class="font-medium text-white">{{ club.entraineur }}</dd>
+                </div>
+                {% endif %}
+                {% if club.entraineur_adjoint %}
+                <div class="flex justify-between items-center py-1">
+                    <dt style="color: var(--text-secondary);">
+                        <i data-lucide="clipboard-list" class="w-3 h-3 inline-block mr-1" style="color: var(--accent-cyan);"></i>
+                        Entraîneur adjoint
+                    </dt>
+                    <dd class="font-medium text-white">{{ club.entraineur_adjoint }}</dd>
+                </div>
+                {% endif %}
+            </dl>
+        </div>
+        {% endif %}
+
+        <!-- Contact / Correspondant -->
+        {% if has_contact %}
+        <div class="card p-6">
+            <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+                <i data-lucide="contact" class="w-4 h-4 inline-block mr-1"></i> Correspondant
+            </h2>
+            <dl class="space-y-3">
+                {% if club.correspondant_nom %}
+                <div class="flex justify-between items-center py-1" style="border-bottom: 1px solid rgba(42,48,80,0.3);">
+                    <dt style="color: var(--text-secondary);">
+                        <i data-lucide="user" class="w-3 h-3 inline-block mr-1"></i>
+                        Nom
+                    </dt>
+                    <dd class="font-medium text-white">{{ club.correspondant_nom }}</dd>
+                </div>
+                {% endif %}
+                {% if club.correspondant_email %}
+                <div class="flex justify-between items-center py-1" style="border-bottom: 1px solid rgba(42,48,80,0.3);">
+                    <dt style="color: var(--text-secondary);">
+                        <i data-lucide="mail" class="w-3 h-3 inline-block mr-1"></i>
+                        Email
+                    </dt>
+                    <dd>
+                        <a href="mailto:{{ club.correspondant_email }}" class="font-medium hover:text-white transition"
+                           style="color: var(--accent-blue);">{{ club.correspondant_email }}</a>
+                    </dd>
+                </div>
+                {% endif %}
+                {% if club.correspondant_telephone %}
+                <div class="flex justify-between items-center py-1" style="border-bottom: 1px solid rgba(42,48,80,0.3);">
+                    <dt style="color: var(--text-secondary);">
+                        <i data-lucide="phone" class="w-3 h-3 inline-block mr-1"></i>
+                        Téléphone
+                    </dt>
+                    <dd class="font-medium text-white font-mono">{{ club.correspondant_telephone }}</dd>
+                </div>
+                {% endif %}
+                {% if club.correspondant_portable %}
+                <div class="flex justify-between items-center py-1" style="border-bottom: 1px solid rgba(42,48,80,0.3);">
+                    <dt style="color: var(--text-secondary);">
+                        <i data-lucide="smartphone" class="w-3 h-3 inline-block mr-1"></i>
+                        Portable
+                    </dt>
+                    <dd class="font-medium text-white font-mono">{{ club.correspondant_portable }}</dd>
+                </div>
+                {% endif %}
+                {% if club.correspondant_adresse or club.correspondant_ville %}
+                <div class="flex justify-between items-center py-1">
+                    <dt style="color: var(--text-secondary);">
+                        <i data-lucide="map-pin" class="w-3 h-3 inline-block mr-1"></i>
+                        Adresse
+                    </dt>
+                    <dd class="font-medium text-white text-right max-w-xs">
+                        {% if club.correspondant_adresse %}{{ club.correspondant_adresse }}{% endif %}
+                        {% if club.correspondant_adresse and club.correspondant_ville %}<br>{% endif %}
+                        {% if club.correspondant_ville %}{{ club.correspondant_ville }}{% endif %}
+                    </dd>
+                </div>
+                {% endif %}
+            </dl>
+        </div>
+        {% endif %}
+
+    </div>
+    {% endif %}
+
+    <!-- Salles -->
+    {% if club.salles %}
+    <div class="card overflow-hidden">
+        <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
+            <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                <i data-lucide="warehouse" class="w-4 h-4 inline-block mr-1"></i>
+                Salles ({{ club.salles|length }})
+            </h2>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 p-4">
+            {% for salle in club.salles|sort(attribute='numero') %}
+            <div class="card p-5" style="background: var(--bg-card-hover);">
+                <div class="flex items-start gap-3">
+                    <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+                         style="background: rgba(6,182,212,0.15);">
+                        <span class="font-bold text-sm" style="color: var(--accent-cyan);">S{{ salle.numero }}</span>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="font-semibold text-white mb-2">{{ salle.nom or 'Salle ' ~ salle.numero }}</div>
+                        <dl class="space-y-1.5 text-sm">
+                            {% if salle.adresse or salle.ville %}
+                            <div class="flex items-start gap-2">
+                                <i data-lucide="map-pin" class="w-3 h-3 mt-0.5 flex-shrink-0" style="color: var(--text-muted);"></i>
+                                <span style="color: var(--text-secondary);">
+                                    {% if salle.adresse %}{{ salle.adresse }}{% endif %}
+                                    {% if salle.adresse and salle.ville %}, {% endif %}
+                                    {% if salle.ville %}{{ salle.ville }}{% endif %}
+                                </span>
+                            </div>
+                            {% endif %}
+                            {% if salle.telephone %}
+                            <div class="flex items-center gap-2">
+                                <i data-lucide="phone" class="w-3 h-3 flex-shrink-0" style="color: var(--text-muted);"></i>
+                                <span class="font-mono" style="color: var(--text-secondary);">{{ salle.telephone }}</span>
+                            </div>
+                            {% endif %}
+                            <div class="flex flex-wrap gap-1.5 mt-2">
+                                {% if salle.sol %}
+                                <span class="badge" style="font-size: 0.65rem;">
+                                    <i data-lucide="layers" class="w-2.5 h-2.5 mr-0.5"></i>
+                                    {{ salle.sol }}
+                                </span>
+                                {% endif %}
+                                {% if salle.capacite %}
+                                <span class="badge badge-blue" style="font-size: 0.65rem;">
+                                    <i data-lucide="users" class="w-2.5 h-2.5 mr-0.5"></i>
+                                    {{ salle.capacite }} places
+                                </span>
+                                {% endif %}
+                            </div>
+                            {% if salle.transport %}
+                            <div class="flex items-start gap-2 mt-1">
+                                <i data-lucide="bus" class="w-3 h-3 mt-0.5 flex-shrink-0" style="color: var(--text-muted);"></i>
+                                <span class="text-xs" style="color: var(--text-muted);">{{ salle.transport }}</span>
+                            </div>
+                            {% endif %}
+                        </dl>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Equipes du club -->
     <div class="card overflow-hidden">
         <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
             <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
                 <i data-lucide="shield" class="w-4 h-4 inline-block mr-1"></i>
-                Équipes du club
+                Équipes du club ({{ equipes|length }})
             </h2>
         </div>
         {% if equipes %}
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
             {% for eq in equipes %}
+            {% set niveau_badge = resolve_niveau_badge(
+                eq.niveau or (eq.competition.niveau if eq.competition else None),
+                eq.competition.nom if eq.competition else eq.nom,
+                eq.categorie or (eq.competition.categorie if eq.competition else None),
+                eq.division or (eq.competition.division if eq.competition else None)
+            ) %}
             <a href="/equipes/{{ eq.id }}" class="card card-interactive p-4 no-underline">
                 <div class="flex items-center gap-3">
                     <div class="w-10 h-10 rounded-xl flex items-center justify-center"
@@ -108,11 +326,17 @@
                             {% if eq.categorie %}
                             <span class="badge badge-gold" style="font-size: 0.6rem;">{{ eq.categorie }}</span>
                             {% endif %}
-                            {% if eq.niveau %}
-                            <span class="badge badge-green" style="font-size: 0.6rem;">{{ eq.niveau }}</span>
+                            {% if niveau_badge %}
+                            <span class="badge {{ niveau_badge.css_class }}" style="font-size: 0.6rem;">{{ niveau_badge.label }}</span>
                             {% endif %}
                             {% if eq.division %}
                             <span class="badge" style="font-size: 0.6rem;">Div. {{ eq.division }}</span>
+                            {% endif %}
+                            {% if eq.competition %}
+                            <span class="badge" style="font-size: 0.6rem;" title="{{ eq.competition.nom }}">
+                                <i data-lucide="medal" class="w-2.5 h-2.5 mr-0.5"></i>
+                                {{ eq.competition.nom|truncate_name(20) }}
+                            </span>
                             {% endif %}
                         </div>
                     </div>
@@ -129,7 +353,7 @@
     {% if club.aliases %}
     <div class="card p-6">
         <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
-            <i data-lucide="tag" class="w-4 h-4 inline-block mr-1"></i> Alias connus
+            <i data-lucide="tag" class="w-4 h-4 inline-block mr-1"></i> Alias connus ({{ club.aliases|length }})
         </h2>
         <div class="flex flex-wrap gap-2">
             {% for alias in club.aliases %}

@@ -17,6 +17,7 @@ from pyvolley.api.dependencies import (
     get_saison_repo,
     get_competition_repo,
     get_arbitre_repo,
+    get_poule_repo,
     get_session,
 )
 from pyvolley.database.repositories import (
@@ -27,7 +28,10 @@ from pyvolley.database.repositories import (
     SaisonRepository,
     CompetitionRepository,
     ArbitreRepository,
+    PouleRepository,
 )
+from pyvolley.scrapers.ffvb.utils import build_equipe_ffvb_url
+from pyvolley.core.config import get_settings
 
 
 web_router = APIRouter()
@@ -256,12 +260,28 @@ async def equipe_detail(
     # Construire les données d'évolution de niveau
     niveau_evolution = _build_niveau_evolution(matchs, equipe)
 
+    # URL FFVB pour l'équipe (planning du club sur le site de l'entité)
+    url_ffvb = None
+    if (equipe.club and equipe.club.code_ffvb
+            and equipe.competition and equipe.competition.entite
+            and equipe.saison):
+        settings = get_settings()
+        # La saison en BDD est "2025-2026", FFVB attend "2025/2026"
+        saison_ffvb = equipe.saison.code.replace("-", "/")
+        url_ffvb = build_equipe_ffvb_url(
+            base_url=settings.ffvb_base_url,
+            entity_code=equipe.competition.entite.code,
+            saison=saison_ffvb,
+            club_code_ffvb=equipe.club.code_ffvb,
+        )
+
     return templates.TemplateResponse("equipes/detail.html", {
         "request": request, "equipe": equipe, "matchs": matchs,
         "victoires": victoires, "defaites": len([m for m in matchs if m.match_joue]) - victoires,
         "roster": roster,
         "sets_gagnes": sets_gagnes, "sets_perdus": sets_perdus,
         "niveau_evolution_json": json.dumps(niveau_evolution, ensure_ascii=False, default=str),
+        "url_ffvb": url_ffvb,
     })
 
 
@@ -292,7 +312,7 @@ async def club_detail(
     club_repo: ClubRepository = Depends(get_club_repo),
     equipe_repo: EquipeRepository = Depends(get_equipe_repo),
 ):
-    club = club_repo.get(club_id)
+    club = club_repo.get_with_details(club_id)
     if not club:
         return templates.TemplateResponse("error.html",
             {"request": request, "message": "Club non trouvé"}, status_code=404)
@@ -430,10 +450,12 @@ async def competitions_list(
 
     limit = 50
     if saison_id_int:
-        competitions = repo.get_by_saison(saison_id_int, genre=genre, categorie=categorie)
+        competitions = repo.get_by_saison(saison_id_int, genre=genre, categorie=categorie,
+                                          exclude_code_only=True)
     else:
         offset = (page - 1) * limit
-        competitions = repo.get_all(limit=limit, offset=offset, genre=genre, categorie=categorie)
+        competitions = repo.get_all(limit=limit, offset=offset, genre=genre, categorie=categorie,
+                                    exclude_code_only=True)
     total = repo.count()
     saisons = saison_repo.get_all(limit=20)
     genres = repo.get_distinct_genres()
@@ -461,11 +483,38 @@ async def competition_detail(
         return templates.TemplateResponse("error.html",
             {"request": request, "message": "Compétition non trouvée"}, status_code=404)
 
+    # Detect youth competition
+    from pyvolley.scrapers.ffvb.jeunes import is_youth_competition, get_tour_label
+    is_jeunes = is_youth_competition(competition.nom)
+
+    if is_jeunes:
+        return await _render_youth_competition(
+            request, competition, competition_repo, match_repo, equipe_repo,
+        )
+
+    is_multi_poule = competition.poules and len(competition.poules) > 1
+
     # Classement complet avec évolution
-    classement = competition_repo.get_classement(competition_id)
+    classement = None
     evolution_json = []
-    if classement and classement.evolution:
-        evolution_json = [e.model_dump(mode="json") for e in classement.evolution]
+    poules_classements = []
+
+    if is_multi_poule:
+        # Multi-poule : classement séparé par poule
+        poules_classements_raw = competition_repo.get_classements_par_poule(competition_id)
+        poules_classements = []
+        for poule, cls in poules_classements_raw:
+            evo = [e.model_dump(mode="json") for e in cls.evolution] if cls.evolution else []
+            poules_classements.append({
+                "poule": poule,
+                "classement": cls,
+                "evolution_json": evo,
+            })
+    else:
+        # Single poule : classement global
+        classement = competition_repo.get_classement(competition_id)
+        if classement and classement.evolution:
+            evolution_json = [e.model_dump(mode="json") for e in classement.evolution]
 
     # Matchs de la compétition
     matchs = match_repo.search(competition_id=competition_id, limit=500)
@@ -478,8 +527,573 @@ async def competition_detail(
         "competition": competition,
         "classement": classement,
         "evolution_json": evolution_json,
+        "poules_classements": poules_classements,
+        "is_multi_poule": is_multi_poule,
         "matchs": matchs,
         "equipes": equipes,
+    })
+
+
+def _build_bracket_tree(bracket_matchs_sorted: list) -> dict | None:
+    """Build structured bracket tree from 12 sorted matches (3 rounds × 4).
+
+    Returns a dict with upper/lower QF, SF, final, bronze, consolation &
+    placement matches, properly mapped by team flow analysis.
+    """
+    if len(bracket_matchs_sorted) < 12:
+        return None
+
+    round1 = bracket_matchs_sorted[0:4]   # QF
+    round2 = bracket_matchs_sorted[4:8]   # SF + consolation
+    round3 = bracket_matchs_sorted[8:12]  # Finals + placement
+
+    def _winner_loser(m):
+        if not m.match_joue:
+            return None, None
+        sa, sb = (m.sets_equipe_a or 0), (m.sets_equipe_b or 0)
+        if sa > sb:
+            return m.equipe_a_id, m.equipe_b_id
+        return m.equipe_b_id, m.equipe_a_id
+
+    # ── QF results ──
+    qf_winners: dict[int, int] = {}   # qf_index → winner_id
+    qf_losers: dict[int, int] = {}    # qf_index → loser_id
+    for i, m in enumerate(round1):
+        w, l = _winner_loser(m)
+        if w:
+            qf_winners[i] = w
+        if l:
+            qf_losers[i] = l
+
+    qf_winner_set = set(qf_winners.values())
+    qf_loser_set = set(qf_losers.values())
+
+    # ── Classify R2 as SF or consolation ──
+    sf_matches: list = []
+    consolation_matches: list = []
+    for m in round2:
+        teams = {m.equipe_a_id, m.equipe_b_id}
+        if teams <= qf_winner_set:
+            sf_matches.append(m)
+        elif teams <= qf_loser_set:
+            consolation_matches.append(m)
+        else:
+            sf_matches.append(m)  # fallback
+
+    # ── Map QF → SF by team tracking ──
+    qf_to_sf: dict[int, int] = {}
+    for si, sf in enumerate(sf_matches):
+        sf_teams = {sf.equipe_a_id, sf.equipe_b_id}
+        for qi, wid in qf_winners.items():
+            if wid in sf_teams:
+                qf_to_sf[qi] = si
+
+    upper_qf_idx = sorted(qi for qi, si in qf_to_sf.items() if si == 0)
+    lower_qf_idx = sorted(qi for qi, si in qf_to_sf.items() if si == 1)
+    if len(upper_qf_idx) != 2:
+        upper_qf_idx, lower_qf_idx = [0, 1], [2, 3]
+
+    # ── Map consolation to QF pairs (by losers) ──
+    upper_consolation = lower_consolation = None
+    upper_losers = {qf_losers.get(i) for i in upper_qf_idx} - {None}
+    lower_losers = {qf_losers.get(i) for i in lower_qf_idx} - {None}
+    for c in consolation_matches:
+        c_teams = {c.equipe_a_id, c.equipe_b_id}
+        if c_teams <= upper_losers:
+            upper_consolation = c
+        elif c_teams <= lower_losers:
+            lower_consolation = c
+
+    # ── Classify R3 by team provenance ──
+    sf_w_set, sf_l_set = set(), set()
+    for m in sf_matches:
+        w, l = _winner_loser(m)
+        if w:
+            sf_w_set.add(w)
+        if l:
+            sf_l_set.add(l)
+
+    c_w_set, c_l_set = set(), set()
+    for m in consolation_matches:
+        w, l = _winner_loser(m)
+        if w:
+            c_w_set.add(w)
+        if l:
+            c_l_set.add(l)
+
+    final_match = bronze_match = place_5_6 = place_7_8 = None
+    for m in round3:
+        teams = {m.equipe_a_id, m.equipe_b_id}
+        if teams <= sf_w_set:
+            final_match = m
+        elif teams <= sf_l_set:
+            bronze_match = m
+        elif teams <= c_w_set:
+            place_5_6 = m
+        elif teams <= c_l_set:
+            place_7_8 = m
+
+    return {
+        "qf_upper": [round1[i] for i in upper_qf_idx],
+        "qf_lower": [round1[i] for i in lower_qf_idx],
+        "sf_upper": sf_matches[0] if sf_matches else None,
+        "sf_lower": sf_matches[1] if len(sf_matches) > 1 else None,
+        "final": final_match,
+        "bronze": bronze_match,
+        "consolation_upper": upper_consolation,
+        "consolation_lower": lower_consolation,
+        "place_5_6": place_5_6,
+        "place_7_8": place_7_8,
+    }
+
+
+def _build_challenge_bracket(cross_poules_data: list) -> dict | None:
+    """Build challenge bracket from 2 cross-bracket poules.
+
+    Challenge format: 2 brassage pools of 4 → 2 cross-bracket rounds.
+    Round 1 (lower code poule) = 4 semi-finals.
+    Round 2 (higher code poule) = 4 placement finals.
+
+    Winners of semis pair up in finals, losers pair up for placement.
+    Two mini-brackets result: upper (places 1-4) and lower (places 5-8).
+
+    Returns dict with ``upper`` and ``lower`` mini-brackets, each having
+    ``semi1``, ``semi2``, ``final``, ``bronze`` match objects.
+    """
+    if len(cross_poules_data) != 2:
+        return None
+
+    sorted_cross = sorted(cross_poules_data, key=lambda p: p["poule_code"])
+    semis_matchs = sorted(sorted_cross[0]["matchs"], key=lambda m: m.code_match or "")
+    finals_matchs = sorted(sorted_cross[1]["matchs"], key=lambda m: m.code_match or "")
+
+    def _winner_loser(m):
+        if not m.match_joue:
+            return None, None
+        sa, sb = (m.sets_equipe_a or 0), (m.sets_equipe_b or 0)
+        if sa > sb:
+            return m.equipe_a_id, m.equipe_b_id
+        return m.equipe_b_id, m.equipe_a_id
+
+    # Map semi match → (winner_id, loser_id)
+    semi_wl: dict[int, tuple] = {}
+    for sm in semis_matchs:
+        w, l = _winner_loser(sm)
+        semi_wl[sm.id] = (w, l)
+
+    # For each finals match, find which semi matches' WINNERS appear in it
+    from collections import defaultdict as _dd
+    winner_feeds: dict[int, list] = _dd(list)  # finals.id → [semi match objects]
+
+    for fm in finals_matchs:
+        fm_teams = {fm.equipe_a_id, fm.equipe_b_id}
+        for sm in semis_matchs:
+            w, _ = semi_wl.get(sm.id, (None, None))
+            if w and w in fm_teams:
+                winner_feeds[fm.id].append(sm)
+
+    # Group: finals matchs pairing two semi-winners vs two semi-losers
+    mini_brackets = []
+    used_finals: set[int] = set()
+
+    for fm in finals_matchs:
+        if fm.id in used_finals:
+            continue
+        if fm.id in winner_feeds and len(winner_feeds[fm.id]) == 2:
+            pair_semis = winner_feeds[fm.id]
+            # Find the loser-pair finals match
+            pair_losers = set()
+            for sm in pair_semis:
+                _, l = semi_wl.get(sm.id, (None, None))
+                if l:
+                    pair_losers.add(l)
+
+            loser_fm = None
+            for ofm in finals_matchs:
+                if ofm.id != fm.id and ofm.id not in used_finals:
+                    ofm_teams = {ofm.equipe_a_id, ofm.equipe_b_id}
+                    if ofm_teams <= pair_losers:
+                        loser_fm = ofm
+                        break
+
+            mini_brackets.append({
+                "semi1": pair_semis[0],
+                "semi2": pair_semis[1],
+                "final": fm,
+                "bronze": loser_fm,
+            })
+            used_finals.add(fm.id)
+            if loser_fm:
+                used_finals.add(loser_fm.id)
+
+    if len(mini_brackets) != 2:
+        return None
+
+    # Higher match code in final = grand final → upper bracket
+    mini_brackets.sort(key=lambda mb: mb["final"].code_match or "")
+
+    return {
+        "lower": mini_brackets[0],   # places 5-8
+        "upper": mini_brackets[1],   # places 1-4
+        "semis_poule": sorted_cross[0],
+        "finals_poule": sorted_cross[1],
+    }
+
+
+async def _render_youth_competition(
+    request: Request,
+    competition,
+    competition_repo: CompetitionRepository,
+    match_repo: MatchRepository,
+    equipe_repo: EquipeRepository,
+):
+    """Render a Coupe de France Jeunes competition with tour-based layout.
+
+    In youth competitions, a single poule code (e.g. "CMA") is reused across
+    multiple tours (journées), with completely different sets of 3 teams each
+    time. The ``journee`` field on MatchDB IS the actual tour number.
+
+    Builds:
+    - Per-tour view grouping matchs by journée
+    - Mini-classements per (poule_code, journée) from round-robin of 3 teams
+    - Finals data (journée "99") with bracket + ranking
+    """
+    from collections import defaultdict
+    from dataclasses import dataclass as _dc
+    from pyvolley.analysis.classement import MatchData, calculer_classement
+
+    competition_id = competition.id
+
+    # ── 1. Fetch all matchs with their poule eagerly loaded ──
+    all_matchs = match_repo.search(competition_id=competition_id, limit=10000)
+
+    # ── 2. Group matchs by journée (= tour) ──
+    matchs_by_tour: dict[str, list] = defaultdict(list)
+    for m in all_matchs:
+        tour_key = m.journee or "00"
+        matchs_by_tour[tour_key].append(m)
+
+    # ── 3. Build per-tour data ──
+    tours_data = []
+    for tour_key in sorted(matchs_by_tour.keys(), key=lambda k: int(k)):
+        tour_matchs = matchs_by_tour[tour_key]
+        tour_num = int(tour_key)
+
+        # Group matchs by poule code within this tour
+        matchs_by_poule: dict[str, list] = defaultdict(list)
+        poule_id_map: dict[str, int] = {}  # poule_code -> poule_id
+        for m in tour_matchs:
+            poule_code = m.poule.code if m.poule else "???"
+            matchs_by_poule[poule_code].append(m)
+            if m.poule and poule_code not in poule_id_map:
+                poule_id_map[poule_code] = m.poule.id
+
+        # Count unique teams in this tour
+        tour_equipe_ids = set()
+        for m in tour_matchs:
+            if m.equipe_a_id:
+                tour_equipe_ids.add(m.equipe_a_id)
+            if m.equipe_b_id:
+                tour_equipe_ids.add(m.equipe_b_id)
+
+        # Compute mini-classement for each poule in this tour
+        poule_classements = []
+        for poule_code in sorted(matchs_by_poule.keys()):
+            poule_matchs = matchs_by_poule[poule_code]
+            # Convert to MatchData for classement calculation
+            match_data_list = []
+            for m in poule_matchs:
+                if m.match_joue and (m.sets_equipe_a or 0) + (m.sets_equipe_b or 0) > 0:
+                    match_data_list.append(MatchData(
+                        match_id=m.id,
+                        equipe_a_id=m.equipe_a_id,
+                        equipe_a_nom=m.equipe_a.nom if m.equipe_a else "?",
+                        equipe_b_id=m.equipe_b_id,
+                        equipe_b_nom=m.equipe_b.nom if m.equipe_b else "?",
+                        sets_a=m.sets_equipe_a or 0,
+                        sets_b=m.sets_equipe_b or 0,
+                        points_a=0,
+                        points_b=0,
+                        match_joue=True,
+                    ))
+            if match_data_list:
+                cls_lines = calculer_classement(match_data_list)
+                poule_classements.append({
+                    "poule_code": poule_code,
+                    "poule_id": poule_id_map.get(poule_code),
+                    "classement": cls_lines,
+                    "matchs": poule_matchs,
+                    "nb_equipes": len({m.equipe_a_id for m in poule_matchs}
+                                      | {m.equipe_b_id for m in poule_matchs}),
+                })
+
+        # Label
+        if tour_num == 99:
+            label = "Phases finales"
+        else:
+            label = f"Tour {tour_num}"
+
+        tours_data.append({
+            "tour_num": tour_num,
+            "label": label,
+            "poule_classements": poule_classements,
+            "nb_poules": len(matchs_by_poule),
+            "nb_equipes": len(tour_equipe_ids),
+            "nb_matchs": len(tour_matchs),
+            "nb_matchs_joues": sum(1 for m in tour_matchs if m.match_joue),
+            "matchs": tour_matchs,
+        })
+
+    # ── 4. Separate finals (J99) from qualifying tours ──
+    finals_tour = None
+    qualifying_tours = []
+
+    for td in tours_data:
+        if td["tour_num"] == 99:
+            finals_tour = td
+        else:
+            qualifying_tours.append(td)
+
+    # ── 5. Build finals aggregate classement ──
+    finals_classement = None
+    finals_bracket_matchs = []
+    finals_pool_classements = []
+    finals_format = "none"
+    bracket_8 = None
+    bracket_tree = None
+    classement_9_12 = None
+    challenge_bracket = None
+    challenge_pools = []
+
+    if finals_tour:
+        # ── Classify finals poules by structure ──
+        brassage_pools = []    # Small round-robin (3 teams / 3 matchs)
+        pools_4_teams = []     # Round-robin of 4 (6 matchs)
+        bracket_poules = []    # Full bracket (≥10 matchs, ≥7 teams)
+        cross_poules = []      # Cross-bracket rounds (more teams than matchs)
+
+        for pc in finals_tour["poule_classements"]:
+            nb_eq = pc["nb_equipes"]
+            nb_matchs = len(pc["matchs"])
+
+            if nb_eq > nb_matchs:
+                # More teams than matches → cross-bracket round
+                cross_poules.append(pc)
+            elif nb_matchs >= 10 and nb_eq >= 7:
+                bracket_poules.append(pc)
+            elif nb_eq <= 3:
+                brassage_pools.append(pc)
+            elif nb_eq == 4 and nb_matchs == 6:
+                pools_4_teams.append(pc)
+            else:
+                brassage_pools.append(pc)
+
+        # ── Detect format ──
+        if bracket_poules:
+            finals_format = "standard"
+            bracket_8 = bracket_poules[0]
+            # In standard format, 4-team/6-match pools are classement 9-12
+            classement_9_12 = pools_4_teams[0] if pools_4_teams else None
+            finals_pool_classements = brassage_pools
+        elif cross_poules:
+            finals_format = "challenge"
+            # In challenge format, 4-team pools are brassage
+            challenge_pools = pools_4_teams
+            finals_pool_classements = []
+        else:
+            finals_format = "simple"
+            finals_pool_classements = brassage_pools + pools_4_teams
+
+        # ═══════════ STANDARD FORMAT (CdF): bracket + classement 9-12 ═══════════
+        bracket_classement = []
+        if finals_format == "standard" and bracket_8:
+            finals_bracket_matchs = bracket_8["matchs"]
+            bracket_cls = bracket_8["classement"]
+
+            bracket_matchs_sorted = sorted(
+                finals_bracket_matchs, key=lambda m: m.code_match or ""
+            )
+
+            bracket_tree = _build_bracket_tree(bracket_matchs_sorted)
+
+            nb_matchs = len(bracket_matchs_sorted)
+            if nb_matchs >= 12:
+                last_round = bracket_matchs_sorted[-4:]
+                placement_matchs = list(reversed(last_round))
+
+                placed_teams = []
+                for i, m in enumerate(placement_matchs):
+                    if not m.match_joue:
+                        continue
+                    sa = m.sets_equipe_a or 0
+                    sb = m.sets_equipe_b or 0
+                    if sa > sb:
+                        winner_id, loser_id = m.equipe_a_id, m.equipe_b_id
+                    else:
+                        winner_id, loser_id = m.equipe_b_id, m.equipe_a_id
+
+                    rank_w = i * 2 + 1
+                    rank_l = i * 2 + 2
+                    placed_teams.append((rank_w, winner_id))
+                    placed_teams.append((rank_l, loser_id))
+
+                bracket_cls_by_id = {e.equipe_id: e for e in bracket_cls}
+                for rank, team_id in sorted(placed_teams):
+                    entry = bracket_cls_by_id.get(team_id)
+                    if entry:
+                        entry.rang = rank
+                        bracket_classement.append(entry)
+            else:
+                bracket_classement = list(bracket_cls)
+
+            # Classement 9-12
+            classement_9_12_entries = []
+            if classement_9_12:
+                cls_9_12 = classement_9_12["classement"]
+                for i, entry in enumerate(cls_9_12):
+                    entry.rang = 9 + i
+                classement_9_12_entries = list(cls_9_12)
+
+            finals_classement = bracket_classement + classement_9_12_entries
+
+        # ═══════════ CHALLENGE FORMAT: pools + cross-brackets ═══════════
+        elif finals_format == "challenge" and cross_poules:
+            challenge_bracket = _build_challenge_bracket(cross_poules)
+
+            if challenge_bracket:
+                # Compute classement across ALL finals matches
+                all_finals_matchs = finals_tour["matchs"]
+                match_data_list = []
+                for m in all_finals_matchs:
+                    if m.match_joue and (
+                        (m.sets_equipe_a or 0) + (m.sets_equipe_b or 0) > 0
+                    ):
+                        match_data_list.append(MatchData(
+                            match_id=m.id,
+                            equipe_a_id=m.equipe_a_id,
+                            equipe_a_nom=m.equipe_a.nom if m.equipe_a else "?",
+                            equipe_b_id=m.equipe_b_id,
+                            equipe_b_nom=m.equipe_b.nom if m.equipe_b else "?",
+                            sets_a=m.sets_equipe_a or 0,
+                            sets_b=m.sets_equipe_b or 0,
+                            points_a=0,
+                            points_b=0,
+                            match_joue=True,
+                        ))
+
+                if match_data_list:
+                    all_cls = calculer_classement(match_data_list)
+                    cls_by_id = {e.equipe_id: e for e in all_cls}
+
+                    # Derive placement from bracket results
+                    placed_teams = []
+                    for half, start_rank in [
+                        (challenge_bracket["upper"], 1),
+                        (challenge_bracket["lower"], 5),
+                    ]:
+                        for match, rw, rl in [
+                            (half["final"], start_rank, start_rank + 1),
+                            (half["bronze"], start_rank + 2, start_rank + 3),
+                        ]:
+                            if match and match.match_joue:
+                                sa = match.sets_equipe_a or 0
+                                sb = match.sets_equipe_b or 0
+                                if sa > sb:
+                                    placed_teams.append((rw, match.equipe_a_id))
+                                    placed_teams.append((rl, match.equipe_b_id))
+                                else:
+                                    placed_teams.append((rw, match.equipe_b_id))
+                                    placed_teams.append((rl, match.equipe_a_id))
+
+                    finals_classement = []
+                    for rank, team_id in sorted(placed_teams):
+                        entry = cls_by_id.get(team_id)
+                        if entry:
+                            entry.rang = rank
+                            finals_classement.append(entry)
+
+    # ── 6. All equipes ──
+    equipes = competition_repo.get_equipes_for_competition(competition_id)
+
+    return templates.TemplateResponse("competitions/detail_jeunes.html", {
+        "request": request,
+        "competition": competition,
+        "tours_data": tours_data,
+        "qualifying_tours": qualifying_tours,
+        "finals_tour": finals_tour,
+        "finals_format": finals_format,
+        "finals_classement": finals_classement,
+        "finals_bracket_matchs": finals_bracket_matchs,
+        "finals_pool_classements": finals_pool_classements,
+        "classement_9_12": classement_9_12 if finals_format == "standard" else None,
+        "bracket_8": bracket_8 if finals_format == "standard" else None,
+        "bracket_tree": bracket_tree,
+        "challenge_bracket": challenge_bracket,
+        "challenge_pools": challenge_pools,
+        "matchs": all_matchs,
+        "equipes": equipes,
+        "is_youth": True,
+    })
+
+
+@web_router.get("/poules/{poule_id}", response_class=HTMLResponse)
+async def poule_detail(
+    request: Request,
+    poule_id: int,
+    poule_repo: PouleRepository = Depends(get_poule_repo),
+    competition_repo: CompetitionRepository = Depends(get_competition_repo),
+    match_repo: MatchRepository = Depends(get_match_repo),
+):
+    """Page de détail d'une poule, vue comme compétition à part entière.
+
+    Chaque poule d'une compétition multi-poule a ses propres classement,
+    évolution, matchs et statistiques.
+    """
+    poule = poule_repo.get_with_details(poule_id)
+    if not poule:
+        return templates.TemplateResponse("error.html",
+            {"request": request, "message": "Poule non trouvée"}, status_code=404)
+
+    competition = poule.competition
+
+    # Detect youth competition (single-day "plateaux" — no evolution needed)
+    from pyvolley.scrapers.ffvb.jeunes import is_youth_competition
+    is_youth = is_youth_competition(competition.nom) if competition else False
+
+    # Classement spécifique à cette poule
+    classement = competition_repo.get_classement_for_poule(poule_id)
+    evolution_json = []
+    if not is_youth and classement and classement.evolution:
+        evolution_json = [e.model_dump(mode="json") for e in classement.evolution]
+
+    # Matchs de la poule uniquement
+    matchs = match_repo.search(competition_id=competition.id, limit=500)
+    matchs = [m for m in matchs if m.poule_id == poule_id]
+
+    # Équipes de la poule (déduites des matchs)
+    equipe_ids = set()
+    for m in matchs:
+        if m.equipe_a_id:
+            equipe_ids.add(m.equipe_a_id)
+        if m.equipe_b_id:
+            equipe_ids.add(m.equipe_b_id)
+
+    # Poules sœurs (autres poules de la même compétition)
+    sibling_poules = sorted(
+        [p for p in competition.poules if p.id != poule_id],
+        key=lambda p: p.code,
+    )
+
+    return templates.TemplateResponse("poules/detail.html", {
+        "request": request,
+        "poule": poule,
+        "competition": competition,
+        "classement": classement,
+        "evolution_json": evolution_json,
+        "matchs": matchs,
+        "nb_equipes": len(equipe_ids),
+        "sibling_poules": sibling_poules,
+        "is_youth": is_youth,
     })
 
 

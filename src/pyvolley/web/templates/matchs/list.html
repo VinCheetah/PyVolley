@@ -217,11 +217,17 @@
                         {% else %}-{% endif %}
                     </td>
                     <td class="text-center font-bold text-lg whitespace-nowrap">
-                        {% if match.score_sets %}
+                        {% if match.statut == 'forfait' %}
+                        <span class="badge badge-red" style="font-size: 0.65rem;">Forfait</span>
+                        {% elif match.statut == 'joué' %}
                         <span class="score-team-a">{{ match.sets_equipe_a }}</span>
                         <span style="color: var(--text-muted);">-</span>
                         <span class="score-team-b">{{ match.sets_equipe_b }}</span>
-                        {% else %}<span style="color: var(--text-muted);">—</span>{% endif %}
+                        {% elif match.statut == 'à_venir' %}
+                        <span class="badge badge-blue" style="font-size: 0.6rem;">À venir</span>
+                        {% else %}
+                        <span class="badge" style="font-size: 0.6rem; color: var(--accent-gold);">Sans résultat</span>
+                        {% endif %}
                     </td>
                     <td>
                         {% if match.equipe_b %}
@@ -250,10 +256,10 @@
                             <a href="/matchs/{{ match.id }}" class="badge badge-blue">
                                 {% if match.has_details %}Détails{% else %}Voir{% endif %}
                             </a>
-                            {% if match.source_pdf and match.competition and match.competition.entite and match.saison %}
+                            {% if match.competition and match.competition.entite and match.saison %}
                             <a href="https://www.ffvbbeach.org/ffvbapp/resu/ffvolley_fdme.php?saison={{ match.saison.code|replace('-', '/') }}&codent={{ match.competition.entite.code }}&codmatch={{ match.code_match }}"
                                target="_blank" rel="noopener noreferrer"
-                               class="badge badge-green hover:opacity-80 transition" title="Feuille de match PDF">
+                               class="badge badge-green hover:opacity-80 transition" title="Feuille de match FFVB">
                                 <i data-lucide="file-text" class="w-3 h-3"></i>
                             </a>
                             {% endif %}

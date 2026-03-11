@@ -29,13 +29,16 @@
 
     <!-- Table -->
     <div class="card overflow-hidden">
+        <div class="overflow-x-auto">
         <table class="data-table">
             <thead>
                 <tr>
                     <th>Nom</th>
                     <th>Ville</th>
                     <th>Département</th>
+                    <th>Ligue</th>
                     <th>Code FFVB</th>
+                    <th class="text-center">Couleurs</th>
                     <th class="text-right">Action</th>
                 </tr>
             </thead>
@@ -52,7 +55,21 @@
                         {% endif %}
                     </td>
                     <td>
+                        {% if c.ligue %}
+                        <span class="badge badge-green" style="font-size: 0.65rem;">{{ c.ligue }}</span>
+                        {% else %}
+                        <span style="color: var(--text-muted);">—</span>
+                        {% endif %}
+                    </td>
+                    <td>
                         <span class="font-mono text-xs" style="color: var(--text-muted);">{{ c.code_ffvb or '—' }}</span>
+                    </td>
+                    <td class="text-center">
+                        {% if c.couleurs %}
+                        <span class="badge badge-gold" style="font-size: 0.65rem;">{{ c.couleurs }}</span>
+                        {% else %}
+                        <span style="color: var(--text-muted);">—</span>
+                        {% endif %}
                     </td>
                     <td class="text-right">
                         <a href="/clubs/{{ c.id }}" class="badge badge-gold">
@@ -62,7 +79,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="5" class="text-center py-8" style="color: var(--text-muted);">
+                    <td colspan="7" class="text-center py-8" style="color: var(--text-muted);">
                         {% if query %}
                         Aucun club trouvé pour « {{ query }} »
                         {% else %}
@@ -73,6 +90,7 @@
                 {% endfor %}
             </tbody>
         </table>
+        </div>
     </div>
 
     <!-- Pagination -->

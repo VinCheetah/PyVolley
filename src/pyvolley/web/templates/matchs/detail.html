@@ -29,11 +29,38 @@
                 {% if match.competition and match.competition.categorie %}
                 <span class="badge badge-gold">{{ match.competition.categorie }}</span>
                 {% endif %}
+                {% if match.poule %}
+                <span class="badge badge-green" title="Poule">
+                    <i data-lucide="grid-2x2" class="w-3 h-3 mr-1"></i>
+                    {{ match.poule.nom or match.poule.code }}
+                </span>
+                {% endif %}
                 {% if match.journee %}
                 <span class="badge">J{{ match.journee }}</span>
                 {% endif %}
                 {% if match.saison %}
                 <span class="badge">{{ match.saison.code }}</span>
+                {% endif %}
+                {% if match.forfait %}
+                <span class="badge badge-red">
+                    <i data-lucide="alert-circle" class="w-3 h-3 mr-1"></i>
+                    Forfait
+                </span>
+                {% elif match.statut == 'joué' %}
+                <span class="badge badge-green">
+                    <i data-lucide="check-circle" class="w-3 h-3 mr-1"></i>
+                    Joué
+                </span>
+                {% elif match.statut == 'à_venir' %}
+                <span class="badge badge-blue">
+                    <i data-lucide="clock" class="w-3 h-3 mr-1"></i>
+                    À venir
+                </span>
+                {% else %}
+                <span class="badge" style="color: var(--accent-gold);">
+                    <i data-lucide="help-circle" class="w-3 h-3 mr-1"></i>
+                    Sans résultat
+                </span>
                 {% endif %}
             </div>
             <div style="color: var(--text-secondary);" class="text-sm">
@@ -161,10 +188,26 @@
                     </dd>
                 </div>
                 {% endif %}
+                {% if match.poule %}
+                <div class="flex justify-between items-center py-1" style="border-bottom: 1px solid rgba(42,48,80,0.3);">
+                    <dt style="color: var(--text-secondary);">Poule</dt>
+                    <dd class="font-medium">{{ match.poule.nom or match.poule.code }}</dd>
+                </div>
+                {% endif %}
                 {% if match.journee %}
                 <div class="flex justify-between items-center py-1" style="border-bottom: 1px solid rgba(42,48,80,0.3);">
                     <dt style="color: var(--text-secondary);">Journée</dt>
                     <dd class="font-medium">{{ match.journee }}</dd>
+                </div>
+                {% endif %}
+                {% if match.forfait %}
+                <div class="flex justify-between items-center py-1" style="border-bottom: 1px solid rgba(42,48,80,0.3);">
+                    <dt style="color: var(--text-secondary);">Forfait</dt>
+                    <dd>
+                        <span class="badge badge-red">
+                            <i data-lucide="alert-circle" class="w-3 h-3 mr-1"></i> Match forfait
+                        </span>
+                    </dd>
                 </div>
                 {% endif %}
                 {% if match.saison %}
@@ -186,19 +229,32 @@
                 </div>
                 {% endif %}
                 {% if match.duree_totale %}
-                <div class="flex justify-between items-center py-1"{% if not match.source_pdf %} {% endif %} style="{% if match.source_pdf %}border-bottom: 1px solid rgba(42,48,80,0.3);{% endif %}">
+                <div class="flex justify-between items-center py-1" style="border-bottom: 1px solid rgba(42,48,80,0.3);">
                     <dt style="color: var(--text-secondary);">Durée totale</dt>
                     <dd class="font-medium">{{ match.duree_totale }}</dd>
                 </div>
                 {% endif %}
-                {% if match.source_pdf and match.competition and match.competition.entite and match.saison %}
-                <div class="flex justify-between items-center py-1">
+                {% if match.competition and match.competition.entite and match.saison %}
+                <div class="flex justify-between items-center py-1"{% if not match.source_url %} {% endif %} style="{% if match.source_url %}border-bottom: 1px solid rgba(42,48,80,0.3);{% endif %}">
                     <dt style="color: var(--text-secondary);">Feuille de match</dt>
                     <dd>
                         <a href="https://www.ffvbbeach.org/ffvbapp/resu/ffvolley_fdme.php?saison={{ match.saison.code|replace('-', '/') }}&codent={{ match.competition.entite.code }}&codmatch={{ match.code_match }}"
                            target="_blank" rel="noopener noreferrer"
                            class="badge badge-green hover:opacity-80 transition">
-                            <i data-lucide="file-text" class="w-3 h-3 mr-1"></i> Voir le PDF source
+                            <i data-lucide="file-text" class="w-3 h-3 mr-1"></i> Voir sur FFVB
+                            <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
+                        </a>
+                    </dd>
+                </div>
+                {% endif %}
+                {% if match.source_url %}
+                <div class="flex justify-between items-center py-1">
+                    <dt style="color: var(--text-secondary);">Lien FFVB</dt>
+                    <dd>
+                        <a href="{{ match.source_url }}"
+                           target="_blank" rel="noopener noreferrer"
+                           class="badge badge-purple hover:opacity-80 transition">
+                            <i data-lucide="globe" class="w-3 h-3 mr-1"></i> Page match
                             <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
                         </a>
                     </dd>

@@ -1,0 +1,576 @@
+{% extends "base.html" %}
+{% block title %}{{ poule.nom or poule.code }} - {{ competition.nom }} - PyVolley{% endblock %}
+
+{# ═══════════ MACRO: Classement table (same as competitions) ═══════════ #}
+{% macro render_classement_table(cls, title, chart_suffix) %}
+<div class="card overflow-hidden">
+    <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
+        <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+            <i data-lucide="list-ordered" class="w-4 h-4 inline-block mr-1"></i>
+            {{ title }}
+        </h2>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="data-table" style="min-width: 900px;">
+            <thead>
+                <tr>
+                    <th class="text-center w-12">#</th>
+                    <th>Équipe</th>
+                    <th class="text-center">Pts</th>
+                    <th class="text-center">MJ</th>
+                    <th class="text-center">V</th>
+                    <th class="text-center">D</th>
+                    <th class="text-center" title="Victoires 3-0 / 3-1 / 3-2">V détail</th>
+                    <th class="text-center" title="Défaites 0-3 / 1-3 / 2-3">D détail</th>
+                    <th class="text-center" title="Sets gagnés - perdus">Sets (G-P)</th>
+                    <th class="text-center" title="Ratio de sets">Ratio S</th>
+                    <th class="text-center" title="Points marqués - encaissés">Points (M-E)</th>
+                    <th class="text-center" title="Ratio de points">Ratio P</th>
+                    <th class="text-center">Série</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ligne in cls.classement_actuel %}
+                <tr>
+                    <td class="text-center">
+                        {% if ligne.rang == 1 %}
+                        <span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold"
+                              style="background: linear-gradient(135deg, #f59e0b, #f97316); color: #000;">{{ ligne.rang }}</span>
+                        {% elif ligne.rang == 2 %}
+                        <span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold"
+                              style="background: linear-gradient(135deg, #94a3b8, #cbd5e1); color: #000;">{{ ligne.rang }}</span>
+                        {% elif ligne.rang == 3 %}
+                        <span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold"
+                              style="background: linear-gradient(135deg, #b45309, #d97706); color: #fff;">{{ ligne.rang }}</span>
+                        {% else %}
+                        <span class="font-semibold" style="color: var(--text-muted);">{{ ligne.rang }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{{ path_for_entity('equipe', ligne.equipe_id) }}" class="font-semibold hover:text-white transition"
+                           style="color: var(--text-primary);">{{ ligne.equipe_nom|truncate_name(30) }}</a>
+                    </td>
+                    <td class="text-center"><span class="font-bold text-lg" style="color: var(--accent-gold);">{{ ligne.points }}</span></td>
+                    <td class="text-center font-medium">{{ ligne.matchs_joues }}</td>
+                    <td class="text-center font-medium" style="color: var(--accent-green);">{{ ligne.victoires }}</td>
+                    <td class="text-center font-medium" style="color: var(--accent-red);">{{ ligne.defaites }}</td>
+                    <td class="text-center text-xs" style="color: var(--text-secondary);">
+                        <span style="color: var(--accent-green-light);">{{ ligne.victoires_3_0 }}</span> /
+                        <span style="color: var(--accent-green);">{{ ligne.victoires_3_1 }}</span> /
+                        <span style="color: var(--accent-cyan);">{{ ligne.victoires_3_2 }}</span>
+                    </td>
+                    <td class="text-center text-xs" style="color: var(--text-secondary);">
+                        <span style="color: var(--accent-red);">{{ ligne.defaites_0_3 }}</span> /
+                        <span style="color: var(--accent-red-light);">{{ ligne.defaites_1_3 }}</span> /
+                        <span>{{ ligne.defaites_2_3 }}</span>
+                    </td>
+                    <td class="text-center">
+                        <span class="font-medium" style="color: var(--accent-blue);">{{ ligne.sets_gagnes }}</span>
+                        <span style="color: var(--text-muted);">-</span>
+                        <span style="color: var(--text-secondary);">{{ ligne.sets_perdus }}</span>
+                        {% set ds = ligne.sets_gagnes - ligne.sets_perdus %}
+                        <span class="text-xs ml-1"
+                              style="color: {% if ds > 0 %}var(--accent-green){% elif ds < 0 %}var(--accent-red){% else %}var(--text-muted){% endif %};">
+                            ({% if ds > 0 %}+{% endif %}{{ ds }})
+                        </span>
+                    </td>
+                    <td class="text-center font-mono text-sm">
+                        {% if ligne.sets_perdus > 0 %}{{ "%.2f"|format(ligne.ratio_sets) }}
+                        {% elif ligne.sets_gagnes > 0 %}<span style="color: var(--accent-green);">∞</span>
+                        {% else %}<span style="color: var(--text-muted);">—</span>{% endif %}
+                    </td>
+                    <td class="text-center text-sm">
+                        <span style="color: var(--accent-blue);">{{ ligne.points_marques }}</span>
+                        <span style="color: var(--text-muted);">-</span>
+                        <span style="color: var(--text-secondary);">{{ ligne.points_encaisses }}</span>
+                    </td>
+                    <td class="text-center font-mono text-sm">
+                        {% if ligne.points_encaisses > 0 %}{{ "%.3f"|format(ligne.ratio_points) }}
+                        {% elif ligne.points_marques > 0 %}<span style="color: var(--accent-green);">∞</span>
+                        {% else %}<span style="color: var(--text-muted);">—</span>{% endif %}
+                    </td>
+                    <td class="text-center">
+                        <div class="flex gap-0.5 justify-center">
+                            {% for r in ligne.serie[-8:] %}
+                            <span class="inline-block w-4 h-4 rounded text-xs font-bold flex items-center justify-center leading-none"
+                                  style="{% if r == 'V' %}background: rgba(34,197,94,0.2); color: var(--accent-green);{% else %}background: rgba(239,68,68,0.2); color: var(--accent-red);{% endif %}">
+                                {{ r }}
+                            </span>
+                            {% endfor %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% if cls.classement_actuel|length > 1 %}
+<div class="card p-6">
+    <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+        <i data-lucide="bar-chart-3" class="w-4 h-4 inline-block mr-1"></i> Points par équipe
+    </h2>
+    <div style="height: {{ [cls.classement_actuel|length * 32 + 40, 700]|min }}px; max-height: 700px;">
+        <canvas id="pointsChart{{ chart_suffix }}"></canvas>
+    </div>
+</div>
+{% endif %}
+{% endmacro %}
+
+{% block content %}
+<div class="space-y-6">
+
+    <!-- Breadcrumb -->
+    <nav class="text-sm flex items-center gap-2" style="color: var(--text-muted);">
+        <a href="/" class="hover:text-white transition">Accueil</a>
+        <i data-lucide="chevron-right" class="w-3 h-3"></i>
+        <a href="/competitions" class="hover:text-white transition">Compétitions</a>
+        <i data-lucide="chevron-right" class="w-3 h-3"></i>
+        <a href="{{ path_for_entity('competition', competition.id) }}" class="hover:text-white transition">{{ competition.nom|truncate_name(30) }}</a>
+        <i data-lucide="chevron-right" class="w-3 h-3"></i>
+        <span style="color: var(--text-secondary);">{{ poule.nom or poule.code }}</span>
+    </nav>
+
+    <!-- Header Card -->
+    <div class="card p-6 md:p-8">
+        <div class="flex flex-col md:flex-row md:items-center gap-6">
+            <div class="w-16 h-16 rounded-2xl flex items-center justify-center flex-shrink-0"
+                 style="background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));">
+                <i data-lucide="grid-2x2" class="w-8 h-8 text-white"></i>
+            </div>
+            <div class="flex-1">
+                <h1 class="text-2xl md:text-3xl font-bold text-white mb-1">{{ poule.nom or poule.code }}</h1>
+                <p class="text-sm mb-2" style="color: var(--text-muted);">
+                    <a href="{{ path_for_entity('competition', competition.id) }}" class="hover:text-white transition">
+                        {{ competition.nom }}
+                    </a>
+                    {% if is_youth %}
+                    <span class="ml-2 badge badge-gold" style="font-size: 0.6rem;">Plateau — Journée unique</span>
+                    {% endif %}
+                </p>
+                {% set niveau_badge = resolve_niveau_badge(competition.niveau, competition.nom, competition.categorie, competition.division) %}
+                <div class="flex flex-wrap gap-2 mt-2">
+                    {% if competition.saison %}
+                    <span class="badge badge-purple">
+                        <i data-lucide="calendar" class="w-3 h-3 mr-1"></i>{{ competition.saison.code }}
+                    </span>
+                    {% endif %}
+                    {% if competition.genre %}
+                    <span class="badge {% if competition.genre == 'MASCULIN' %}badge-blue{% elif competition.genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %}">
+                        {% if competition.genre == 'MASCULIN' %}♂{% elif competition.genre == 'FEMININ' %}♀{% else %}⚥{% endif %} {{ competition.genre }}
+                    </span>
+                    {% endif %}
+                    {% if competition.categorie %}
+                    <span class="badge badge-gold"><i data-lucide="users" class="w-3 h-3 mr-1"></i>{{ competition.categorie }}</span>
+                    {% endif %}
+                    {% if niveau_badge %}
+                    <span class="badge {{ niveau_badge.css_class }}"><i data-lucide="bar-chart-3" class="w-3 h-3 mr-1"></i>{{ niveau_badge.label }}</span>
+                    {% endif %}
+                    <span class="badge font-mono">{{ poule.code }}</span>
+                </div>
+                <div class="flex flex-wrap gap-2 mt-3">
+                    {% if poule.url_calendrier %}
+                    <a href="{{ poule.url_calendrier }}" target="_blank" rel="noopener noreferrer"
+                       class="badge badge-blue hover:opacity-80 transition">
+                        <i data-lucide="calendar-days" class="w-3 h-3 mr-1"></i>Calendrier FFVB
+                        <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
+                    </a>
+                    {% endif %}
+                    {% if poule.url_classement %}
+                    <a href="{{ poule.url_classement }}" target="_blank" rel="noopener noreferrer"
+                       class="badge badge-gold hover:opacity-80 transition">
+                        <i data-lucide="list-ordered" class="w-3 h-3 mr-1"></i>Classement FFVB
+                        <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
+                    </a>
+                    {% endif %}
+                    <a href="{{ path_for_entity('competition', competition.id) }}" class="badge hover:opacity-80 transition" style="color: var(--accent-cyan);">
+                        <i data-lucide="trophy" class="w-3 h-3 mr-1"></i>Compétition parente
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sibling Poules Navigation -->
+    {% if sibling_poules %}
+    <div class="card p-4">
+        <div class="flex items-center gap-3 flex-wrap">
+            <span class="text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                <i data-lucide="grid-2x2" class="w-3 h-3 inline-block mr-1"></i>Autres poules :
+            </span>
+            {% for sp in sibling_poules %}
+            <a href="{{ path_for_entity('poule', sp.id) }}" class="badge hover:opacity-80 transition"
+               style="color: var(--accent-cyan);">
+                {{ sp.nom or sp.code }}
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Stats Grid -->
+    {% set nb_matchs_joues = matchs|selectattr("match_joue")|list|length %}
+    {% set nb_matchs_total = matchs|length %}
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="stat-card">
+            <div class="stat-value gradient-text-gold">{{ nb_equipes }}</div>
+            <div class="stat-label">Équipes</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value gradient-text-blue">{{ nb_matchs_joues }}</div>
+            <div class="stat-label">Matchs joués</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--text-muted);">{{ nb_matchs_total }}</div>
+            <div class="stat-label">Matchs prévus</div>
+        </div>
+        <div class="stat-card">
+            {% if nb_matchs_total > 0 %}
+            <div class="stat-value" style="color: var(--accent-green);">
+                {{ ((nb_matchs_joues / nb_matchs_total) * 100)|round(0)|int }}%
+            </div>
+            {% else %}
+            <div class="stat-value" style="color: var(--text-muted);">—</div>
+            {% endif %}
+            <div class="stat-label">Avancement</div>
+        </div>
+    </div>
+
+    <!-- Tabs -->
+    <div x-data="{ tab: 'classement' }" class="space-y-4">
+        <div class="flex gap-1 p-1 rounded-xl" style="background: var(--bg-card);">
+            <button @click="tab = 'classement'"
+                    :class="tab === 'classement' ? 'text-white' : ''"
+                    :style="tab === 'classement' ? 'background: var(--bg-card-hover)' : 'color: var(--text-muted)'"
+                    class="flex-1 text-center py-2 px-4 rounded-lg text-sm font-semibold transition">
+                <i data-lucide="list-ordered" class="w-4 h-4 inline-block mr-1"></i> Classement
+            </button>
+            {% if not is_youth %}
+            <button @click="tab = 'evolution'"
+                    :class="tab === 'evolution' ? 'text-white' : ''"
+                    :style="tab === 'evolution' ? 'background: var(--bg-card-hover)' : 'color: var(--text-muted)'"
+                    class="flex-1 text-center py-2 px-4 rounded-lg text-sm font-semibold transition">
+                <i data-lucide="trending-up" class="w-4 h-4 inline-block mr-1"></i> Évolution
+            </button>
+            {% endif %}
+            <button @click="tab = 'matchs'"
+                    :class="tab === 'matchs' ? 'text-white' : ''"
+                    :style="tab === 'matchs' ? 'background: var(--bg-card-hover)' : 'color: var(--text-muted)'"
+                    class="flex-1 text-center py-2 px-4 rounded-lg text-sm font-semibold transition">
+                <i data-lucide="swords" class="w-4 h-4 inline-block mr-1"></i> Matchs
+            </button>
+            <button @click="tab = 'stats'"
+                    :class="tab === 'stats' ? 'text-white' : ''"
+                    :style="tab === 'stats' ? 'background: var(--bg-card-hover)' : 'color: var(--text-muted)'"
+                    class="flex-1 text-center py-2 px-4 rounded-lg text-sm font-semibold transition">
+                <i data-lucide="bar-chart-2" class="w-4 h-4 inline-block mr-1"></i> Statistiques
+            </button>
+        </div>
+
+        <!-- TAB: Classement -->
+        <div x-show="tab === 'classement'" x-transition>
+            {% if classement and classement.classement_actuel %}
+            {{ render_classement_table(classement, poule.nom or poule.code, 0) }}
+            {% else %}
+            <div class="card p-12 text-center" style="color: var(--text-muted);">
+                <i data-lucide="trophy" class="w-12 h-12 mx-auto mb-4 opacity-30"></i>
+                <p class="text-lg font-semibold mb-2">Aucun classement disponible</p>
+                <p class="text-sm">Aucun match joué dans cette poule pour le moment.</p>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- TAB: Évolution -->
+        {% if not is_youth %}
+        <div x-show="tab === 'evolution'" x-cloak x-transition>
+            {% if classement and classement.evolution|length > 1 %}
+            <div class="card p-6">
+                <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+                    <i data-lucide="trending-up" class="w-4 h-4 inline-block mr-1"></i>
+                    Évolution du classement par journée
+                </h2>
+                <div style="height: 450px;">
+                    <canvas id="evolutionChart"></canvas>
+                </div>
+            </div>
+            <div class="card p-6">
+                <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+                    <i data-lucide="trending-up" class="w-4 h-4 inline-block mr-1"></i>
+                    Évolution des points cumulés
+                </h2>
+                <div style="height: 400px;">
+                    <canvas id="pointsEvolutionChart"></canvas>
+                </div>
+            </div>
+            {% else %}
+            <div class="card p-12 text-center" style="color: var(--text-muted);">
+                <i data-lucide="trending-up" class="w-12 h-12 mx-auto mb-4 opacity-30"></i>
+                <p class="text-lg font-semibold mb-2">Évolution non disponible</p>
+                <p class="text-sm">Il faut au moins 2 journées pour afficher l'évolution.</p>
+            </div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <!-- TAB: Matchs -->
+        <div x-show="tab === 'matchs'" x-cloak x-transition>
+            <div class="card overflow-hidden">
+                <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
+                    <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                        <i data-lucide="swords" class="w-4 h-4 inline-block mr-1"></i>
+                        Matchs de la poule ({{ matchs|length }})
+                    </h2>
+                </div>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th class="text-center">J.</th>
+                            <th class="text-right">Domicile</th>
+                            <th class="text-center">Score</th>
+                            <th>Extérieur</th>
+                            <th class="text-center">Statut</th>
+                            <th class="text-right">Détails</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for m in matchs %}
+                        <tr>
+                            <td class="text-sm" style="color: var(--text-muted);">{{ m.date_match|format_date }}</td>
+                            <td class="text-center text-xs" style="color: var(--text-muted);">{{ m.journee or '—' }}</td>
+                            <td class="text-right">
+                                {% if m.equipe_a %}
+                                <a href="{{ path_for_entity('equipe', m.equipe_a.id if m.equipe_a else None) }}" class="font-medium hover:text-white transition
+                                    {% if m.match_joue and m.sets_equipe_a > m.sets_equipe_b %}text-white{% endif %}"
+                                   style="{% if not (m.match_joue and m.sets_equipe_a > m.sets_equipe_b) %}color: var(--text-secondary);{% endif %}">
+                                    {{ m.equipe_a.nom|truncate_name(25) }}
+                                </a>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if m.forfait %}
+                                <span class="badge badge-red" style="font-size: 0.6rem;">Forfait</span>
+                                {% elif m.match_joue %}
+                                <span class="set-score {% if m.sets_equipe_a > m.sets_equipe_b %}won-a{% else %}won-b{% endif %}">
+                                    {{ m.sets_equipe_a }}-{{ m.sets_equipe_b }}
+                                </span>
+                                {% else %}
+                                <span style="color: var(--text-muted);">—</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if m.equipe_b %}
+                                <a href="{{ path_for_entity('equipe', m.equipe_b.id if m.equipe_b else None) }}" class="font-medium hover:text-white transition
+                                    {% if m.match_joue and m.sets_equipe_b > m.sets_equipe_a %}text-white{% endif %}"
+                                   style="{% if not (m.match_joue and m.sets_equipe_b > m.sets_equipe_a) %}color: var(--text-secondary);{% endif %}">
+                                    {{ m.equipe_b.nom|truncate_name(25) }}
+                                </a>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if m.statut == 'forfait' %}
+                                <span class="badge badge-red" style="font-size: 0.55rem;">Forfait</span>
+                                {% elif m.statut == 'joué' %}
+                                <span class="badge badge-green" style="font-size: 0.55rem;">Joué</span>
+                                {% elif m.statut == 'à_venir' %}
+                                <span class="badge badge-blue" style="font-size: 0.55rem;">À venir</span>
+                                {% else %}
+                                <span class="badge" style="font-size: 0.55rem; color: var(--accent-gold);">Sans résultat</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-right">
+                                <div class="flex items-center justify-end gap-1">
+                                    <a href="{{ path_for_entity('match', m.id) }}" class="badge badge-blue text-xs">Voir</a>
+                                    {% if m.competition and m.competition.entite and m.saison %}
+                                    <a href="https://www.ffvbbeach.org/ffvbapp/resu/ffvolley_fdme.php?saison={{ m.saison.code|replace('-', '/') }}&codent={{ m.competition.entite.code }}&codmatch={{ m.code_match }}"
+                                       target="_blank" rel="noopener noreferrer"
+                                       class="badge badge-green text-xs hover:opacity-80 transition" title="Feuille de match FFVB">
+                                        <i data-lucide="file-text" class="w-3 h-3"></i>
+                                    </a>
+                                    {% endif %}
+                                </div>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="7" class="text-center py-8" style="color: var(--text-muted);">Aucun match trouvé</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- TAB: Statistiques -->
+        <div x-show="tab === 'stats'" x-cloak x-transition>
+            {% if classement and classement.classement_actuel %}
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="card p-5">
+                    <h3 class="text-sm font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">
+                        <i data-lucide="flame" class="w-4 h-4 inline-block mr-1" style="color: var(--accent-red);"></i>
+                        Meilleure attaque
+                    </h3>
+                    <div class="space-y-2">
+                        {% for ligne in classement.classement_actuel|sort(attribute='points_marques', reverse=true) %}
+                        {% if loop.index <= 5 %}
+                        <div class="flex items-center gap-3">
+                            <span class="text-sm font-bold w-5 text-center" style="color: var(--accent-gold);">{{ loop.index }}</span>
+                            <a href="{{ path_for_entity('equipe', ligne.equipe_id) }}" class="flex-1 text-sm font-medium hover:text-white transition" style="color: var(--text-secondary);">{{ ligne.equipe_nom|truncate_name(25) }}</a>
+                            <span class="font-bold" style="color: var(--accent-red-light);">{{ ligne.points_marques }}</span>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="card p-5">
+                    <h3 class="text-sm font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">
+                        <i data-lucide="shield" class="w-4 h-4 inline-block mr-1" style="color: var(--accent-blue);"></i>
+                        Meilleure défense
+                    </h3>
+                    <div class="space-y-2">
+                        {% for ligne in classement.classement_actuel|sort(attribute='points_encaisses') %}
+                        {% if loop.index <= 5 %}
+                        <div class="flex items-center gap-3">
+                            <span class="text-sm font-bold w-5 text-center" style="color: var(--accent-gold);">{{ loop.index }}</span>
+                            <a href="{{ path_for_entity('equipe', ligne.equipe_id) }}" class="flex-1 text-sm font-medium hover:text-white transition" style="color: var(--text-secondary);">{{ ligne.equipe_nom|truncate_name(25) }}</a>
+                            <span class="font-bold" style="color: var(--accent-blue-light);">{{ ligne.points_encaisses }}</span>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="card p-5">
+                    <h3 class="text-sm font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">
+                        <i data-lucide="percent" class="w-4 h-4 inline-block mr-1" style="color: var(--accent-purple);"></i>
+                        Taux de victoire
+                    </h3>
+                    <div class="space-y-2">
+                        {% for ligne in classement.classement_actuel|sort(attribute='taux_victoire', reverse=true) %}
+                        {% if loop.index <= 5 %}
+                        <div class="flex items-center gap-3">
+                            <span class="text-sm font-bold w-5 text-center" style="color: var(--accent-gold);">{{ loop.index }}</span>
+                            <a href="{{ path_for_entity('equipe', ligne.equipe_id) }}" class="flex-1 text-sm font-medium hover:text-white transition" style="color: var(--text-secondary);">{{ ligne.equipe_nom|truncate_name(25) }}</a>
+                            <span class="font-bold" style="color: var(--accent-purple);">{{ "%.0f"|format(ligne.taux_victoire) }}%</span>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+                <div class="card p-5">
+                    <h3 class="text-sm font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">
+                        <i data-lucide="ratio" class="w-4 h-4 inline-block mr-1" style="color: var(--accent-cyan);"></i>
+                        Meilleur ratio de sets
+                    </h3>
+                    <div class="space-y-2">
+                        {% for ligne in classement.classement_actuel|sort(attribute='ratio_sets', reverse=true) %}
+                        {% if loop.index <= 5 %}
+                        <div class="flex items-center gap-3">
+                            <span class="text-sm font-bold w-5 text-center" style="color: var(--accent-gold);">{{ loop.index }}</span>
+                            <a href="{{ path_for_entity('equipe', ligne.equipe_id) }}" class="flex-1 text-sm font-medium hover:text-white transition" style="color: var(--text-secondary);">{{ ligne.equipe_nom|truncate_name(25) }}</a>
+                            <span class="font-bold" style="color: var(--accent-cyan);">
+                                {% if ligne.sets_perdus > 0 %}{{ "%.2f"|format(ligne.ratio_sets) }}{% elif ligne.sets_gagnes > 0 %}∞{% else %}—{% endif %}
+                            </span>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% else %}
+            <div class="card p-12 text-center" style="color: var(--text-muted);">
+                <i data-lucide="bar-chart-2" class="w-12 h-12 mx-auto mb-4 opacity-30"></i>
+                <p class="text-lg font-semibold mb-2">Statistiques non disponibles</p>
+                <p class="text-sm">Aucun match joué dans cette poule pour le moment.</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+{% if classement and classement.classement_actuel|length > 1 %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const teamColors = [
+        '#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#a855f7',
+        '#06b6d4', '#ec4899', '#14b8a6', '#f97316', '#8b5cf6',
+        '#10b981', '#e11d48', '#0ea5e9', '#84cc16', '#d946ef',
+        '#6366f1', '#f43f5e', '#34d399', '#fbbf24', '#c084fc',
+    ];
+
+    const pointsCtx = document.getElementById('pointsChart0');
+    if (pointsCtx) {
+        const classementData = [
+            {% for ligne in classement.classement_actuel %}
+            { "nom": {{ ligne.equipe_nom|truncate_name(20)|tojson }}, "points": {{ ligne.points }}, "victoires": {{ ligne.victoires }}, "defaites": {{ ligne.defaites }} }{% if not loop.last %},{% endif %}
+            {% endfor %}
+        ];
+        new Chart(pointsCtx, {
+            type: 'bar',
+            data: {
+                labels: classementData.map(e => e.nom),
+                datasets: [{ label: 'Points', data: classementData.map(e => e.points),
+                    backgroundColor: classementData.map((_, i) => i === 0 ? 'rgba(245,158,11,0.7)' : i === 1 ? 'rgba(148,163,184,0.7)' : i === 2 ? 'rgba(180,83,9,0.7)' : 'rgba(59,130,246,0.5)'),
+                    borderColor: classementData.map((_, i) => i === 0 ? '#f59e0b' : i === 1 ? '#94a3b8' : i === 2 ? '#b45309' : '#3b82f6'),
+                    borderWidth: 1, borderRadius: 4 }]
+            },
+            options: { indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+                scales: { x: { beginAtZero: true, grid: { color: 'rgba(42,48,80,0.5)' }, ticks: { color: '#5a6178' } }, y: { grid: { display: false }, ticks: { color: '#8b92a8', font: { size: 11 } } } },
+                plugins: { legend: { display: false }, tooltip: { callbacks: { label: (ctx) => { const d = classementData[ctx.dataIndex]; return `${d.points} pts (${d.victoires}V - ${d.defaites}D)`; } } } } }
+        });
+    }
+
+    {% if not is_youth and classement.evolution|length > 1 %}
+    const evoCtx = document.getElementById('evolutionChart');
+    if (evoCtx) {
+        const journees = {{ classement.journees|tojson }};
+        const nbEquipes = {{ classement.nb_equipes }};
+        const evolution = {{ evolution_json|tojson }};
+        const teamsMap = {};
+        evolution.forEach((evo, journeeIdx) => {
+            evo.classement.forEach(ligne => {
+                if (!teamsMap[ligne.equipe_id]) { teamsMap[ligne.equipe_id] = { nom: ligne.equipe_nom, ranks: new Array(journees.length).fill(null), points: new Array(journees.length).fill(null) }; }
+                teamsMap[ligne.equipe_id].ranks[journeeIdx] = ligne.rang;
+                teamsMap[ligne.equipe_id].points[journeeIdx] = ligne.points;
+            });
+        });
+        const teamIds = Object.keys(teamsMap);
+        const datasets = teamIds.map((id, i) => ({
+            label: teamsMap[id].nom.length > 18 ? teamsMap[id].nom.substring(0, 18) + '…' : teamsMap[id].nom,
+            data: teamsMap[id].ranks, borderColor: teamColors[i % teamColors.length],
+            backgroundColor: teamColors[i % teamColors.length] + '33', borderWidth: 2, pointRadius: 3, pointHoverRadius: 6, tension: 0.3, fill: false, spanGaps: true
+        }));
+        new Chart(evoCtx, {
+            type: 'line', data: { labels: journees, datasets: datasets },
+            options: { responsive: true, maintainAspectRatio: false,
+                scales: { y: { reverse: true, min: 1, max: nbEquipes, ticks: { stepSize: 1, color: '#8b92a8', callback: v => v + (v === 1 ? 'er' : 'e') }, grid: { color: 'rgba(42,48,80,0.3)' }, title: { display: true, text: 'Position', color: '#8b92a8' } },
+                         x: { grid: { color: 'rgba(42,48,80,0.3)' }, ticks: { color: '#8b92a8', maxRotation: 45 }, title: { display: true, text: 'Journée', color: '#8b92a8' } } },
+                plugins: { legend: { position: 'bottom', labels: { color: '#8b92a8', font: { size: 10 }, usePointStyle: true, boxWidth: 8 } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y}${ctx.parsed.y === 1 ? 'er' : 'e'}` } } },
+                interaction: { mode: 'index', intersect: false } }
+        });
+
+        const ptsEvoCtx = document.getElementById('pointsEvolutionChart');
+        if (ptsEvoCtx) {
+            const ptsDatasets = teamIds.map((id, i) => ({
+                label: teamsMap[id].nom.length > 18 ? teamsMap[id].nom.substring(0, 18) + '…' : teamsMap[id].nom,
+                data: teamsMap[id].points, borderColor: teamColors[i % teamColors.length],
+                backgroundColor: teamColors[i % teamColors.length] + '33', borderWidth: 2, pointRadius: 3, pointHoverRadius: 6, tension: 0.3, fill: false, spanGaps: true
+            }));
+            new Chart(ptsEvoCtx, {
+                type: 'line', data: { labels: journees, datasets: ptsDatasets },
+                options: { responsive: true, maintainAspectRatio: false,
+                    scales: { y: { beginAtZero: true, ticks: { color: '#8b92a8' }, grid: { color: 'rgba(42,48,80,0.3)' }, title: { display: true, text: 'Points cumulés', color: '#8b92a8' } },
+                             x: { grid: { color: 'rgba(42,48,80,0.3)' }, ticks: { color: '#8b92a8', maxRotation: 45 }, title: { display: true, text: 'Journée', color: '#8b92a8' } } },
+                    plugins: { legend: { position: 'bottom', labels: { color: '#8b92a8', font: { size: 10 }, usePointStyle: true, boxWidth: 8 } }, tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y} pts` } } },
+                    interaction: { mode: 'index', intersect: false } }
+            });
+        }
+    }
+    {% endif %}
+});
+</script>
+{% endif %}
+{% endblock %}

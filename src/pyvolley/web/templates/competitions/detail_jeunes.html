@@ -1,0 +1,850 @@
+{% extends "base.html" %}
+{% block title %}{{ competition.nom }} - Coupe de France Jeunes - PyVolley{% endblock %}
+
+{# ═══════════ MACRO: Compact classement table for youth pools ═══════════ #}
+{% macro render_pool_classement(cls, title, poule_id=None, tour_label=None) %}
+<div class="card overflow-hidden">
+    <div class="p-3 flex items-center justify-between" style="border-bottom: 1px solid var(--border-color);">
+        <h3 class="text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+            <i data-lucide="list-ordered" class="w-3 h-3 inline-block mr-1"></i>
+            {{ title }}
+        </h3>
+        <div class="flex items-center gap-2">
+            {% if tour_label %}
+            <span class="badge badge-blue" style="font-size: 0.5rem;">{{ tour_label }}</span>
+            {% endif %}
+            {% if poule_id %}
+            <a href="{{ path_for_entity('poule', poule_id) }}" class="badge badge-purple hover:opacity-80 transition" style="font-size: 0.5rem;"
+               title="Voir le détail de la poule">
+                <i data-lucide="external-link" class="w-2.5 h-2.5 inline-block mr-0.5"></i> Détail
+            </a>
+            {% endif %}
+        </div>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="data-table text-xs" style="min-width: 500px;">
+            <thead>
+                <tr>
+                    <th class="text-center w-8">#</th>
+                    <th>Équipe</th>
+                    <th class="text-center">Pts</th>
+                    <th class="text-center">MJ</th>
+                    <th class="text-center">V</th>
+                    <th class="text-center">D</th>
+                    <th class="text-center">Sets</th>
+                    <th class="text-center">Ratio</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ligne in cls %}
+                <tr>
+                    <td class="text-center">
+                        {% if ligne.rang == 1 %}
+                        <span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold"
+                              style="background: linear-gradient(135deg, #f59e0b, #f97316); color: #000;">{{ ligne.rang }}</span>
+                        {% elif ligne.rang == 2 %}
+                        <span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold"
+                              style="background: linear-gradient(135deg, #94a3b8, #cbd5e1); color: #000;">{{ ligne.rang }}</span>
+                        {% elif ligne.rang == 3 %}
+                        <span class="inline-flex items-center justify-center w-5 h-5 rounded-full text-xs font-bold"
+                              style="background: linear-gradient(135deg, #b45309, #d97706); color: #fff;">{{ ligne.rang }}</span>
+                        {% else %}
+                        <span class="font-semibold" style="color: var(--text-muted);">{{ ligne.rang }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{{ path_for_entity('equipe', ligne.equipe_id) }}" class="font-medium hover:text-white transition text-xs"
+                           style="color: var(--text-primary);">{{ ligne.equipe_nom|truncate_name(25) }}</a>
+                    </td>
+                    <td class="text-center">
+                        <span class="font-bold" style="color: var(--accent-gold);">{{ ligne.points }}</span>
+                    </td>
+                    <td class="text-center">{{ ligne.matchs_joues }}</td>
+                    <td class="text-center" style="color: var(--accent-green);">{{ ligne.victoires }}</td>
+                    <td class="text-center" style="color: var(--accent-red);">{{ ligne.defaites }}</td>
+                    <td class="text-center">
+                        <span style="color: var(--accent-blue);">{{ ligne.sets_gagnes }}</span>
+                        <span style="color: var(--text-muted);">-</span>
+                        <span style="color: var(--text-secondary);">{{ ligne.sets_perdus }}</span>
+                    </td>
+                    <td class="text-center font-mono">
+                        {% if ligne.sets_perdus > 0 %}{{ "%.2f"|format(ligne.ratio_sets) }}
+                        {% elif ligne.sets_gagnes > 0 %}<span style="color: var(--accent-green);">∞</span>
+                        {% else %}<span style="color: var(--text-muted);">—</span>{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endmacro %}
+
+{# ═══════════ MACRO: Finals classement (full width, with medals) ═══════════ #}
+{% macro render_finals_classement(entries, title) %}
+<div class="card overflow-hidden">
+    <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
+        <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+            <i data-lucide="trophy" class="w-4 h-4 inline-block mr-1"></i>
+            {{ title }}
+        </h2>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="data-table" style="min-width: 700px;">
+            <thead>
+                <tr>
+                    <th class="text-center w-12">#</th>
+                    <th>Équipe</th>
+                    <th class="text-center">Pts</th>
+                    <th class="text-center">MJ</th>
+                    <th class="text-center">V</th>
+                    <th class="text-center">D</th>
+                    <th class="text-center">Sets (G-P)</th>
+                    <th class="text-center">Ratio S</th>
+                    <th class="text-center">Points (M-E)</th>
+                    <th class="text-center">Ratio P</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for ligne in entries %}
+                <tr style="{% if ligne.rang <= 3 %}background: rgba(245, 158, 11, 0.05);{% elif ligne.rang <= 8 %}background: rgba(59, 130, 246, 0.03);{% endif %}">
+                    <td class="text-center">
+                        {% if ligne.rang == 1 %}
+                        <span class="inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold"
+                              style="background: linear-gradient(135deg, #f59e0b, #f97316); color: #000;">
+                            <i data-lucide="crown" class="w-4 h-4"></i>
+                        </span>
+                        {% elif ligne.rang == 2 %}
+                        <span class="inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold"
+                              style="background: linear-gradient(135deg, #94a3b8, #cbd5e1); color: #000;">{{ ligne.rang }}</span>
+                        {% elif ligne.rang == 3 %}
+                        <span class="inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold"
+                              style="background: linear-gradient(135deg, #b45309, #d97706); color: #fff;">{{ ligne.rang }}</span>
+                        {% elif ligne.rang <= 8 %}
+                        <span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold"
+                              style="background: rgba(59, 130, 246, 0.15); color: var(--accent-blue);">{{ ligne.rang }}</span>
+                        {% else %}
+                        <span class="font-semibold" style="color: var(--text-muted);">{{ ligne.rang }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <a href="{{ path_for_entity('equipe', ligne.equipe_id) }}" class="font-semibold hover:text-white transition {% if ligne.rang <= 3 %}text-white{% endif %}"
+                           style="{% if ligne.rang > 3 %}color: var(--text-primary);{% endif %}">
+                            {{ ligne.equipe_nom|truncate_name(35) }}
+                        </a>
+                        {% if ligne.rang == 1 %}
+                        <span class="ml-2 text-xs" style="color: var(--accent-gold);">Champion</span>
+                        {% elif ligne.rang == 2 %}
+                        <span class="ml-2 text-xs" style="color: #94a3b8;">Vice-champion</span>
+                        {% elif ligne.rang == 3 %}
+                        <span class="ml-2 text-xs" style="color: #d97706;">3e place</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        <span class="font-bold text-lg" style="color: var(--accent-gold);">{{ ligne.points }}</span>
+                    </td>
+                    <td class="text-center font-medium">{{ ligne.matchs_joues }}</td>
+                    <td class="text-center font-medium" style="color: var(--accent-green);">{{ ligne.victoires }}</td>
+                    <td class="text-center font-medium" style="color: var(--accent-red);">{{ ligne.defaites }}</td>
+                    <td class="text-center">
+                        <span class="font-medium" style="color: var(--accent-blue);">{{ ligne.sets_gagnes }}</span>
+                        <span style="color: var(--text-muted);">-</span>
+                        <span style="color: var(--text-secondary);">{{ ligne.sets_perdus }}</span>
+                        {% set ds = ligne.sets_gagnes - ligne.sets_perdus %}
+                        <span class="text-xs ml-1"
+                              style="color: {% if ds > 0 %}var(--accent-green){% elif ds < 0 %}var(--accent-red){% else %}var(--text-muted){% endif %};">
+                            ({% if ds > 0 %}+{% endif %}{{ ds }})
+                        </span>
+                    </td>
+                    <td class="text-center font-mono text-sm">
+                        {% if ligne.sets_perdus > 0 %}{{ "%.2f"|format(ligne.ratio_sets) }}
+                        {% elif ligne.sets_gagnes > 0 %}<span style="color: var(--accent-green);">∞</span>
+                        {% else %}<span style="color: var(--text-muted);">—</span>{% endif %}
+                    </td>
+                    <td class="text-center text-sm">
+                        <span style="color: var(--accent-blue);">{{ ligne.points_marques }}</span>
+                        <span style="color: var(--text-muted);">-</span>
+                        <span style="color: var(--text-secondary);">{{ ligne.points_encaisses }}</span>
+                    </td>
+                    <td class="text-center font-mono text-sm">
+                        {% if ligne.points_encaisses > 0 %}{{ "%.3f"|format(ligne.ratio_points) }}
+                        {% elif ligne.points_marques > 0 %}<span style="color: var(--accent-green);">∞</span>
+                        {% else %}<span style="color: var(--text-muted);">—</span>{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endmacro %}
+
+{# ═══════════ MACRO: Bracket match card ═══════════ #}
+{% macro render_bracket_match(m) %}
+<div class="card p-3" style="background: var(--bg-card-hover); min-width: 200px;">
+    <div class="flex items-center justify-between mb-1.5">
+        <span class="text-xs font-mono" style="color: var(--text-muted);">{{ m.code_match }}</span>
+        {% if m.statut == 'joué' %}
+        <span class="badge badge-green" style="font-size: 0.5rem;">Joué</span>
+        {% elif m.statut == 'forfait' %}
+        <span class="badge badge-red" style="font-size: 0.5rem;">Forfait</span>
+        {% else %}
+        <span class="badge" style="font-size: 0.5rem; color: var(--text-muted);">{{ m.date_match|format_date if m.date_match else 'À planifier' }}</span>
+        {% endif %}
+    </div>
+    <div class="space-y-1">
+        <div class="flex items-center justify-between">
+            <a href="{{ path_for_entity('equipe', m.equipe_a.id if m.equipe_a else None) }}" class="text-xs font-medium hover:text-white transition {% if m.statut == 'joué' and m.sets_equipe_a > m.sets_equipe_b %}text-white font-bold{% endif %}"
+               style="{% if not (m.statut == 'joué' and m.sets_equipe_a > m.sets_equipe_b) %}color: var(--text-secondary);{% endif %}">
+                {{ m.equipe_a.nom|truncate_name(20) if m.equipe_a else '?' }}
+            </a>
+            {% if m.statut == 'joué' %}
+            <span class="text-xs font-bold {% if m.sets_equipe_a > m.sets_equipe_b %}{% else %}{% endif %}"
+                  style="color: {% if m.sets_equipe_a > m.sets_equipe_b %}var(--accent-green){% else %}var(--text-muted){% endif %};">
+                {{ m.sets_equipe_a }}
+            </span>
+            {% endif %}
+        </div>
+        <div class="flex items-center justify-between">
+            <a href="{{ path_for_entity('equipe', m.equipe_b.id if m.equipe_b else None) }}" class="text-xs font-medium hover:text-white transition {% if m.statut == 'joué' and m.sets_equipe_b > m.sets_equipe_a %}text-white font-bold{% endif %}"
+               style="{% if not (m.statut == 'joué' and m.sets_equipe_b > m.sets_equipe_a) %}color: var(--text-secondary);{% endif %}">
+                {{ m.equipe_b.nom|truncate_name(20) if m.equipe_b else '?' }}
+            </a>
+            {% if m.statut == 'joué' %}
+            <span class="text-xs font-bold"
+                  style="color: {% if m.sets_equipe_b > m.sets_equipe_a %}var(--accent-green){% else %}var(--text-muted){% endif %};">
+                {{ m.sets_equipe_b }}
+            </span>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endmacro %}
+
+{# ═══════════ MACRO: Compact bracket card for visual tree ═══════════ #}
+{% macro render_bracket_card(m, label=None) %}
+<div style="background: var(--bg-card-hover); border: 1px solid var(--border-color); border-radius: 0.5rem; overflow: hidden; width: 100%; height: 100%;">
+    {% if label %}
+    <div style="padding: 2px 8px; font-size: 0.55rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;
+                border-bottom: 1px solid var(--border-color);
+                {% if 'Finale' in label and '🏆' in label %}background: linear-gradient(135deg, rgba(245,158,11,0.15), rgba(249,115,22,0.1)); color: var(--accent-gold);
+                {% elif 'Demi' in label %}background: rgba(59,130,246,0.08); color: var(--accent-blue);
+                {% else %}color: var(--text-muted);{% endif %}">
+        {{ label }}
+    </div>
+    {% endif %}
+    {% if m and m.equipe_a and m.equipe_b %}
+    <div style="padding: 5px 8px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 3px;">
+            <a href="{{ path_for_entity('equipe', m.equipe_a.id if m.equipe_a else None) }}" class="hover:text-white transition"
+               style="font-size: 0.65rem; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px; display: block;
+                      font-weight: {% if m.match_joue and (m.sets_equipe_a or 0) > (m.sets_equipe_b or 0) %}700{% else %}400{% endif %};
+                      color: {% if m.match_joue and (m.sets_equipe_a or 0) > (m.sets_equipe_b or 0) %}var(--text-primary){% else %}var(--text-muted){% endif %};">
+                {{ m.equipe_a.nom|truncate_name(22) }}
+            </a>
+            {% if m.match_joue %}
+            <span style="font-size: 0.7rem; font-weight: 700; min-width: 12px; text-align: center;
+                         color: {% if (m.sets_equipe_a or 0) > (m.sets_equipe_b or 0) %}var(--accent-green){% else %}var(--text-muted){% endif %};">
+                {{ m.sets_equipe_a or 0 }}
+            </span>
+            {% endif %}
+        </div>
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+            <a href="{{ path_for_entity('equipe', m.equipe_b.id if m.equipe_b else None) }}" class="hover:text-white transition"
+               style="font-size: 0.65rem; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px; display: block;
+                      font-weight: {% if m.match_joue and (m.sets_equipe_b or 0) > (m.sets_equipe_a or 0) %}700{% else %}400{% endif %};
+                      color: {% if m.match_joue and (m.sets_equipe_b or 0) > (m.sets_equipe_a or 0) %}var(--text-primary){% else %}var(--text-muted){% endif %};">
+                {{ m.equipe_b.nom|truncate_name(22) }}
+            </a>
+            {% if m.match_joue %}
+            <span style="font-size: 0.7rem; font-weight: 700; min-width: 12px; text-align: center;
+                         color: {% if (m.sets_equipe_b or 0) > (m.sets_equipe_a or 0) %}var(--accent-green){% else %}var(--text-muted){% endif %};">
+                {{ m.sets_equipe_b or 0 }}
+            </span>
+            {% endif %}
+        </div>
+    </div>
+    {% else %}
+    <div style="padding: 12px 8px; text-align: center; color: var(--text-muted); font-size: 0.65rem;">À déterminer</div>
+    {% endif %}
+</div>
+{% endmacro %}
+
+{# ═══════════ MACRO: Mini-bracket (4 teams: 2 semis → final + bronze) ═══════════ #}
+{% macro render_mini_bracket(bracket_half, title, places_label) %}
+<div class="card p-4">
+    <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">
+        <i data-lucide="git-merge" class="w-3 h-3 inline-block mr-1"></i>
+        {{ title }} <span class="badge badge-blue ml-1" style="font-size: 0.5rem;">{{ places_label }}</span>
+    </h3>
+    <div style="overflow-x: auto;">
+        <div style="position: relative; width: 470px; height: 170px; margin: 0 auto;">
+            <!-- SVG connector lines -->
+            <svg style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none;"
+                 viewBox="0 0 470 170" preserveAspectRatio="xMinYMin meet">
+                <path d="M205,32 H222 V110 H205 M222,71 H260"
+                      fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="2"/>
+            </svg>
+            <!-- Semi-final 1 -->
+            <div style="position: absolute; left: 0; top: 0; width: 205px; height: 65px;">
+                {{ render_bracket_card(bracket_half.semi1, "Demi-finale") }}
+            </div>
+            <!-- Semi-final 2 -->
+            <div style="position: absolute; left: 0; top: 78px; width: 205px; height: 65px;">
+                {{ render_bracket_card(bracket_half.semi2, "Demi-finale") }}
+            </div>
+            <!-- Final -->
+            <div style="position: absolute; left: 260px; top: 39px; width: 205px; height: 65px;">
+                {% if 'places 1' in places_label %}
+                {{ render_bracket_card(bracket_half.final, "Finale 🏆") }}
+                {% else %}
+                {{ render_bracket_card(bracket_half.final, "Match " ~ places_label[:3]) }}
+                {% endif %}
+            </div>
+            <!-- Bronze / placement -->
+            {% if bracket_half.bronze %}
+            <div style="position: absolute; left: 260px; top: 112px; width: 205px; height: 55px;">
+                {% if 'places 1' in places_label %}
+                {{ render_bracket_card(bracket_half.bronze, "Petite finale (3-4)") }}
+                {% else %}
+                {{ render_bracket_card(bracket_half.bronze, "Match classement") }}
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endmacro %}
+
+
+{% block content %}
+<div class="space-y-6">
+
+    <!-- Breadcrumb -->
+    <nav class="text-sm flex items-center gap-2" style="color: var(--text-muted);">
+        <a href="/" class="hover:text-white transition">Accueil</a>
+        <i data-lucide="chevron-right" class="w-3 h-3"></i>
+        <a href="/competitions" class="hover:text-white transition">Compétitions</a>
+        <i data-lucide="chevron-right" class="w-3 h-3"></i>
+        <span style="color: var(--text-secondary);">{{ competition.nom|truncate_name(50) }}</span>
+    </nav>
+
+    <!-- Header Card -->
+    <div class="card p-6 md:p-8">
+        <div class="flex flex-col md:flex-row md:items-center gap-6">
+            <div class="w-16 h-16 rounded-2xl flex items-center justify-center flex-shrink-0"
+                 style="background: linear-gradient(135deg, var(--accent-gold), var(--accent-red));">
+                <i data-lucide="trophy" class="w-8 h-8 text-white"></i>
+            </div>
+            <div class="flex-1">
+                <h1 class="text-2xl md:text-3xl font-bold text-white mb-1">{{ competition.nom }}</h1>
+                <p class="text-sm mb-2" style="color: var(--text-muted);">Coupe de France Jeunes</p>
+                {% set niveau_badge = resolve_niveau_badge(competition.niveau, competition.nom, competition.categorie, competition.division) %}
+                <div class="flex flex-wrap gap-2 mt-2">
+                    {% if competition.saison %}
+                    <span class="badge badge-purple">
+                        <i data-lucide="calendar" class="w-3 h-3 mr-1"></i>
+                        {{ competition.saison.code }}
+                    </span>
+                    {% endif %}
+                    {% if competition.genre %}
+                    <span class="badge {% if competition.genre == 'MASCULIN' %}badge-blue{% elif competition.genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %}">
+                        {% if competition.genre == 'MASCULIN' %}♂{% elif competition.genre == 'FEMININ' %}♀{% else %}⚥{% endif %}
+                        {{ competition.genre }}
+                    </span>
+                    {% endif %}
+                    {% if competition.categorie %}
+                    <span class="badge badge-gold">
+                        <i data-lucide="users" class="w-3 h-3 mr-1"></i>
+                        {{ competition.categorie }}
+                    </span>
+                    {% endif %}
+                    {% if niveau_badge %}
+                    <span class="badge {{ niveau_badge.css_class }}">
+                        <i data-lucide="bar-chart-3" class="w-3 h-3 mr-1"></i>
+                        {{ niveau_badge.label }}
+                    </span>
+                    {% endif %}
+                    {% if competition.entite %}
+                    <span class="badge" title="{{ competition.entite.nom }} ({{ competition.entite.type or '' }})">
+                        <i data-lucide="landmark" class="w-3 h-3 mr-1"></i>
+                        {{ competition.entite.nom|truncate_name(30) }}
+                    </span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats Grid -->
+    {% set total_equipes = equipes|length %}
+    {% set total_matchs = matchs|length %}
+    {% set matchs_joues = matchs|selectattr("match_joue")|list|length %}
+    {% set total_poules = competition.poules|length %}
+    {% set total_tours = tours_data|length %}
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div class="stat-card">
+            <div class="stat-value gradient-text-gold">{{ total_equipes }}</div>
+            <div class="stat-label">Équipes</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value gradient-text-blue">{{ total_tours }}</div>
+            <div class="stat-label">Tours</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--accent-cyan);">{{ total_poules }}</div>
+            <div class="stat-label">Poules</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--accent-green);">{{ matchs_joues }}</div>
+            <div class="stat-label">Matchs joués</div>
+        </div>
+        <div class="stat-card">
+            {% if total_matchs > 0 %}
+            <div class="stat-value" style="color: var(--accent-purple);">
+                {{ ((matchs_joues / total_matchs) * 100)|round(0)|int }}%
+            </div>
+            {% else %}
+            <div class="stat-value" style="color: var(--text-muted);">—</div>
+            {% endif %}
+            <div class="stat-label">Avancement</div>
+        </div>
+    </div>
+
+    <!-- Progress bar -->
+    {% if total_matchs > 0 %}
+    <div class="card p-4">
+        <div class="flex justify-between text-xs mb-1" style="color: var(--text-muted);">
+            <span>Progression de la compétition</span>
+            <span>{{ matchs_joues }} / {{ total_matchs }} matchs</span>
+        </div>
+        <div class="h-2 rounded-full overflow-hidden" style="background: var(--bg-card-hover);">
+            {% set pct = (matchs_joues / total_matchs * 100)|round(1) %}
+            <div class="h-full rounded-full transition-all duration-500"
+                 style="width: {{ pct }}%; background: linear-gradient(90deg, var(--accent-gold), var(--accent-green));"></div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- ═══════════ Main content tabs ═══════════ -->
+    <div x-data="{ mainTab: '{{ 'finals' if finals_tour else 'tours' }}' }" class="space-y-4">
+        <div class="flex gap-1 p-1 rounded-xl" style="background: var(--bg-card);">
+            {% if finals_tour %}
+            <button @click="mainTab = 'finals'"
+                    :class="mainTab === 'finals' ? 'text-white' : ''"
+                    :style="mainTab === 'finals' ? 'background: var(--bg-card-hover)' : 'color: var(--text-muted)'"
+                    class="flex-1 text-center py-2 px-4 rounded-lg text-sm font-semibold transition">
+                <i data-lucide="trophy" class="w-4 h-4 inline-block mr-1"></i> Phases finales
+            </button>
+            {% endif %}
+            <button @click="mainTab = 'tours'"
+                    :class="mainTab === 'tours' ? 'text-white' : ''"
+                    :style="mainTab === 'tours' ? 'background: var(--bg-card-hover)' : 'color: var(--text-muted)'"
+                    class="flex-1 text-center py-2 px-4 rounded-lg text-sm font-semibold transition">
+                <i data-lucide="layers" class="w-4 h-4 inline-block mr-1"></i> Tours qualificatifs
+            </button>
+            <button @click="mainTab = 'matchs'"
+                    :class="mainTab === 'matchs' ? 'text-white' : ''"
+                    :style="mainTab === 'matchs' ? 'background: var(--bg-card-hover)' : 'color: var(--text-muted)'"
+                    class="flex-1 text-center py-2 px-4 rounded-lg text-sm font-semibold transition">
+                <i data-lucide="swords" class="w-4 h-4 inline-block mr-1"></i> Tous les matchs
+            </button>
+        </div>
+
+        <!-- ═══════════ TAB: Phases finales ═══════════ -->
+        {% if finals_tour %}
+        <div x-show="mainTab === 'finals'" x-transition class="space-y-6">
+
+            <!-- Finals header banner -->
+            <div class="card p-6" style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.1), rgba(239, 68, 68, 0.05)); border-color: rgba(245, 158, 11, 0.3);">
+                <div class="flex items-center gap-4 mb-4">
+                    <div class="w-12 h-12 rounded-xl flex items-center justify-center"
+                         style="background: linear-gradient(135deg, var(--accent-gold), var(--accent-red));">
+                        <i data-lucide="award" class="w-6 h-6 text-white"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-xl font-bold text-white">{{ finals_tour.label }}</h2>
+                        <p class="text-sm" style="color: var(--text-muted);">
+                            {{ finals_tour.nb_equipes }} équipes — {{ finals_tour.nb_poules }} poule{{ 's' if finals_tour.nb_poules > 1 else '' }} — {{ finals_tour.nb_matchs }} matchs
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 1. Classement final -->
+            {% if finals_classement %}
+            {{ render_finals_classement(finals_classement, "Classement final") }}
+            {% endif %}
+
+            <!-- ═══════════ STANDARD FORMAT: bracket + classement 9-12 + brassage ═══════════ -->
+            {% if finals_format == 'standard' %}
+
+            <!-- 2. Tableau final — Visual bracket tree (8 teams) -->
+            {% if bracket_tree %}
+            <div class="card p-6">
+                <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+                    <i data-lucide="git-merge" class="w-4 h-4 inline-block mr-1"></i>
+                    Tableau principal (places 1–8)
+                </h2>
+
+                <!-- Bracket tree: QF → SF → Final -->
+                <div style="overflow-x: auto; padding-bottom: 0.5rem;">
+                    <div style="position: relative; width: 730px; height: 370px; margin: 0 auto;">
+                        <!-- SVG connector lines -->
+                        <svg style="position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none;"
+                             viewBox="0 0 730 370" preserveAspectRatio="xMinYMin meet">
+                            <path d="M210,35 H228 V125 H210 M228,80 H260"
+                                  fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="2"/>
+                            <path d="M210,245 H228 V335 H210 M228,290 H260"
+                                  fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="2"/>
+                            <path d="M470,80 H488 V290 H470 M488,185 H520"
+                                  fill="none" stroke="rgba(255,255,255,0.12)" stroke-width="2"/>
+                        </svg>
+
+                        <div style="position: absolute; left: 0; top: 0; width: 210px; height: 70px;">
+                            {{ render_bracket_card(bracket_tree.qf_upper[0], "Quart de finale 1") }}
+                        </div>
+                        <div style="position: absolute; left: 0; top: 90px; width: 210px; height: 70px;">
+                            {{ render_bracket_card(bracket_tree.qf_upper[1], "Quart de finale 2") }}
+                        </div>
+                        <div style="position: absolute; left: 0; top: 210px; width: 210px; height: 70px;">
+                            {{ render_bracket_card(bracket_tree.qf_lower[0], "Quart de finale 3") }}
+                        </div>
+                        <div style="position: absolute; left: 0; top: 300px; width: 210px; height: 70px;">
+                            {{ render_bracket_card(bracket_tree.qf_lower[1], "Quart de finale 4") }}
+                        </div>
+
+                        <div style="position: absolute; left: 260px; top: 45px; width: 210px; height: 70px;">
+                            {{ render_bracket_card(bracket_tree.sf_upper, "Demi-finale 1") }}
+                        </div>
+                        <div style="position: absolute; left: 260px; top: 255px; width: 210px; height: 70px;">
+                            {{ render_bracket_card(bracket_tree.sf_lower, "Demi-finale 2") }}
+                        </div>
+
+                        <div style="position: absolute; left: 520px; top: 150px; width: 210px; height: 70px;">
+                            {{ render_bracket_card(bracket_tree.final, "Finale 🏆") }}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Placement matches -->
+                <h3 class="text-xs font-semibold uppercase tracking-wider mt-6 mb-3" style="color: var(--accent-gold);">
+                    <i data-lucide="trophy" class="w-3 h-3 inline-block mr-1"></i>
+                    Matchs de classement
+                </h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div>{{ render_bracket_card(bracket_tree.bronze, "Petite finale (3-4)") }}</div>
+                    {% if bracket_tree.consolation_upper %}
+                    <div>{{ render_bracket_card(bracket_tree.consolation_upper, "Consolation 5-8") }}</div>
+                    {% endif %}
+                    {% if bracket_tree.consolation_lower %}
+                    <div>{{ render_bracket_card(bracket_tree.consolation_lower, "Consolation 5-8") }}</div>
+                    {% endif %}
+                    {% if bracket_tree.place_5_6 %}
+                    <div>{{ render_bracket_card(bracket_tree.place_5_6, "Match 5-6") }}</div>
+                    {% endif %}
+                    {% if bracket_tree.place_7_8 %}
+                    <div>{{ render_bracket_card(bracket_tree.place_7_8, "Match 7-8") }}</div>
+                    {% endif %}
+                </div>
+            </div>
+            {% elif finals_bracket_matchs %}
+            <!-- Fallback: flat grid -->
+            <div class="card p-6">
+                <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+                    <i data-lucide="git-merge" class="w-4 h-4 inline-block mr-1"></i>
+                    Tableau final (places 1–8)
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                    {% for m in finals_bracket_matchs|sort(attribute='code_match') %}
+                    {% if m.equipe_a and m.equipe_b %}{{ render_bracket_match(m) }}{% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- 3. Classement 9-12 -->
+            {% if classement_9_12 %}
+            <div class="card p-6">
+                <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+                    <i data-lucide="list-ordered" class="w-4 h-4 inline-block mr-1"></i>
+                    Classement 9–12 (Poule {{ classement_9_12.poule_code }})
+                </h2>
+                {{ render_pool_classement(classement_9_12.classement, "Classement places 9–12", classement_9_12.poule_id, "Phases finales") }}
+                <div class="mt-4">
+                    <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">
+                        Matchs de la poule de classement
+                    </h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {% for m in classement_9_12.matchs|sort(attribute='code_match') %}
+                        {% if m.equipe_a and m.equipe_b %}{{ render_bracket_match(m) }}{% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- 4. Poules de brassage (3 teams each) -->
+            {% if finals_pool_classements %}
+            <div class="card p-6">
+                <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+                    <i data-lucide="grid-2x2" class="w-4 h-4 inline-block mr-1"></i>
+                    Poules de brassage ({{ finals_pool_classements|length }})
+                </h2>
+                <p class="text-xs mb-4" style="color: var(--text-muted);">
+                    Les 2 premiers de chaque poule accèdent au tableau final. Les 3<sup>e</sup> sont reversés dans la poule de classement 9–12.
+                </p>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {% for pc in finals_pool_classements %}
+                    {{ render_pool_classement(pc.classement, "Poule " ~ pc.poule_code, pc.poule_id, "Phases finales") }}
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- ═══════════ CHALLENGE FORMAT: pools + cross-brackets ═══════════ -->
+            {% elif finals_format == 'challenge' %}
+
+            <!-- 2. Tableaux croisés (mini-brackets) -->
+            {% if challenge_bracket %}
+            <div class="space-y-4">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {{ render_mini_bracket(challenge_bracket.upper, "Tableau principal", "places 1–4") }}
+                    {{ render_mini_bracket(challenge_bracket.lower, "Tableau secondaire", "places 5–8") }}
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- 3. Poules de brassage (4 teams each) -->
+            {% if challenge_pools %}
+            <div class="card p-6">
+                <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+                    <i data-lucide="grid-2x2" class="w-4 h-4 inline-block mr-1"></i>
+                    Poules de brassage ({{ challenge_pools|length }})
+                </h2>
+                <p class="text-xs mb-4" style="color: var(--text-muted);">
+                    Les résultats des poules déterminent les croisements du tableau final.
+                </p>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {% for pc in challenge_pools %}
+                    {{ render_pool_classement(pc.classement, "Poule " ~ pc.poule_code, pc.poule_id, "Phases finales") }}
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            {% endif %} {# end of finals_format conditionals #}
+
+        </div>
+        {% endif %}
+
+        <!-- ═══════════ TAB: Tours qualificatifs ═══════════ -->
+        <div x-show="mainTab === 'tours'" {% if finals_tour %}x-cloak{% endif %} x-transition class="space-y-6">
+
+            {% if qualifying_tours %}
+            <div x-data="{ activeTour: {{ qualifying_tours[0].tour_num if qualifying_tours else 1 }} }" class="space-y-4">
+
+                <!-- Tour selector -->
+                <div class="flex flex-wrap gap-2 p-2 rounded-xl" style="background: var(--bg-card);">
+                    {% for tour in qualifying_tours %}
+                    <button @click="activeTour = {{ tour.tour_num }}"
+                            :class="activeTour === {{ tour.tour_num }} ? 'text-white' : ''"
+                            :style="activeTour === {{ tour.tour_num }} ? 'background: var(--bg-card-hover)' : 'color: var(--text-muted)'"
+                            class="py-2 px-4 rounded-lg text-sm font-semibold transition flex items-center gap-2">
+                        <i data-lucide="target" class="w-3.5 h-3.5"></i>
+                        {{ tour.label }}
+                        <span class="badge" style="font-size: 0.55rem;">{{ tour.nb_equipes }} éq.</span>
+                    </button>
+                    {% endfor %}
+                </div>
+
+                <!-- Tour content -->
+                {% for tour in qualifying_tours %}
+                <div x-show="activeTour === {{ tour.tour_num }}" x-cloak x-transition class="space-y-4">
+
+                    <!-- Tour summary card -->
+                    <div class="card p-5">
+                        <div class="flex items-center gap-4">
+                            <div class="w-10 h-10 rounded-lg flex items-center justify-center"
+                                 style="background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));">
+                                <span class="text-sm font-bold text-white">{{ tour.tour_num }}</span>
+                            </div>
+                            <div>
+                                <h2 class="text-lg font-bold text-white">{{ tour.label }}</h2>
+                                <p class="text-xs" style="color: var(--text-muted);">
+                                    {{ tour.nb_poules }} poule{{ 's' if tour.nb_poules > 1 else '' }}
+                                    — {{ tour.nb_equipes }} équipes
+                                    — {{ tour.nb_matchs }} matchs
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Poule classements for this tour -->
+                    {% if tour.poule_classements %}
+                    <div class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+                        {% for pc in tour.poule_classements %}
+                        {{ render_pool_classement(pc.classement, "Poule " ~ pc.poule_code, pc.poule_id, tour.label) }}
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="card p-8 text-center" style="color: var(--text-muted);">
+                        <i data-lucide="calendar-x" class="w-12 h-12 mx-auto mb-3 opacity-30"></i>
+                        <p class="text-sm">Aucun match joué dans ce tour pour le moment.</p>
+                    </div>
+                    {% endif %}
+
+                    <!-- Poule list for quick reference -->
+                    {% if tour.poule_classements|length > 3 %}
+                    <div class="card p-5">
+                        <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">
+                            <i data-lucide="grid-2x2" class="w-3 h-3 inline-block mr-1"></i>
+                            Toutes les poules du {{ tour.label }} ({{ tour.poule_classements|length }})
+                        </h3>
+                        <div class="flex flex-wrap gap-2">
+                            {% for pc in tour.poule_classements %}
+                            <a href="{{ path_for_entity('poule', pc.poule_id) }}" class="badge hover:opacity-80 transition" title="{{ pc.matchs|length }} matchs — {{ tour.label }}">
+                                {{ pc.poule_code }}
+                                <span class="ml-1 text-xs" style="color: var(--text-muted);">({{ pc.matchs|length }})</span>
+                            </a>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                </div>
+                {% endfor %}
+            </div>
+
+            {% else %}
+            <div class="card p-12 text-center" style="color: var(--text-muted);">
+                <i data-lucide="layers" class="w-12 h-12 mx-auto mb-4 opacity-30"></i>
+                <p class="text-lg font-semibold mb-2">Aucun tour qualificatif</p>
+                <p class="text-sm">Les données des tours qualificatifs ne sont pas encore disponibles.</p>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- ═══════════ TAB: Tous les matchs ═══════════ -->
+        <div x-show="mainTab === 'matchs'" x-cloak x-transition>
+            <div class="card overflow-hidden">
+                <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                            <i data-lucide="swords" class="w-4 h-4 inline-block mr-1"></i>
+                            Tous les matchs ({{ matchs|length }})
+                        </h2>
+                        <div x-data="{ filterPoule: '' }" class="flex items-center gap-2">
+                            <input type="text" placeholder="Filtrer par code poule..."
+                                   x-model="filterPoule"
+                                   class="px-3 py-1 rounded-lg text-xs"
+                                   style="background: var(--bg-card-hover); color: var(--text-primary); border: 1px solid var(--border-color);">
+                        </div>
+                    </div>
+                </div>
+                <div class="overflow-x-auto" style="max-height: 600px; overflow-y: auto;">
+                    <table class="data-table text-sm">
+                        <thead class="sticky top-0" style="background: var(--bg-card);">
+                            <tr>
+                                <th>Date</th>
+                                <th class="text-center">Tour</th>
+                                <th class="text-center">Poule</th>
+                                <th class="text-right">Domicile</th>
+                                <th class="text-center">Score</th>
+                                <th>Extérieur</th>
+                                <th class="text-center">Statut</th>
+                                <th class="text-right">Détails</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for m in matchs|sort(attribute='date_match') %}
+                            <tr>
+                                <td class="text-xs" style="color: var(--text-muted);">
+                                    {{ m.date_match|format_date if m.date_match else '—' }}
+                                </td>
+                                <td class="text-center text-xs" style="color: var(--text-muted);">
+                                    {% if m.journee %}
+                                    <span class="badge" style="font-size: 0.5rem;">{% if m.journee == '99' %}Finale{% else %}J{{ m.journee }}{% endif %}</span>
+                                    {% else %}
+                                    —
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    {% if m.poule %}
+                                    <a href="{{ path_for_entity('poule', m.poule.id if m.poule else None) }}" class="badge hover:opacity-80 transition" style="font-size: 0.55rem;">
+                                        {{ m.poule.code }}
+                                    </a>
+                                    {% else %}
+                                    <span style="color: var(--text-muted);">—</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-right">
+                                    {% if m.equipe_a %}
+                                    <a href="{{ path_for_entity('equipe', m.equipe_a.id if m.equipe_a else None) }}" class="font-medium hover:text-white transition text-xs
+                                        {% if m.statut == 'joué' and m.sets_equipe_a > m.sets_equipe_b %}text-white{% endif %}"
+                                       style="{% if not (m.statut == 'joué' and m.sets_equipe_a > m.sets_equipe_b) %}color: var(--text-secondary);{% endif %}">
+                                        {{ m.equipe_a.nom|truncate_name(22) }}
+                                    </a>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    {% if m.statut == 'joué' %}
+                                    <span class="set-score {% if m.sets_equipe_a > m.sets_equipe_b %}won-a{% else %}won-b{% endif %}">
+                                        {{ m.sets_equipe_a }}-{{ m.sets_equipe_b }}
+                                    </span>
+                                    {% elif m.statut == 'forfait' %}
+                                    <span class="badge badge-red" style="font-size: 0.5rem;">Forfait</span>
+                                    {% else %}
+                                    <span style="color: var(--text-muted);">—</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if m.equipe_b %}
+                                    <a href="{{ path_for_entity('equipe', m.equipe_b.id if m.equipe_b else None) }}" class="font-medium hover:text-white transition text-xs
+                                        {% if m.statut == 'joué' and m.sets_equipe_b > m.sets_equipe_a %}text-white{% endif %}"
+                                       style="{% if not (m.statut == 'joué' and m.sets_equipe_b > m.sets_equipe_a) %}color: var(--text-secondary);{% endif %}">
+                                        {{ m.equipe_b.nom|truncate_name(22) }}
+                                    </a>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    {% if m.statut == 'forfait' %}
+                                    <span class="badge badge-red" style="font-size: 0.5rem;">Forfait</span>
+                                    {% elif m.statut == 'joué' %}
+                                    <span class="badge badge-green" style="font-size: 0.5rem;">Joué</span>
+                                    {% elif m.statut == 'à_venir' %}
+                                    <span class="badge badge-blue" style="font-size: 0.5rem;">À venir</span>
+                                    {% else %}
+                                    <span class="badge" style="font-size: 0.5rem; color: var(--accent-gold);">Sans résultat</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-right">
+                                    <a href="{{ path_for_entity('match', m.id) }}" class="badge badge-blue text-xs">Voir</a>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="8" class="text-center py-8" style="color: var(--text-muted);">
+                                    Aucun match trouvé
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Re-initialize Lucide icons after Alpine renders
+    setTimeout(() => lucide.createIcons(), 100);
+});
+</script>
+{% endblock %}

@@ -85,6 +85,7 @@
                     <h3 class="font-semibold text-white text-sm leading-tight mb-2">
                         {{ c.nom }}
                     </h3>
+                    {% set niveau_badge = resolve_niveau_badge(c.niveau, c.nom, c.categorie, c.division) %}
                     <div class="flex flex-wrap gap-1">
                         {% if c.saison %}
                         <span class="badge badge-purple" style="font-size: 0.6rem;">{{ c.saison.code }}</span>
@@ -97,8 +98,8 @@
                         {% if c.categorie %}
                         <span class="badge badge-gold" style="font-size: 0.6rem;">{{ c.categorie }}</span>
                         {% endif %}
-                        {% if c.niveau %}
-                        <span class="badge badge-green" style="font-size: 0.6rem;">{{ c.niveau }}</span>
+                        {% if niveau_badge %}
+                        <span class="badge {{ niveau_badge.css_class }}" style="font-size: 0.6rem;">{{ niveau_badge.label }}</span>
                         {% endif %}
                         {% if c.division %}
                         <span class="badge" style="font-size: 0.6rem;">Div. {{ c.division }}</span>

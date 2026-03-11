@@ -22,9 +22,15 @@
             </div>
             <div class="flex-1">
                 <h1 class="text-2xl md:text-3xl font-bold text-white mb-1">{{ equipe.nom }}</h1>
+                {% set niveau_badge = resolve_niveau_badge(
+                    equipe.niveau or (equipe.competition.niveau if equipe.competition else None),
+                    equipe.competition.nom if equipe.competition else equipe.nom,
+                    equipe.categorie or (equipe.competition.categorie if equipe.competition else None),
+                    equipe.division or (equipe.competition.division if equipe.competition else None)
+                ) %}
                 <div class="flex flex-wrap gap-2 mt-2">
                     {% if equipe.club %}
-                    <a href="/clubs/{{ equipe.club.id }}" class="badge badge-blue">
+                    <a href="{{ path_for_entity('club', equipe.club.id if equipe.club else None) }}" class="badge badge-blue">
                         <i data-lucide="building-2" class="w-3 h-3 mr-1"></i>
                         {{ equipe.club.nom|truncate_name(30) }}
                     </a>
@@ -47,24 +53,27 @@
                         {{ equipe.categorie }}
                     </span>
                     {% endif %}
-                    {% if equipe.niveau %}
-                    <span class="badge badge-green">
+                    {% if niveau_badge %}
+                    <span class="badge {{ niveau_badge.css_class }}">
                         <i data-lucide="bar-chart-3" class="w-3 h-3 mr-1"></i>
-                        {{ equipe.niveau }}
-                    </span>
-                    {% elif equipe.competition and equipe.competition.niveau %}
-                    <span class="badge badge-green">
-                        <i data-lucide="bar-chart-3" class="w-3 h-3 mr-1"></i>
-                        {{ equipe.competition.niveau }}
+                        {{ niveau_badge.label }}
                     </span>
                     {% endif %}
                     {% if equipe.division %}
                     <span class="badge">{{ equipe.division }}</span>
                     {% endif %}
                     {% if equipe.competition %}
-                    <a href="/competitions/{{ equipe.competition.id }}" class="badge hover:opacity-80 transition" title="{{ equipe.competition.nom }}">
+                    <a href="{{ competition_url_for_equipe(equipe) }}" class="badge hover:opacity-80 transition" title="{{ equipe.competition.nom }}">
                         <i data-lucide="medal" class="w-3 h-3 mr-1"></i>
                         {{ equipe.competition.nom|truncate_name(35) }}
+                    </a>
+                    {% endif %}
+                    {% if url_ffvb %}
+                    <a href="{{ url_ffvb }}" target="_blank" rel="noopener noreferrer"
+                       class="badge badge-blue hover:opacity-80 transition" title="Voir sur le site de la FFVB">
+                        <i data-lucide="globe" class="w-3 h-3 mr-1"></i>
+                        FFVB
+                        <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
                     </a>
                     {% endif %}
                 </div>
@@ -177,7 +186,7 @@
                         {% endif %}
                     </td>
                     <td>
-                        <a href="/joueurs/{{ j.id }}" class="font-medium hover:text-white transition"
+                        <a href="{{ path_for_entity('joueur', j.id) }}" class="font-medium hover:text-white transition"
                            style="color: var(--text-primary);">
                             {{ j.nom }} <span style="color: var(--text-secondary);">{{ j.prenom }}</span>
                         </a>
@@ -205,7 +214,7 @@
                         {% endif %}
                     </td>
                     <td class="text-right">
-                        <a href="/joueurs/{{ j.id }}" class="badge badge-blue text-xs">Voir</a>
+                        <a href="{{ path_for_entity('joueur', j.id) }}" class="badge badge-blue text-xs">Voir</a>
                     </td>
                 </tr>
                 {% endfor %}
@@ -255,7 +264,7 @@
                     </td>
                     <td>
                         {% if opponent %}
-                        <a href="/equipes/{{ opponent.id }}" class="font-medium hover:text-white transition"
+                        <a href="{{ path_for_entity('equipe', opponent.id) }}" class="font-medium hover:text-white transition"
                            style="color: var(--text-secondary);">
                             {% if is_team_a %}
                             <span class="text-xs" style="color: var(--text-muted);">vs</span>
@@ -278,21 +287,25 @@
                         {% endif %}
                     </td>
                     <td class="text-center">
-                        {% if m.match_joue %}
+                        {% if m.statut == 'joué' %}
                         <span class="badge {% if won %}badge-green{% else %}badge-red{% endif %}">
                             {{ 'V' if won else 'D' }}
                         </span>
+                        {% elif m.statut == 'forfait' %}
+                        <span class="badge badge-red" style="font-size: 0.6rem;">Forfait</span>
+                        {% elif m.statut == 'à_venir' %}
+                        <span class="badge badge-blue" style="font-size: 0.6rem;">À venir</span>
                         {% else %}
-                        <span class="badge">—</span>
+                        <span class="badge" style="font-size: 0.6rem; color: var(--accent-gold);">Sans rés.</span>
                         {% endif %}
                     </td>
                     <td class="text-right">
                         <div class="flex items-center justify-end gap-1">
-                            <a href="/matchs/{{ m.id }}" class="badge badge-blue text-xs">Voir</a>
-                            {% if m.source_pdf and m.competition and m.competition.entite and m.saison %}
+                            <a href="{{ path_for_entity('match', m.id) }}" class="badge badge-blue text-xs">Voir</a>
+                            {% if m.competition and m.competition.entite and m.saison %}
                             <a href="https://www.ffvbbeach.org/ffvbapp/resu/ffvolley_fdme.php?saison={{ m.saison.code|replace('-', '/') }}&codent={{ m.competition.entite.code }}&codmatch={{ m.code_match }}"
                                target="_blank" rel="noopener noreferrer"
-                               class="badge badge-green text-xs hover:opacity-80 transition" title="Feuille de match PDF">
+                               class="badge badge-green text-xs hover:opacity-80 transition" title="Feuille de match FFVB">
                                 <i data-lucide="file-text" class="w-3 h-3"></i>
                             </a>
                             {% endif %}

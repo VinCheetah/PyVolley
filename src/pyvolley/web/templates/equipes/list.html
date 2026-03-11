@@ -64,6 +64,7 @@
     <!-- Active filters -->
     {% if genre or niveau or categorie or current_saison_id %}
     <div class="flex flex-wrap gap-2 items-center">
+        {% set niveau_filter_badge = resolve_niveau_badge(niveau) %}
         <span class="text-xs font-semibold uppercase" style="color: var(--text-muted);">Filtres :</span>
         {% if genre %}
         <span class="badge badge-blue">{{ genre }}</span>
@@ -71,8 +72,8 @@
         {% if categorie %}
         <span class="badge badge-gold">{{ categorie }}</span>
         {% endif %}
-        {% if niveau %}
-        <span class="badge badge-green">{{ niveau }}</span>
+        {% if niveau_filter_badge %}
+        <span class="badge {{ niveau_filter_badge.css_class }}">{{ niveau_filter_badge.label }}</span>
         {% endif %}
         {% if current_saison_id %}
         {% for s in saisons %}{% if s.id == current_saison_id %}
@@ -98,6 +99,7 @@
             </thead>
             <tbody>
                 {% for eq in equipes %}
+                {% set niveau_badge = resolve_niveau_badge(eq.niveau, eq.nom, eq.categorie, eq.division) %}
                 <tr>
                     <td class="font-semibold text-white">{{ eq.nom }}</td>
                     <td>
@@ -120,8 +122,8 @@
                     </td>
                     <td style="color: var(--text-secondary);">{{ eq.categorie or '—' }}</td>
                     <td>
-                        {% if eq.niveau %}
-                        <span class="badge badge-green">{{ eq.niveau }}</span>
+                        {% if niveau_badge %}
+                        <span class="badge {{ niveau_badge.css_class }}">{{ niveau_badge.label }}</span>
                         {% else %}
                         <span style="color: var(--text-muted);">—</span>
                         {% endif %}

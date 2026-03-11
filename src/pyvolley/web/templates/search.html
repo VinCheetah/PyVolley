@@ -104,12 +104,13 @@
     <!-- Active filters display -->
     {% if genre or niveau or saison_id or ligue %}
     <div class="flex flex-wrap gap-2 items-center">
+        {% set niveau_filter_badge = resolve_niveau_badge(niveau) %}
         <span class="text-xs font-semibold uppercase" style="color: var(--text-muted);">Filtres :</span>
         {% if genre %}
         <span class="badge badge-blue">Genre : {{ genre }}</span>
         {% endif %}
-        {% if niveau %}
-        <span class="badge badge-green">Niveau : {{ niveau }}</span>
+        {% if niveau_filter_badge %}
+        <span class="badge {{ niveau_filter_badge.css_class }}">Niveau : {{ niveau_filter_badge.label }}</span>
         {% endif %}
         {% if saison_id %}
         {% for s in saisons %}
@@ -238,6 +239,12 @@
                 </thead>
                 <tbody>
                     {% for e in equipes %}
+                    {% set niveau_badge = resolve_niveau_badge(
+                        e.niveau or (e.competition.niveau if e.competition else None),
+                        e.competition.nom if e.competition else e.nom,
+                        e.categorie or (e.competition.categorie if e.competition else None),
+                        e.division or (e.competition.division if e.competition else None)
+                    ) %}
                     <tr>
                         <td class="font-semibold">{{ e.nom }}</td>
                         <td>
@@ -249,10 +256,8 @@
                         </td>
                         <td style="color: var(--text-secondary);">{{ e.categorie or '—' }}</td>
                         <td>
-                            {% if e.niveau %}
-                            <span class="badge badge-green">{{ e.niveau }}</span>
-                            {% elif e.competition and e.competition.niveau %}
-                            <span class="badge badge-green">{{ e.competition.niveau }}</span>
+                            {% if niveau_badge %}
+                            <span class="badge {{ niveau_badge.css_class }}">{{ niveau_badge.label }}</span>
                             {% else %}
                             <span style="color: var(--text-muted);">—</span>
                             {% endif %}
