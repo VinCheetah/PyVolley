@@ -56,6 +56,7 @@ planning_volley.php ──→ Entités (ligues/comités)
 | `download` | `scrapers/ffvb/download.py` | Téléchargement des PDFs avec fallback LNV |
 | `patterns` | `scrapers/ffvb/patterns.py` | ~109 patterns de poules hardcodés |
 | `utils` | `scrapers/ffvb/utils.py` | Construction d'URLs, détection genre/catégorie |
+| `jeunes` | `scrapers/ffvb/jeunes.py` | Scraping Coupe de France Jeunes (ACJEUNES) |
 | `score_scraper` | `scrapers/score_scraper.py` | Parsing séquentiel des cellules du calendrier HTML |
 | `ScoreCompletionService` | `database/score_completion.py` | Synchronisation scores DB ↔ calendrier en ligne |
 | `MatchImportService` | `database/import_service.py` | Import des données parsées en DB |
@@ -300,6 +301,63 @@ Même format CSV que l'export global, mais filtré pour un seul club.
 | `adressier.php` | GET (codent=, typ_edition=E) | Annuaire des équipes (format Excel) |
 | `engag_division.php` | GET (dans `/ffvbapp/adressier/`) | Engagements par division |
 | `vbspo_histo.php` | GET | Historique des saisons |
+
+### 4.4 Coupe de France Jeunes (`ACJEUNES`) — Compétitions jeunes
+
+> Ajouté suite à l'exploration du frameset jeunes du site FFVB.
+
+#### Structure hiérarchique
+
+```
+ACJEUNES (entité cachée, non listée dans planning_volley.php)
+└── Catégorie d'âge (M21, M18, M18-Challenge, M15, M13, M11)
+    └── Division (code 3 lettres : JMX/JFX, CMX/CFX, RMX/RFX, MMX/MFX, BMX/BFX, PMA/PFA)
+        └── Tour (01 à 07)
+            └── Poules (multiples par tour, code 3 lettres : CYQ, CYR, BFA…)
+                └── Matchs (code = poule + 3 chiffres : CYQ001)
+```
+
+#### Codes division
+
+| Catégorie | Description            | Masculin | Féminin |
+|-----------|------------------------|----------|---------|
+| M21       | Juniors                | JMX      | JFX     |
+| M18       | Cadets                 | CMX      | CFX     |
+| M18-CHAL  | Cadets Challenge       | RMX      | RFX     |
+| M15       | Minimes                | MMX      | MFX     |
+| M13       | Benjamins              | BMX      | BFX     |
+| M11       | Poussins (finales)     | PMA      | PFA     |
+
+#### Sources de données spécifiques
+
+| Source | URL | Usage |
+|--------|-----|-------|
+| Navigation | `jeunes/{saison}/pbscript.htm` | Découverte des divisions/tours (page frameset) |
+| Calendrier | `vbspo_calendrier.php?...&division=CMX&tour=01` | Classements + résultats HTML par tour |
+| Export CSV | `vbspo_calendrier_export.php?...&division=CMX` | Données structurées par division |
+| Finales M11 | `ffvb_jeunes_finales.php?poule=PMA` | Page spéciale pour les poussins |
+
+#### Comparaison des sources
+
+L'export CSV et les pages calendrier HTML contiennent les **mêmes données de matchs**.
+La source CSV est plus riche (40 colonnes : codes club, arbitres, juges, marqueurs),
+mais le HTML inclut les **classements/poules** absents du CSV.
+
+⚠️ **L'export global pour l'entité ACJEUNES est extrêmement lent** (>2 min, timeouts fréquents).
+Il faut impérativement filtrer par division via le paramètre `division=`.
+
+#### Implémentation : module `jeunes.py`
+
+Le module `pyvolley.scrapers.ffvb.jeunes` implémente un scraper dédié :
+
+1. **Découverte** : `scrape_youth_nav()` parse `pbscript.htm` pour construire
+   un `YouthCupIndex` (divisions, tours, URLs)
+2. **Export par division** : `fetch_youth_export()` télécharge le CSV d'une
+   division spécifique (contourne le timeout)
+3. **Classements** : `scrape_youth_tour()` parse le HTML d'un tour pour
+   extraire les poules, équipes et matchs
+4. **Routage automatique** : `FFVBScraper.scrape_entity("ACJEUNES")` redirige
+   automatiquement vers le scraping par division
 
 ---
 

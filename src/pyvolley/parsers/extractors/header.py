@@ -2,7 +2,12 @@
 Extraction des informations d'en-tête de la feuille de match.
 
 Responsable de : compétition, code match, journée, date, heure,
-lieu, salle, genre, catégorie, saison, ligue, organisateur, niveau.
+lieu, salle, genre, catégorie, saison, ligue, organisateur, niveau,
+type de compétition, phase, division.
+
+Utilise le module ``competition_info`` pour une extraction riche et
+cohérente des métadonnées de compétition à partir du nom de la
+compétition tel qu'il apparaît dans le header du PDF FFVB.
 """
 
 from __future__ import annotations
@@ -30,6 +35,7 @@ def extract_header(lines: list[str]) -> dict:
         "lieu": None, "salle": None, "genre": None, "categorie": None,
         "saison": None, "ligue": None, "organisation": None,
         "organisateur": None, "niveau": None,
+        "division": None, "type_competition": None, "phase": None,
     }
 
     for line in lines[:8]:
@@ -92,13 +98,70 @@ def extract_header(lines: list[str]) -> dict:
             else f"{d.year - 1}-{d.year}"
         )
 
-    # ── Niveau de compétition ──
-    header["niveau"] = detect_niveau(
-        header.get("competition"),
-        header.get("organisateur"),
-    )
+    # ── Enrichissement via competition_info ──
+    _enrich_from_competition_name(header)
 
     return header
+
+
+# ── Enrichissement via competition_info ──────────────────────────────
+
+
+def _enrich_from_competition_name(header: dict) -> None:
+    """Enrichit le header avec les métadonnées de compétition.
+
+    Utilise le module ``competition_info`` pour analyser le nom de la
+    compétition et en extraire : genre, catégorie, niveau, division,
+    type de compétition et phase.
+
+    Les valeurs déjà présentes (ex: genre détecté depuis la ligne Salle)
+    ne sont pas écrasées.
+    """
+    competition = header.get("competition")
+    if not competition:
+        return
+
+    try:
+        from pyvolley.scrapers.ffvb.competition_info import parse_competition_name
+
+        # Déterminer le type d'entité organisatrice pour le fallback
+        entite_type = None
+        organisateur = header.get("organisateur") or ""
+        org_lower = organisateur.lower()
+        if "nationale" in org_lower or "compétition" in org_lower:
+            entite_type = "nationale"
+        elif "ligue" in org_lower:
+            entite_type = "ligue"
+        elif "comité" in org_lower or "comite" in org_lower:
+            entite_type = "comite"
+
+        meta = parse_competition_name(
+            competition,
+            poule_code=header.get("code_match"),
+            entite_type=entite_type,
+        )
+
+        # Remplir les champs manquants
+        if not header.get("genre") and meta.genre:
+            header["genre"] = meta.genre
+        if not header.get("categorie") and meta.categorie_age:
+            header["categorie"] = meta.categorie_age
+        if not header.get("niveau") and meta.niveau:
+            header["niveau"] = meta.niveau
+        if not header.get("division") and meta.division:
+            header["division"] = meta.division
+        if not header.get("type_competition") and meta.type_competition:
+            header["type_competition"] = meta.type_competition
+        if not header.get("phase") and meta.phase:
+            header["phase"] = meta.phase
+
+    except Exception:
+        # Fallback : utiliser l'ancien detect_niveau si competition_info échoue
+        if not header.get("niveau"):
+            header["niveau"] = detect_niveau(
+                header.get("competition"),
+                header.get("organisateur"),
+            )
 
 
 # ── Sous-fonctions privées ────────────────────────────────────────────

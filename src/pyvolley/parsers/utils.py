@@ -132,12 +132,18 @@ def extract_club_info(team_name: str) -> tuple[str, Optional[int]]:
 def extract_competition_code(code_match: str) -> Optional[str]:
     """Extrait le code poule depuis le code match.
 
+    Le suffixe numérique est toujours composé de 3 chiffres.
+    On ne peut PAS utiliser un quantificateur lazy car les codes
+    peuvent contenir des chiffres (ex. ``"CX1001"`` → ``"CX1"``).
+
     ``"EMA001"`` → ``"EMA"``
     ``"PMAA001"`` → ``"PMAA"``
+    ``"CX1001"`` → ``"CX1"``
+    ``"BG5006"`` → ``"BG5"``
     """
     if not code_match or code_match == "UNKNOWN":
         return None
-    m = re.match(r'^([A-Za-z0-9]+?)(\d{2,})$', code_match)
+    m = re.match(r'^(.+?)(\d{3})$', code_match)
     return m.group(1) if m else None
 
 

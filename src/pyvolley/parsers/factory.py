@@ -1,117 +1,156 @@
 """
 Factory pour la création et sélection des parsers.
+
+Fournit un point d'accès unique et centralisé pour instancier
+les parsers de feuilles de match.
 """
 
+from __future__ import annotations
+
+import logging
 from pathlib import Path
-from typing import Type, Optional
+from typing import Optional, Type
 
 from pyvolley.parsers.base import BaseParser
-from pyvolley.parsers.parser import MatchSheetParser
+
+logger = logging.getLogger(__name__)
 
 
 class ParserFactory:
+    """Registre central des parsers de feuilles de match.
+
+    Gère l'enregistrement, la sélection automatique et l'instanciation
+    des différents parsers disponibles dans le projet.
+
+    Exemples::
+
+        # Obtenir le parser par défaut
+        parser = ParserFactory.get_default()
+
+        # Parser un PDF
+        result = parser.parse("match.pdf")
+
+        # Sélection automatique du meilleur parser
+        parser = ParserFactory.auto_select("match.pdf")
+
+        # Lister les parsers disponibles
+        names = ParserFactory.list_parsers()
     """
-    Factory pour créer et gérer les parsers.
-    
-    Permet de :
-    - Enregistrer différents parsers
-    - Sélectionner automatiquement le meilleur parser
-    - Comparer les performances
-    """
-    
+
     _parsers: dict[str, Type[BaseParser]] = {}
     _default_parser: Optional[str] = None
-    
+
     @classmethod
-    def register(cls, parser_class: Type[BaseParser], name: Optional[str] = None):
-        """
-        Enregistre un parser.
-        
+    def register(cls, parser_class: Type[BaseParser], name: Optional[str] = None) -> None:
+        """Enregistre un parser dans le registre.
+
         Args:
-            parser_class: Classe du parser
-            name: Nom optionnel (utilise parser_class.name par défaut)
+            parser_class: Classe du parser (doit hériter de BaseParser).
+            name: Nom d'enregistrement. Si omis, utilise ``parser_class().name``.
         """
         instance = parser_class()
         key = name or instance.name
         cls._parsers[key] = parser_class
-        
+
         if cls._default_parser is None:
             cls._default_parser = key
-    
+            logger.debug("Parser par défaut : %s (v%s)", key, instance.version)
+
     @classmethod
     def get(cls, name: str) -> BaseParser:
-        """
-        Récupère une instance de parser par son nom.
-        
-        Args:
-            name: Nom du parser
-            
-        Returns:
-            Instance du parser
-            
+        """Instancie un parser par son nom.
+
         Raises:
-            KeyError: Si le parser n'existe pas
+            KeyError: Si le parser n'est pas enregistré.
         """
         if name not in cls._parsers:
-            raise KeyError(f"Parser '{name}' non trouvé. Disponibles: {list(cls._parsers.keys())}")
+            available = ", ".join(cls._parsers.keys()) or "(aucun)"
+            raise KeyError(
+                f"Parser '{name}' non trouvé. Disponibles : {available}"
+            )
         return cls._parsers[name]()
-    
+
     @classmethod
     def get_default(cls) -> BaseParser:
-        """Retourne le parser par défaut (MatchSheetParser)."""
+        """Retourne une instance du parser par défaut.
+
+        Enregistre automatiquement ``MatchSheetParser`` s'il n'y a aucun
+        parser enregistré.
+
+        Raises:
+            RuntimeError: Aucun parser par défaut configuré.
+        """
         if cls._default_parser is None:
-            cls.register(MatchSheetParser)
+            cls._ensure_default_registered()
         if cls._default_parser is None:
             raise RuntimeError("Aucun parser par défaut configuré")
         return cls.get(cls._default_parser)
-    
+
     @classmethod
-    def set_default(cls, name: str):
-        """Définit le parser par défaut."""
+    def set_default(cls, name: str) -> None:
+        """Change le parser par défaut.
+
+        Raises:
+            KeyError: Si le parser n'est pas enregistré.
+        """
         if name not in cls._parsers:
             raise KeyError(f"Parser '{name}' non trouvé")
         cls._default_parser = name
-    
+
     @classmethod
     def list_parsers(cls) -> list[str]:
-        """Liste les parsers disponibles."""
+        """Liste les noms de tous les parsers enregistrés."""
         return list(cls._parsers.keys())
-    
+
     @classmethod
-    def auto_select(cls, pdf_path: Path) -> BaseParser:
-        """
-        Sélectionne automatiquement le meilleur parser pour un fichier.
-        
-        Args:
-            pdf_path: Chemin vers le PDF
-            
-        Returns:
-            Le parser le plus adapté
+    def auto_select(cls, pdf_path: Path | str) -> BaseParser:
+        """Sélectionne automatiquement le parser le plus adapté à un PDF.
+
+        Teste chaque parser enregistré via ``can_parse()`` et retourne le
+        premier qui répond positivement. Retombe sur le parser par défaut
+        si aucun ne se déclare compatible.
         """
         pdf_path = Path(pdf_path)
-        
+
         for name, parser_class in cls._parsers.items():
             parser = parser_class()
-            if parser.can_parse(pdf_path):
-                return parser
-        
+            try:
+                if parser.can_parse(pdf_path):
+                    logger.debug("Auto-select : %s pour %s", name, pdf_path.name)
+                    return parser
+            except Exception:
+                logger.debug("Erreur auto-select pour %s, ignoré", name, exc_info=True)
+
         return cls.get_default()
+
+    @classmethod
+    def _ensure_default_registered(cls) -> None:
+        """Enregistre le parser principal si le registre est vide."""
+        if cls._parsers:
+            return
+        from pyvolley.parsers.parser import MatchSheetParser
+
+        cls.register(MatchSheetParser)
+
+    @classmethod
+    def reset(cls) -> None:
+        """Vide le registre (utile pour les tests)."""
+        cls._parsers.clear()
+        cls._default_parser = None
 
 
 def get_parser(name: Optional[str] = None) -> BaseParser:
-    """
-    Fonction utilitaire pour obtenir un parser.
-    
+    """Raccourci pour obtenir un parser.
+
     Args:
-        name: Nom du parser (optionnel, utilise le défaut)
-        
-    Returns:
-        Instance du parser
+        name: Nom du parser voulu, ou ``None`` pour le parser par défaut.
     """
     if name:
         return ParserFactory.get(name)
     return ParserFactory.get_default()
 
 
-# Enregistrer le parser principal
+# ── Enregistrement automatique du parser principal ──────────────────
+from pyvolley.parsers.parser import MatchSheetParser  # noqa: E402
+
 ParserFactory.register(MatchSheetParser)

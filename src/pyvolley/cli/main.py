@@ -59,9 +59,9 @@ def scrape(
         help="Affiche ce qui serait importé sans modifier la base"
     ),
     enrich_clubs: bool = typer.Option(
-        False,
-        "--enrich-clubs",
-        help="Enrichit les clubs avec les données de l'adressier FFVB (coordonnées, salles, dirigeants)"
+        True,
+        "--enrich-clubs/--no-enrich-clubs",
+        help="Enrichit les clubs avec les données de l'adressier FFVB (coordonnées, salles, dirigeants). Activé par défaut."
     ),
 ):
     """
@@ -71,19 +71,20 @@ def scrape(
     ou plusieurs entités en une seule requête HTTP par entité. Les données
     sont importées dans la base de données avec le statut "discovered".
 
-    Par défaut, tous les matchs sont importés en base. Utilisez --dry-run
-    pour prévisualiser sans modifier la base.
+    Par défaut, tous les matchs sont importés en base avec enrichissement
+    automatique des métadonnées de compétition (genre, niveau, catégorie,
+    division) et des clubs (coordonnées, salles, dirigeants).
 
-    Utilisez --enrich-clubs pour télécharger l'adressier FFVB et enrichir
-    les clubs avec leurs coordonnées, salles, couleurs et dirigeants.
+    Utilisez --dry-run pour prévisualiser sans modifier la base.
+    Utilisez --no-enrich-clubs pour désactiver l'enrichissement des clubs.
 
     Exemples:
 
         # Scraper et importer une entité
         pyvolley scrape -e ABCCS
 
-        # Scraper avec enrichissement des clubs
-        pyvolley scrape -e ABCCS --enrich-clubs
+        # Scraper sans enrichissement des clubs
+        pyvolley scrape -e ABCCS --no-enrich-clubs
 
         # Scraper plusieurs entités
         pyvolley scrape -e ABCCS -e LIRA
@@ -128,7 +129,7 @@ def scrape(
         entities_display += f"... (+{len(entities_to_process) - 5})"
 
     mode = "[yellow]DRY-RUN[/yellow]" if dry_run else "[green]IMPORT[/green]"
-    enrich_label = " + [magenta]enrichissement clubs[/magenta]" if enrich_clubs and not dry_run else ""
+    enrich_label = " + [magenta]enrichissement clubs[/magenta]" if enrich_clubs and not dry_run else " [dim](clubs: désactivé)[/dim]" if not dry_run else ""
     console.print(Panel(
         f"[bold blue]🔄 Scrape FFVB (Phase 1 - Export CSV)[/bold blue]\n\n"
         f"Saison:   [cyan]{saison}[/cyan]\n"
@@ -267,6 +268,12 @@ def download(
         "--output", "-o",
         help="Dossier de sortie pour les PDFs"
     ),
+    from_db: bool = typer.Option(
+        False,
+        "--from-db",
+        help="Télécharge les PDFs des matchs découverts en base (parsing_status='discovered'). "
+             "Met à jour le statut en 'downloaded'. Alternative au scraping classique."
+    ),
     entity: Optional[List[str]] = typer.Option(
         None,
         "--entity", "-e",
@@ -326,11 +333,26 @@ def download(
 ):
     """
     📥 Télécharge massivement les feuilles de match depuis le site FFVB.
+
+    Deux modes de fonctionnement :
+
+    1. MODE CLASSIQUE (par défaut) : scrape les exports CSV FFVB et télécharge
+       les PDFs pour les entités/saisons spécifiées.
+
+    2. MODE BASE DE DONNÉES (--from-db) : télécharge les PDFs des matchs
+       déjà découverts en base (parsing_status='discovered'). Met à jour
+       le statut en 'downloaded'. Utilise les URLs stockées en base.
     
     Exemples:
     
         # Télécharger tous les matchs des Nationales Seniors
         pyvolley download -e ABCCS
+        
+        # Mode DB : télécharger les matchs découverts mais pas téléchargés
+        pyvolley download --from-db
+        
+        # Mode DB : avec limite
+        pyvolley download --from-db -n 100
         
         # Télécharger plusieurs entités
         pyvolley download -e ABCCS -e LIRA -e LIIFDF
@@ -353,6 +375,15 @@ def download(
         # Limiter à 10 téléchargements avec aperçu
         pyvolley download -e ABCCS -p EFA -n 10 --dry-run
     """
+    # ── Mode --from-db : télécharger depuis la base ─────────────────
+    if from_db:
+        _download_from_db(
+            limit=limit,
+            saison=saison,
+            verbose=False,
+        )
+        raise typer.Exit(0)
+
     from pyvolley.scrapers.ffvb import FFVBScraper
     from pyvolley.scrapers.lnv import PRO_COMPETITIONS, PRO_ENTITY_CODE
     
@@ -1110,9 +1141,26 @@ def _sanitize_filename(name: str) -> str:
 
 @app.command()
 def parse(
-    input_path: Path = typer.Argument(
-        ...,
-        help="Chemin vers un PDF, un dossier, ou 'data/pdfs' pour tout parser"
+    input_path: Optional[Path] = typer.Argument(
+        None,
+        help="Chemin vers un PDF ou un dossier. Ignoré avec --from-db."
+    ),
+    from_db: bool = typer.Option(
+        False,
+        "--from-db",
+        help="Parse les matchs depuis la base de données (matchs avec statut 'discovered' ou 'downloaded' "
+             "dont le PDF existe localement dans data/pdfs)"
+    ),
+    status_filter: Optional[str] = typer.Option(
+        None,
+        "--status",
+        help="Avec --from-db : filtrer par statut (discovered, downloaded, error). "
+             "Par défaut : discovered + downloaded"
+    ),
+    played_only: bool = typer.Option(
+        True,
+        "--played-only/--all-matches",
+        help="Avec --from-db : ne parser que les matchs joués (match_joue=True)"
     ),
     output: Optional[Path] = typer.Option(
         None,
@@ -1142,12 +1190,15 @@ def parse(
     skip_parsed: bool = typer.Option(
         True,
         "--skip-parsed/--force",
-        help="Ignorer les fichiers déjà parsés (basé sur le cache de hashes)"
+        help="Ignorer les fichiers déjà parsés. En mode --from-db, se base sur parsing_status. "
+             "En mode fichier, utilise le cache de hashes."
     ),
     save_db: bool = typer.Option(
         False,
         "--save-db", "-d",
-        help="Enregistrer les résultats directement dans la base de données"
+        help="Enregistrer les résultats dans la base de données. "
+             "Avec --from-db, les matchs existants sont enrichis (Phase 2). "
+             "Sans --from-db, de nouveaux matchs sont créés."
     ),
     report: bool = typer.Option(
         False,
@@ -1162,7 +1213,7 @@ def parse(
     saison: Optional[List[str]] = typer.Option(
         None,
         "--saison", "-s",
-        help="Filtrer par saison (ex: 2024-2025). Répétable: -s 2024-2025 -s 2025-2026"
+        help="Filtrer par saison (ex: 2024-2025). Répétable."
     ),
     entity: Optional[List[str]] = typer.Option(
         None,
@@ -1184,65 +1235,495 @@ def parse(
         "--verbose", "-v",
         help="Afficher les détails de chaque parsing"
     ),
+    verify: bool = typer.Option(
+        False,
+        "--verify",
+        help="Avec --from-db : re-parser les matchs déjà parsés et comparer les données"
+    ),
 ):
     """
-    📄 Parse intelligemment les feuilles de match PDF.
-    
-    Le cache de parsing (basé sur le hash des fichiers) permet de ne pas
-    re-parser les PDFs déjà traités. Lors de l'import en base (--save-db),
-    les doublons sont détectés directement en base, indépendamment du cache.
-    
+    📄 Parse les feuilles de match PDF et enrichit la base de données.
+
+    Deux modes de fonctionnement :
+
+    1. MODE FICHIER (par défaut) : parse des PDFs depuis le système de fichiers.
+       Un cache de hashes permet d'éviter le re-parsing. Utilisez --save-db
+       pour créer de nouveaux matchs en base.
+
+    2. MODE BASE DE DONNÉES (--from-db) : interroge la base pour trouver les
+       matchs avec statut "discovered" ou "downloaded", localise leurs PDFs
+       dans data/pdfs, les parse, et enrichit les enregistrements existants
+       (Phase 2 du pipeline). Le --save-db est implicite.
+
     Exemples:
-    
-        # Parser tous les PDFs récursivement
+
+        # Mode fichier : parser tous les PDFs récursivement
         pyvolley parse data/pdfs
-        
-        # Parser avec limite et sauvegarde en base
-        pyvolley parse data/pdfs -n 100 --save-db
-        
-        # Parser plusieurs saisons
-        pyvolley parse data/pdfs -s 2024-2025 -s 2025-2026
-        
-        # Parser avec forçage (ignore le cache)
-        pyvolley parse data/pdfs --force
-        
-        # Vider le cache puis parser
-        pyvolley parse data/pdfs --clear-cache
-        
-        # Parser seulement certaines entités
-        pyvolley parse data/pdfs -e ABCCS -e LIRA
-        
+
+        # Mode fichier : parser et sauvegarder en base
+        pyvolley parse data/pdfs --save-db
+
+        # Mode DB : enrichir les matchs non encore parsés
+        pyvolley parse --from-db
+
+        # Mode DB : ne parser que les matchs d'une entité
+        pyvolley parse --from-db -e ABCCS
+
+        # Mode DB : re-parser les matchs en erreur
+        pyvolley parse --from-db --status error
+
+        # Mode DB : forcer le re-parsing de tous les matchs
+        pyvolley parse --from-db --force
+
+        # Mode DB : vérifier les données parsées
+        pyvolley parse --from-db --verify
+
+        # Parser avec limite et ordre aléatoire
+        pyvolley parse data/pdfs -n 100 --random
+
         # Exporter en JSON
         pyvolley parse data/pdfs -o results.json
-        
+
         # Mode dry-run pour voir ce qui serait parsé
         pyvolley parse data/pdfs --dry-run -n 50
     """
+    if from_db:
+        _parse_from_db(
+            status_filter=status_filter,
+            played_only=played_only,
+            parser_version=parser_version,
+            limit=limit,
+            skip_parsed=skip_parsed,
+            dry_run=dry_run,
+            saison=saison,
+            entity=entity,
+            verbose=verbose,
+            verify=verify,
+            report=report,
+            output=output,
+            collect_problems=collect_problems,
+        )
+    else:
+        if input_path is None:
+            console.print("[red]Erreur: spécifiez un chemin ou utilisez --from-db[/red]")
+            raise typer.Exit(1)
+        _parse_from_files(
+            input_path=input_path,
+            output=output,
+            parser_version=parser_version,
+            recursive=recursive,
+            limit=limit,
+            random_order=random_order,
+            skip_parsed=skip_parsed,
+            save_db=save_db,
+            report=report,
+            dry_run=dry_run,
+            saison=saison,
+            entity=entity,
+            clear_cache=clear_cache,
+            collect_problems=collect_problems,
+            verbose=verbose,
+        )
+
+
+def _parse_from_db(
+    *,
+    status_filter: Optional[str],
+    played_only: bool,
+    parser_version: str,
+    limit: Optional[int],
+    skip_parsed: bool,
+    dry_run: bool,
+    saison: Optional[List[str]],
+    entity: Optional[List[str]],
+    verbose: bool,
+    verify: bool,
+    report: bool,
+    output: Optional[Path],
+    collect_problems: Optional[Path],
+) -> None:
+    """Parse les matchs depuis la base de données (Phase 2 du pipeline).
+
+    Interroge la DB pour trouver les matchs non encore parsés, localise
+    leurs PDFs dans data/pdfs, les parse, et enrichit les enregistrements.
+    """
+    from pyvolley.parsers.factory import ParserFactory
+    from pyvolley.database.connection import DatabaseSession, init_db
+    from pyvolley.database.import_service import MatchImportService
+    from pyvolley.database.models import MatchDB, SaisonDB, ImportLogDB
+    from sqlalchemy import select
+
+    init_db()
+
+    # Déterminer les statuts à traiter
+    if verify:
+        statuses = ["parsed"]
+    elif status_filter:
+        statuses = [status_filter]
+    elif not skip_parsed:
+        statuses = ["discovered", "downloaded", "parsed", "error"]
+    else:
+        statuses = ["discovered", "downloaded"]
+
+    # Créer le parser
+    try:
+        if parser_version == "auto":
+            parser = ParserFactory.get_default()
+        else:
+            parser = ParserFactory.get(parser_version)
+    except KeyError:
+        console.print(f"[red]Parser '{parser_version}' non trouvé[/red]")
+        raise typer.Exit(1)
+
+    with DatabaseSession() as session:
+        service = MatchImportService(session)
+
+        # Construire la requête
+        stmt = select(MatchDB).where(MatchDB.parsing_status.in_(statuses))
+        if played_only:
+            stmt = stmt.where(MatchDB.match_joue == True)  # noqa: E712
+
+        # Filtres saison
+        if saison:
+            normalized = [s.replace("/", "-") for s in saison]
+            saison_ids = [
+                s.id for s in session.scalars(
+                    select(SaisonDB).where(SaisonDB.code.in_(normalized))
+                ).all()
+            ]
+            if saison_ids:
+                stmt = stmt.where(MatchDB.saison_id.in_(saison_ids))
+            else:
+                console.print(f"[yellow]Aucune saison trouvée pour {saison}[/yellow]")
+                raise typer.Exit(0)
+
+        # Filtres entité (via compétition → entité)
+        if entity:
+            from pyvolley.database.models import EntiteFFVBDB, CompetitionDB
+            entite_ids = [
+                e.id for e in session.scalars(
+                    select(EntiteFFVBDB).where(EntiteFFVBDB.code.in_(entity))
+                ).all()
+            ]
+            if entite_ids:
+                comp_ids = [
+                    c.id for c in session.scalars(
+                        select(CompetitionDB).where(CompetitionDB.entite_id.in_(entite_ids))
+                    ).all()
+                ]
+                if comp_ids:
+                    stmt = stmt.where(MatchDB.competition_id.in_(comp_ids))
+
+        stmt = stmt.order_by(MatchDB.code_match)
+        if limit:
+            stmt = stmt.limit(limit)
+
+        matches_db = list(session.scalars(stmt).all())
+
+    if not matches_db:
+        console.print(f"[yellow]Aucun match à parser (statuts: {', '.join(statuses)})[/yellow]")
+        raise typer.Exit(0)
+
+    # Localiser les PDFs
+    pdf_base_dir = Path("data/pdfs")
+    match_pdf_pairs: list[tuple[MatchDB, Path]] = []
+
+    # Construire un index des PDFs locaux pour une recherche rapide
+    # au lieu de faire un glob par match (148k+ fichiers)
+    _pdf_index: dict[str, Path] = {}
+    if pdf_base_dir.exists():
+        for pdf_file in pdf_base_dir.glob("**/*.pdf"):
+            # Indexer par code_match extrait du nom de fichier
+            stem = pdf_file.stem  # ex: "PTIDF92_LME056" ou "LME056"
+            _pdf_index[stem] = pdf_file
+            # Si le nom contient un underscore, indexer aussi la partie après
+            if "_" in stem:
+                code_part = stem.split("_", 1)[1]
+                if code_part not in _pdf_index:
+                    _pdf_index[code_part] = pdf_file
+
+    for match_db in matches_db:
+        code = match_db.code_match
+        pdf_path = None
+
+        # 1. Chemin stocké en DB (source_pdf)
+        if match_db.source_pdf:
+            p = Path(match_db.source_pdf)
+            if p.exists():
+                pdf_path = p
+
+        # 2. Format nouveau: {saison}/{code_match}.pdf
+        if not pdf_path:
+            p = pdf_base_dir / f"**/{code}.pdf"
+            candidates = list(pdf_base_dir.glob(f"**/{code}.pdf"))
+            if candidates:
+                pdf_path = candidates[0]
+
+        # 3. Index rapide (couvre ancien format {entity}_{code}.pdf)
+        if not pdf_path:
+            if code in _pdf_index:
+                pdf_path = _pdf_index[code]
+
+        if pdf_path:
+            match_pdf_pairs.append((match_db, pdf_path))
+
+    if not match_pdf_pairs:
+        console.print(
+            f"[yellow]Aucun PDF trouvé pour les {len(matches_db)} matchs "
+            f"à parser. Téléchargez d'abord avec : pyvolley download[/yellow]"
+        )
+        raise typer.Exit(0)
+
+    mode_label = "Vérification" if verify else "Enrichissement"
+    saison_display = ", ".join(saison) if saison else "toutes"
+    entity_display = ", ".join(entity) if entity else "toutes"
+
+    console.print(Panel(
+        f"[bold blue]📄 PyVolley - {mode_label} depuis la base (Phase 2)[/bold blue]\n\n"
+        f"Matchs en DB:  [cyan]{len(matches_db)}[/cyan] (statuts: {', '.join(statuses)})\n"
+        f"PDFs trouvés:  [cyan]{len(match_pdf_pairs)}[/cyan]\n"
+        f"Saison(s):     [cyan]{saison_display}[/cyan]\n"
+        f"Entité(s):     [cyan]{entity_display}[/cyan]\n"
+        f"Parser:        [cyan]{parser.name} v{parser.version}[/cyan]",
+        title="Configuration"
+    ))
+
+    if dry_run:
+        table = Table(title="Matchs à parser")
+        table.add_column("Code", style="cyan")
+        table.add_column("Statut", style="white")
+        table.add_column("Joué", justify="center")
+        table.add_column("PDF", style="dim")
+        for match_db, pdf_path in match_pdf_pairs[:50]:
+            table.add_row(
+                match_db.code_match,
+                match_db.parsing_status,
+                "✓" if match_db.match_joue else "✗",
+                pdf_path.name,
+            )
+        console.print(table)
+        if len(match_pdf_pairs) > 50:
+            console.print(f"\n[dim]... et {len(match_pdf_pairs) - 50} autres[/dim]")
+        console.print(f"\n[yellow]Mode dry-run: aucun fichier parsé[/yellow]")
+        raise typer.Exit(0)
+
+    # Parsing et enrichissement
+    results = []
+    enriched = 0
+    skipped_count = 0
+    failed = 0
+    warnings_count = 0
+    error_details = []
+
+    with DatabaseSession() as session:
+        service = MatchImportService(session)
+
+        # Audit log
+        import_log = ImportLogDB(
+            operation="parse-enrich",
+            source="from-db",
+            total_attempted=len(match_pdf_pairs),
+            status="running",
+        )
+        session.add(import_log)
+        session.flush()
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            "[", TextColumn("{task.completed}/{task.total}"), "]",
+            TimeRemainingColumn(),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Parsing + enrichissement...", total=len(match_pdf_pairs))
+
+            for match_db, pdf_path in match_pdf_pairs:
+                # Re-fetch le match dans cette session
+                match_db_fresh = session.get(MatchDB, match_db.id)
+                if not match_db_fresh:
+                    skipped_count += 1
+                    progress.update(task, advance=1)
+                    continue
+
+                try:
+                    result = parser.parse(pdf_path)
+
+                    if result.success and result.match:
+                        # Enrichir le match en base
+                        was_enriched = service.enrich_from_pdf(
+                            match_db_fresh, result.match, force=verify or not skip_parsed,
+                        )
+                        if was_enriched:
+                            enriched += 1
+                        else:
+                            skipped_count += 1
+
+                        results.append({
+                            'file': str(pdf_path),
+                            'match': result.match,
+                            'parse_time_ms': result.parse_time_ms,
+                            'diagnostics': result.diagnostics,
+                            'db_match_id': match_db_fresh.id,
+                            'enriched': was_enriched,
+                        })
+
+                        if result.diagnostics:
+                            warnings_count += result.warnings_count
+
+                        if verbose and was_enriched:
+                            m = result.match
+                            progress.console.print(
+                                f"  [green]✓[/green] {match_db_fresh.code_match}: "
+                                f"enrichi ({m.equipe_a.nom[:20] if m.equipe_a else '?'} vs "
+                                f"{m.equipe_b.nom[:20] if m.equipe_b else '?'})"
+                            )
+
+                        progress.update(task, advance=1,
+                            description=f"[green]✓ {match_db_fresh.code_match}[/green]")
+                    else:
+                        failed += 1
+                        match_db_fresh.parsing_status = "error"
+                        match_db_fresh.remarques = (
+                            result.errors[0][:200] if result.errors else "Parsing error"
+                        )
+                        error_details.append({
+                            'file': str(pdf_path),
+                            'errors': result.errors,
+                            'diagnostics': result.diagnostics,
+                        })
+                        progress.update(task, advance=1,
+                            description=f"[red]✗ {match_db_fresh.code_match}[/red]")
+
+                except Exception as e:
+                    failed += 1
+                    match_db_fresh.parsing_status = "error"
+                    match_db_fresh.remarques = str(e)[:200]
+                    error_details.append({
+                        'file': str(pdf_path),
+                        'errors': [str(e)],
+                    })
+                    progress.update(task, advance=1,
+                        description=f"[red]✗ {match_db_fresh.code_match}[/red]")
+
+                # Commit par batch de 100
+                if (enriched + failed) % 100 == 0 and (enriched + failed) > 0:
+                    try:
+                        session.commit()
+                    except Exception as e:
+                        session.rollback()
+                        service.clear_caches()
+                        console.print(f"  [red]Erreur batch commit: {e}[/red]")
+
+        # Commit final
+        import_log.finished_at = datetime.now()
+        import_log.imported = enriched
+        import_log.duplicates = skipped_count
+        import_log.errors = failed
+        import_log.status = (
+            "success" if failed == 0
+            else "partial" if enriched > 0
+            else "failed"
+        )
+        try:
+            session.commit()
+        except Exception:
+            session.rollback()
+
+    # Résumé
+    total_processed = enriched + failed
+    console.print("\n" + "=" * 60)
+    console.print(Panel(
+        f"[green]✓ Enrichis:  {enriched}[/green]\n"
+        f"[yellow]⏭ Ignorés:   {skipped_count}[/yellow]\n"
+        f"[red]✗ Échecs:    {failed}[/red]\n"
+        f"[dim]⚠ Warnings:  {warnings_count}[/dim]",
+        title=f"Résumé du {'vérification' if verify else 'parsing'} (Phase 2)"
+    ))
+
+    if results or error_details:
+        _display_warning_summary(results, error_details, total_processed, console)
+
+    if collect_problems and (results or error_details):
+        _collect_problem_files(results, error_details, collect_problems, console)
+
+    if output and results:
+        export_data = []
+        for r in results:
+            match = r['match']
+            export_data.append({
+                'file': r['file'],
+                'parse_time_ms': r['parse_time_ms'],
+                'enriched': r.get('enriched', False),
+                'match': match.model_dump() if hasattr(match, 'model_dump') else match.dict()
+            })
+        with open(output, "w", encoding="utf-8") as f:
+            json.dump(export_data, f, ensure_ascii=False, indent=2, default=str)
+        console.print(f"\n[blue]📁 Résultats exportés: {output}[/blue]")
+
+    if report:
+        _generate_parse_report(
+            input_path=Path("data/pdfs"),
+            parser=parser,
+            pdf_files=[Path(r['file']) for r in results],
+            results=results,
+            successful=enriched,
+            skipped=skipped_count,
+            failed=failed,
+            warnings_count=warnings_count,
+            error_details=error_details,
+            saison=saison,
+            entity=entity,
+            import_stats={"committed": enriched, "duplicates": skipped_count, "errors": failed},
+            force=True,
+        )
+
+
+def _parse_from_files(
+    *,
+    input_path: Path,
+    output: Optional[Path],
+    parser_version: str,
+    recursive: bool,
+    limit: Optional[int],
+    random_order: bool,
+    skip_parsed: bool,
+    save_db: bool,
+    report: bool,
+    dry_run: bool,
+    saison: Optional[List[str]],
+    entity: Optional[List[str]],
+    clear_cache: bool,
+    collect_problems: Optional[Path],
+    verbose: bool,
+) -> None:
+    """Parse des PDFs depuis le système de fichiers (mode original)."""
     from pyvolley.parsers.factory import ParserFactory
     from hashlib import md5
-    
+
     if not input_path.exists():
         console.print(f"[red]Erreur: {input_path} n'existe pas[/red]")
         raise typer.Exit(1)
-    
+
     # ── Collecte des fichiers PDF ──────────────────────────────────────
     if input_path.is_dir():
         pdf_files = list(input_path.glob("**/*.pdf" if recursive else "*.pdf"))
     else:
         pdf_files = [input_path]
-    
+
     if not pdf_files:
         console.print("[yellow]Aucun fichier PDF trouvé[/yellow]")
         raise typer.Exit(0)
-    
+
     # ── Filtres saison / entité ────────────────────────────────────────
     if saison:
         normalized_saisons = [s.replace("/", "-") for s in saison]
         pdf_files = [f for f in pdf_files if any(ns in str(f) for ns in normalized_saisons)]
-    
+
     if entity:
         pdf_files = [f for f in pdf_files if any(e in str(f) for e in entity)]
-    
+
     if not pdf_files:
         console.print("[yellow]Aucun fichier PDF après filtres[/yellow]")
         raise typer.Exit(0)
@@ -1253,23 +1734,19 @@ def parse(
         random.shuffle(pdf_files)
     else:
         pdf_files.sort()
-    
+
     if limit:
         pdf_files = pdf_files[:limit]
-    
+
     # ── Cache de parsing ───────────────────────────────────────────────
-    # Le cache est centralisé dans data/.pyvolley_parse_cache.json
-    # Il associe un hash de fichier → code_match parsé pour éviter de
-    # re-parser les mêmes PDFs.  Le cache est indépendant de la base de
-    # données : lors de --save-db, les doublons sont détectés en DB.
     cache_dir = input_path if input_path.is_dir() else input_path.parent
     cache_file = cache_dir / ".pyvolley_parse_cache.json"
     parsed_cache: dict = {}
-    
+
     if clear_cache and cache_file.exists():
         cache_file.unlink()
         console.print("[yellow]Cache de parsing vidé[/yellow]")
-    
+
     if skip_parsed and cache_file.exists():
         try:
             with open(cache_file, "r") as f:
@@ -1277,23 +1754,23 @@ def parse(
             console.print(f"[dim]Cache chargé: {len(parsed_cache)} fichiers déjà parsés[/dim]")
         except Exception:
             parsed_cache = {}
-    
+
     # ── Afficher le résumé ─────────────────────────────────────────────
     saison_display = ", ".join(saison) if saison else "toutes"
     entity_display = ", ".join(entity) if entity else "toutes"
-    
+
     console.print(Panel(
-        f"[bold blue]🏐 PyVolley - Parsing des feuilles de match[/bold blue]\n\n"
-        f"Source: [cyan]{input_path}[/cyan]\n"
-        f"Fichiers: [cyan]{len(pdf_files)}[/cyan]\n"
-        f"Saison(s): [cyan]{saison_display}[/cyan]\n"
-        f"Entité(s): [cyan]{entity_display}[/cyan]\n"
-        f"Parser: [cyan]auto[/cyan]\n"
-        f"Mode: [cyan]{'Aperçu (dry-run)' if dry_run else 'Parsing'}[/cyan]\n"
+        f"[bold blue]📄 PyVolley - Parsing des feuilles de match[/bold blue]\n\n"
+        f"Source:       [cyan]{input_path}[/cyan]\n"
+        f"Fichiers:     [cyan]{len(pdf_files)}[/cyan]\n"
+        f"Saison(s):    [cyan]{saison_display}[/cyan]\n"
+        f"Entité(s):    [cyan]{entity_display}[/cyan]\n"
+        f"Parser:       [cyan]auto[/cyan]\n"
+        f"Mode:         [cyan]{'Aperçu (dry-run)' if dry_run else 'Parsing'}[/cyan]\n"
         f"Sauvegarde DB: [cyan]{'Oui' if save_db else 'Non'}[/cyan]",
         title="Configuration"
     ))
-    
+
     # ── Mode dry-run ───────────────────────────────────────────────────
     if dry_run:
         from collections import Counter
@@ -1305,7 +1782,7 @@ def parse(
                     saisons_count[p] += 1
                 if p and (p.startswith("LI") or p.startswith("PT") or p.startswith("AB") or p.startswith("AC")):
                     entities_count[p] += 1
-        
+
         if saisons_count:
             console.print("\n[bold]Distribution par saison:[/bold]")
             for s, c in sorted(saisons_count.items()):
@@ -1314,10 +1791,10 @@ def parse(
             console.print("\n[bold]Distribution par entité (top 10):[/bold]")
             for e, c in entities_count.most_common(10):
                 console.print(f"  {e}: {c}")
-        
+
         console.print(f"\n[yellow]Mode dry-run: aucun fichier parsé[/yellow]")
         raise typer.Exit(0)
-    
+
     # ── Créer le parser ────────────────────────────────────────────────
     try:
         if parser_version == "auto":
@@ -1328,9 +1805,9 @@ def parse(
         console.print(f"[red]Parser '{parser_version}' non trouvé[/red]")
         console.print(f"[blue]Parsers disponibles: {ParserFactory.list_parsers()}[/blue]")
         raise typer.Exit(1)
-    
+
     console.print(f"\n[blue]Utilisation du parser: {parser.name} v{parser.version}[/blue]\n")
-    
+
     # ── Parsing ────────────────────────────────────────────────────────
     results = []
     successful = 0
@@ -1338,7 +1815,7 @@ def parse(
     failed = 0
     warnings_count = 0
     error_details = []
-    
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -1351,7 +1828,7 @@ def parse(
         console=console,
     ) as progress:
         task = progress.add_task("Parsing...", total=len(pdf_files))
-        
+
         for pdf_file in pdf_files:
             # Vérifier le cache (skip re-parsing, pas l'import DB)
             file_hash: Optional[str] = None
@@ -1361,10 +1838,10 @@ def parse(
                     skipped += 1
                     progress.update(task, advance=1, description=f"[yellow]Skip: {pdf_file.name}[/yellow]")
                     continue
-            
+
             try:
                 result = parser.parse(pdf_file)
-                
+
                 if result.success and result.match:
                     successful += 1
                     results.append({
@@ -1373,10 +1850,10 @@ def parse(
                         'parse_time_ms': result.parse_time_ms,
                         'diagnostics': result.diagnostics,
                     })
-                    
+
                     if result.diagnostics:
                         warnings_count += result.warnings_count
-                    
+
                     # Mettre en cache
                     if skip_parsed and cache_file:
                         if file_hash is None:
@@ -1386,7 +1863,7 @@ def parse(
                             'code_match': result.match.code_match,
                             'timestamp': datetime.now().isoformat()
                         }
-                    
+
                     if verbose:
                         m = result.match
                         progress.console.print(
@@ -1415,7 +1892,7 @@ def parse(
                         progress.update(task, advance=1)
                     else:
                         progress.update(task, advance=1, description=f"[red]✗ {pdf_file.name[:30]}[/red]")
-                        
+
             except Exception as e:
                 failed += 1
                 error_details.append({
@@ -1424,7 +1901,7 @@ def parse(
                     'warnings': [],
                 })
                 progress.update(task, advance=1, description=f"[red]✗ {pdf_file.name[:30]}: {str(e)[:30]}[/red]")
-    
+
     # ── Sauvegarder le cache ───────────────────────────────────────────
     if skip_parsed and cache_file and parsed_cache:
         try:
@@ -1432,9 +1909,9 @@ def parse(
                 json.dump(parsed_cache, f)
         except Exception:
             pass
-    
+
     # ── Résumé ─────────────────────────────────────────────────────────
-    total_parsed = successful + failed  # fichiers effectivement traités (hors cache)
+    total_parsed = successful + failed
     console.print("\n" + "=" * 60)
     console.print(Panel(
         f"[green]✓ Parsés avec succès: {successful}[/green]\n"
@@ -1451,7 +1928,7 @@ def parse(
     # ── Collection des fichiers problématiques ─────────────────────────
     if collect_problems and (results or error_details):
         _collect_problem_files(results, error_details, collect_problems, console)
-    
+
     # ── Exporter en JSON ───────────────────────────────────────────────
     if output and results:
         export_data = []
@@ -1462,27 +1939,24 @@ def parse(
                 'parse_time_ms': r['parse_time_ms'],
                 'match': match.model_dump() if hasattr(match, 'model_dump') else match.dict()
             })
-        
+
         with open(output, "w", encoding="utf-8") as f:
             json.dump(export_data, f, ensure_ascii=False, indent=2, default=str)
-        
+
         console.print(f"\n[blue]📁 Résultats exportés vers: {output}[/blue]")
-    
+
     # ── Import en base de données ──────────────────────────────────────
-    # L'import vérifie les doublons directement en base via code_match +
-    # saison_id, donc il est fiable même si le cache de parsing contient
-    # des entrées pour des matchs supprimés lors d'un reset DB.
     import_stats: Optional[dict] = None
     if save_db and results:
         console.print("\n[blue]💾 Sauvegarde en base de données...[/blue]")
-        
+
         try:
             from pyvolley.database.connection import DatabaseSession, init_db
             from pyvolley.database.import_service import MatchImportService
             from pyvolley.database.models import ImportLogDB
-            
+
             init_db()
-            
+
             committed = 0
             imported = 0
             import_errors = 0
@@ -1490,11 +1964,10 @@ def parse(
             duplicates = 0
             batch_imported = 0
             BATCH_SIZE = 200
-            
+
             with DatabaseSession() as session:
                 service = MatchImportService(session)
 
-                # Create audit log entry
                 import_log = ImportLogDB(
                     operation="parse",
                     source=str(input_path),
@@ -1503,7 +1976,7 @@ def parse(
                 )
                 session.add(import_log)
                 session.flush()
-                
+
                 with Progress(
                     SpinnerColumn(),
                     TextColumn("[progress.description]{task.description}"),
@@ -1513,7 +1986,7 @@ def parse(
                     transient=True,
                 ) as db_progress:
                     db_task = db_progress.add_task("Import DB...", total=len(results))
-                    
+
                     for idx, r in enumerate(results):
                         try:
                             match_db = service.import_match(r['match'])
@@ -1530,16 +2003,13 @@ def parse(
                             })
                             session.rollback()
                             service.clear_caches()
-                            # Rollback annule les matchs non commités de ce batch
                             imported -= batch_imported
                             batch_imported = 0
-                            # Re-add the import_log (lost after rollback)
                             session.add(import_log)
                             session.flush()
                             if verbose:
                                 console.print(f"  [red]✗[/red] Import {r['match'].code_match}: {e}")
-                        
-                        # Commit par batch pour éviter de tout perdre
+
                         if batch_imported > 0 and (idx + 1) % BATCH_SIZE == 0:
                             try:
                                 session.commit()
@@ -1553,9 +2023,9 @@ def parse(
                                 batch_imported = 0
                                 session.add(import_log)
                                 session.flush()
-                        
+
                         db_progress.update(db_task, advance=1)
-                
+
                 # Commit final
                 if batch_imported > 0:
                     try:
@@ -1569,7 +2039,6 @@ def parse(
                         session.add(import_log)
                         session.flush()
 
-                # Update audit log
                 import_log.finished_at = datetime.now()
                 import_log.imported = committed
                 import_log.duplicates = duplicates
@@ -1611,11 +2080,11 @@ def parse(
                     f"[yellow]⚠ Note : {imported - committed} matchs traités mais non "
                     f"commités (perdus lors de rollbacks d'erreur)[/yellow]"
                 )
-                
+
         except Exception as e:
             console.print(f"[red]Erreur lors de l'import en base: {e}[/red]")
-    
-    # ── Rapport (toujours généré quand --save-db, optionnel sinon) ─────
+
+    # ── Rapport ────────────────────────────────────────────────────────
     _generate_parse_report(
         input_path=input_path,
         parser=parser,
@@ -1631,6 +2100,1139 @@ def parse(
         import_stats=import_stats,
         force=report or save_db,
     )
+
+
+# ============== Commande Parse-Status ==============
+
+@app.command("parse-status")
+def parse_status(
+    saison: Optional[str] = typer.Option(
+        None,
+        "--saison", "-s",
+        help="Filtrer par saison (ex: 2024-2025)"
+    ),
+    entity: Optional[str] = typer.Option(
+        None,
+        "--entity", "-e",
+        help="Filtrer par entité (ex: ABCCS)"
+    ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose", "-v",
+        help="Afficher le détail par saison/entité"
+    ),
+):
+    """
+    📊 Affiche un tableau de bord du statut de parsing des matchs.
+
+    Donne une vue d'ensemble du pipeline Phase 1 → Phase 2 :
+    combien de matchs sont découverts, téléchargés, parsés, en erreur.
+
+    Exemples:
+
+        pyvolley parse-status
+
+        pyvolley parse-status -s 2024-2025
+
+        pyvolley parse-status --verbose
+    """
+    from pyvolley.database.connection import DatabaseSession, init_db
+    from pyvolley.database.import_service import MatchImportService
+    from pyvolley.database.models import MatchDB, SaisonDB, CompetitionDB, EntiteFFVBDB
+    from sqlalchemy import select, func
+
+    init_db()
+
+    with DatabaseSession() as session:
+        service = MatchImportService(session)
+
+        # Filtres optionnels
+        base_filter = select(MatchDB)
+        saison_name = None
+        entity_name = None
+
+        if saison:
+            normalized = saison.replace("/", "-")
+            saison_db = session.scalars(
+                select(SaisonDB).where(SaisonDB.code == normalized)
+            ).first()
+            if saison_db:
+                base_filter = base_filter.where(MatchDB.saison_id == saison_db.id)
+                saison_name = saison_db.code
+            else:
+                console.print(f"[yellow]Saison '{saison}' non trouvée[/yellow]")
+                raise typer.Exit(1)
+
+        if entity:
+            entite_db = session.scalars(
+                select(EntiteFFVBDB).where(EntiteFFVBDB.code == entity)
+            ).first()
+            if entite_db:
+                comp_ids = [c.id for c in session.scalars(
+                    select(CompetitionDB).where(CompetitionDB.entite_id == entite_db.id)
+                ).all()]
+                if comp_ids:
+                    base_filter = base_filter.where(MatchDB.competition_id.in_(comp_ids))
+                entity_name = entite_db.code
+            else:
+                console.print(f"[yellow]Entité '{entity}' non trouvée[/yellow]")
+                raise typer.Exit(1)
+
+        # Comptages globaux par statut
+        status_counts: dict[str, int] = {}
+        for status in ["discovered", "downloaded", "parsed", "error"]:
+            count = session.scalar(
+                select(func.count()).select_from(
+                    base_filter.where(MatchDB.parsing_status == status).subquery()
+                )
+            )
+            status_counts[status] = count or 0
+
+        total = sum(status_counts.values())
+        # Matchs joués vs non joués
+        played = session.scalar(
+            select(func.count()).select_from(
+                base_filter.where(MatchDB.match_joue == True).subquery()  # noqa: E712
+            )
+        ) or 0
+        not_played = total - played
+
+        # Codes de matchs en base
+        all_db_codes = set(session.scalars(select(MatchDB.code_match)).all())
+
+        # Matchs avec PDF disponible
+        pdf_base = Path("data/pdfs")
+        pdf_count = 0
+        pdf_total_size = 0
+        pdf_codes_on_disk: set[str] = set()
+        if pdf_base.exists():
+            for pdf_file in pdf_base.glob("**/*.pdf"):
+                pdf_count += 1
+                pdf_total_size += pdf_file.stat().st_size
+                stem = pdf_file.stem
+                code = stem.split("_", 1)[1] if "_" in stem else stem
+                pdf_codes_on_disk.add(code)
+                pdf_codes_on_disk.add(stem)
+
+        # Calculer les orphelins (PDFs sans match en DB)
+        orphan_count = len(pdf_codes_on_disk - all_db_codes) if pdf_codes_on_disk else 0
+        pdf_size_display = f"{pdf_total_size / (1024**3):.2f} Go" if pdf_total_size > 1024**3 else f"{pdf_total_size / (1024**2):.0f} Mo"
+
+        # Tableau principal
+        filter_label = ""
+        if saison_name:
+            filter_label += f" | Saison: {saison_name}"
+        if entity_name:
+            filter_label += f" | Entité: {entity_name}"
+
+        table = Table(
+            title=f"📊 Statut du parsing{filter_label}",
+            show_header=True,
+            header_style="bold cyan",
+        )
+        table.add_column("Statut", style="bold")
+        table.add_column("Nombre", justify="right")
+        table.add_column("Proportion", justify="right")
+        table.add_column("Description")
+
+        status_info = {
+            "discovered": ("🔍 Découvert", "cyan", "Trouvé via scraping Phase 1, PDF non téléchargé"),
+            "downloaded": ("📥 Téléchargé", "blue", "PDF téléchargé, pas encore parsé"),
+            "parsed": ("✅ Parsé", "green", "PDF parsé et données enrichies en base"),
+            "error": ("❌ Erreur", "red", "Échec du parsing ou du téléchargement"),
+        }
+
+        for status, count in status_counts.items():
+            label, color, desc = status_info.get(status, (status, "white", ""))
+            pct = f"{count / total * 100:.1f}%" if total > 0 else "0%"
+            table.add_row(f"[{color}]{label}[/{color}]", str(count), pct, desc)
+
+        table.add_section()
+        table.add_row("[bold]Total[/bold]", f"[bold]{total}[/bold]", "100%", "")
+        table.add_row("[dim]↳ Joués[/dim]", f"[dim]{played}[/dim]", "", "")
+        table.add_row("[dim]↳ Non joués[/dim]", f"[dim]{not_played}[/dim]", "", "")
+        table.add_row(
+            "[dim]↳ PDFs locaux[/dim]",
+            f"[dim]{pdf_count}[/dim]",
+            "",
+            f"[dim]{pdf_size_display}[/dim]",
+        )
+        if orphan_count > 0:
+            table.add_row(
+                "[yellow]↳ PDFs orphelins[/yellow]",
+                f"[yellow]{orphan_count}[/yellow]",
+                "",
+                "[yellow]Pas de match en DB[/yellow]",
+            )
+
+        console.print(table)
+
+        # Barre de progression visuelle
+        if total > 0:
+            parsed_pct = status_counts["parsed"] / total * 100
+            console.print(
+                f"\n[bold]Progression du parsing :[/bold] "
+                f"[green]{'█' * int(parsed_pct // 2)}[/green]"
+                f"[dim]{'░' * (50 - int(parsed_pct // 2))}[/dim] "
+                f"[bold]{parsed_pct:.1f}%[/bold]"
+            )
+
+        # Mode verbose: détail par saison
+        if verbose:
+            console.print("\n[bold]Détail par saison :[/bold]")
+            saisons = session.scalars(select(SaisonDB).order_by(SaisonDB.code)).all()
+
+            detail_table = Table(show_header=True, header_style="bold")
+            detail_table.add_column("Saison")
+            detail_table.add_column("Total", justify="right")
+            detail_table.add_column("Joués", justify="right")
+            detail_table.add_column("Discovered", justify="right", style="cyan")
+            detail_table.add_column("Downloaded", justify="right", style="blue")
+            detail_table.add_column("Parsed", justify="right", style="green")
+            detail_table.add_column("Error", justify="right", style="red")
+            detail_table.add_column("Progress")
+
+            for s in saisons:
+                counts = {}
+                s_total = 0
+                for st_key in ["discovered", "downloaded", "parsed", "error"]:
+                    c = session.scalar(
+                        select(func.count(MatchDB.id)).where(
+                            MatchDB.saison_id == s.id,
+                            MatchDB.parsing_status == st_key,
+                        )
+                    ) or 0
+                    counts[st_key] = c
+                    s_total += c
+
+                if s_total == 0:
+                    continue
+
+                s_played = session.scalar(
+                    select(func.count(MatchDB.id)).where(
+                        MatchDB.saison_id == s.id,
+                        MatchDB.match_joue == True,  # noqa: E712
+                    )
+                ) or 0
+
+                s_pct = counts["parsed"] / s_total * 100 if s_total > 0 else 0
+                bar = f"{'█' * int(s_pct // 5)}{'░' * (20 - int(s_pct // 5))}"
+
+                detail_table.add_row(
+                    s.code,
+                    str(s_total),
+                    str(s_played),
+                    str(counts["discovered"]),
+                    str(counts["downloaded"]),
+                    str(counts["parsed"]),
+                    str(counts["error"]),
+                    f"[green]{bar}[/green] {s_pct:.0f}%",
+                )
+
+            console.print(detail_table)
+
+        # Suggestion d'action
+        if status_counts["discovered"] > 0:
+            console.print(
+                f"\n[yellow]💡 {status_counts['discovered']} matchs en attente de téléchargement. "
+                f"Exécutez: pyvolley download --from-db[/yellow]"
+            )
+        if status_counts["downloaded"] > 0:
+            console.print(
+                f"[yellow]💡 {status_counts['downloaded']} matchs en attente de parsing. "
+                f"Exécutez: pyvolley parse --from-db[/yellow]"
+            )
+        if status_counts["error"] > 0:
+            console.print(
+                f"[yellow]💡 {status_counts['error']} matchs en erreur. "
+                f"Exécutez: pyvolley parse --from-db --status error --force[/yellow]"
+            )
+        if status_counts["parsed"] > 0 and pdf_count > 0:
+            console.print(
+                f"[yellow]💡 Des PDFs peuvent être nettoyés. "
+                f"Exécutez: pyvolley cleanup pdfs --dry-run[/yellow]"
+            )
+        if orphan_count > 0:
+            console.print(
+                f"[yellow]💡 {orphan_count} PDFs orphelins (pas de match en DB). "
+                f"Exécutez: pyvolley cleanup orphans --dry-run[/yellow]"
+            )
+
+
+# ============== Commande Pipeline ==============
+
+@app.command()
+def pipeline(
+    entity: Optional[List[str]] = typer.Option(
+        None,
+        "--entity", "-e",
+        help="Entité(s) à traiter. Répétable."
+    ),
+    saison: Optional[List[str]] = typer.Option(
+        None,
+        "--saison", "-s",
+        help="Saison(s) à traiter. Répétable."
+    ),
+    limit: Optional[int] = typer.Option(
+        None,
+        "--limit", "-n",
+        help="Nombre maximum de matchs à traiter"
+    ),
+    skip_scrape: bool = typer.Option(
+        False,
+        "--skip-scrape",
+        help="Sauter l'étape de scraping (Phase 1)"
+    ),
+    skip_download: bool = typer.Option(
+        False,
+        "--skip-download",
+        help="Sauter l'étape de téléchargement"
+    ),
+    skip_parse: bool = typer.Option(
+        False,
+        "--skip-parse",
+        help="Sauter l'étape de parsing"
+    ),
+    keep_pdfs: bool = typer.Option(
+        True,
+        "--keep-pdfs/--no-keep-pdfs",
+        help="Conserver les PDFs après parsing. Avec --no-keep-pdfs, les PDFs "
+             "sont supprimés une fois parsés et stockés en DB (économise l'espace disque)."
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="N'effectuer aucune action, afficher le plan d'exécution"
+    ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose", "-v",
+        help="Affichage détaillé"
+    ),
+):
+    """
+    🔄 Pipeline complet : scrape → download → parse.
+
+    Exécute les trois phases du pipeline de données dans l'ordre :
+    1. Scrape (Phase 1) : récupère les données CSV depuis les exports FFVB
+    2. Download : télécharge les PDFs des feuilles de match
+    3. Parse (Phase 2) : parse les PDFs et enrichit la base de données
+
+    Avec --no-keep-pdfs, les PDFs sont supprimés après avoir été parsés
+    et stockés en base. C'est le mode recommandé si vous ne souhaitez pas
+    conserver les fichiers intermédiaires (économise plusieurs Go d'espace).
+
+    Exemples:
+
+        # Pipeline complet pour une saison
+        pyvolley pipeline -s 2024-2025
+
+        # Pipeline sans conserver les PDFs (mode streaming)
+        pyvolley pipeline -s 2024-2025 --no-keep-pdfs
+
+        # Pipeline pour une entité, sans scraping
+        pyvolley pipeline -e ABCCS --skip-scrape
+
+        # Visualiser le plan sans exécuter
+        pyvolley pipeline -s 2024-2025 --dry-run
+
+        # Download + parse seulement (après un scraping déjà fait)
+        pyvolley pipeline -s 2024-2025 --skip-scrape
+    """
+    from pyvolley.database.connection import DatabaseSession, init_db
+    from pyvolley.database.models import MatchDB, SaisonDB
+    from sqlalchemy import select, func
+
+    init_db()
+
+    steps = []
+    if not skip_scrape:
+        steps.append("scrape")
+    if not skip_download:
+        steps.append("download")
+    if not skip_parse:
+        steps.append("parse")
+
+    if not steps:
+        console.print("[yellow]Toutes les étapes sont désactivées. Rien à faire.[/yellow]")
+        raise typer.Exit(0)
+
+    # Afficher le plan
+    saison_display = ", ".join(saison) if saison else "toutes"
+    entity_display = ", ".join(entity) if entity else "toutes"
+
+    console.print(Panel(
+        f"[bold blue]🔄 PyVolley - Pipeline de données[/bold blue]\n\n"
+        f"Étapes:     [cyan]{' → '.join(steps)}[/cyan]\n"
+        f"Saison(s):  [cyan]{saison_display}[/cyan]\n"
+        f"Entité(s):  [cyan]{entity_display}[/cyan]\n"
+        f"Limite:     [cyan]{limit or 'aucune'}[/cyan]\n"
+        f"Mode:       [cyan]{'Aperçu (dry-run)' if dry_run else 'Exécution'}[/cyan]",
+        title="Configuration du pipeline"
+    ))
+
+    if dry_run:
+        with DatabaseSession() as session:
+            for status in ["discovered", "downloaded", "parsed", "error"]:
+                count = session.scalar(
+                    select(func.count(MatchDB.id)).where(
+                        MatchDB.parsing_status == status
+                    )
+                ) or 0
+                console.print(f"  {status}: {count}")
+
+        console.print("\n[yellow]Mode dry-run: aucune action effectuée[/yellow]")
+
+        if "scrape" in steps:
+            console.print("\n[bold]Étape 1 - Scrape :[/bold]")
+            console.print("  → Exécuterait: pyvolley scrape" +
+                (f" -e {' -e '.join(entity)}" if entity else "") +
+                (f" -s {' -s '.join(saison)}" if saison else "")
+            )
+
+        if "download" in steps:
+            console.print("\n[bold]Étape 2 - Download :[/bold]")
+            console.print("  → Exécuterait: pyvolley download --from-db" +
+                (f" -s {' -s '.join(saison)}" if saison else "")
+            )
+
+        if "parse" in steps:
+            console.print("\n[bold]Étape 3 - Parse :[/bold]")
+            console.print("  → Exécuterait: pyvolley parse --from-db" +
+                (f" -s {' -s '.join(saison)}" if saison else "") +
+                (f" -e {' -e '.join(entity)}" if entity else "") +
+                (f" -n {limit}" if limit else "")
+            )
+        raise typer.Exit(0)
+
+    # ── Étape 1 : Scrape ───────────────────────────────────────────────
+    if "scrape" in steps:
+        console.print("\n[bold blue]═══ Étape 1/3 : Scrape (Phase 1) ═══[/bold blue]")
+        try:
+            from pyvolley.scrapers.ffvb import FFVBScraper
+            from pyvolley.database.connection import DatabaseSession
+            from pyvolley.database.export_import_service import ExportImportService
+
+            scraper_p = FFVBScraper()
+            entities_to_scrape = entity if entity else []
+
+            if not entities_to_scrape:
+                console.print("  [yellow]Aucune entité spécifiée pour le scraping. "
+                              "Utilisez -e CODE.[/yellow]")
+            else:
+                saisons_p = saison if saison else [scraper_p._get_current_saison()]
+                for target_entity in entities_to_scrape:
+                    for target_saison in saisons_p:
+                        try:
+                            with console.status(
+                                f"[bold blue]Récupération export CSV {target_entity} "
+                                f"saison {target_saison}..."
+                            ):
+                                export_data = scraper_p.scrape_entity(
+                                    target_entity, target_saison,
+                                )
+                            if export_data:
+                                with DatabaseSession() as session:
+                                    import_service = ExportImportService(session)
+                                    result = import_service.import_matches(
+                                        export_data, target_entity, target_saison,
+                                    )
+                                    session.commit()
+                                    console.print(
+                                        f"  [green]✓[/green] Scrape {target_entity} "
+                                        f"saison {target_saison}: "
+                                        f"{result.get('imported', 0)} importés, "
+                                        f"{result.get('updated', 0)} mis à jour"
+                                    )
+                        except Exception as e:
+                            console.print(
+                                f"  [red]✗[/red] Erreur scrape {target_entity}: {e}"
+                            )
+        except Exception as e:
+            console.print(f"[red]Erreur Phase 1: {e}[/red]")
+
+    # ── Étape 2 : Download ─────────────────────────────────────────────
+    if "download" in steps:
+        console.print("\n[bold blue]═══ Étape 2/3 : Download des PDFs ═══[/bold blue]")
+
+        if not keep_pdfs and "parse" in steps:
+            # Mode streaming : download + parse en une passe, puis suppression
+            console.print("[dim]  Mode streaming : les PDFs seront parsés puis supprimés[/dim]")
+            try:
+                _stream_download_parse(
+                    limit=limit,
+                    saison=saison,
+                    entity=entity,
+                    verbose=verbose,
+                )
+            except SystemExit:
+                pass
+            except Exception as e:
+                console.print(f"[red]Erreur streaming: {e}[/red]")
+            # Le parse a déjà été fait, on le saute
+            steps = [s for s in steps if s != "parse"]
+        else:
+            try:
+                _download_from_db(
+                    limit=limit,
+                    saison=saison,
+                    verbose=verbose,
+                )
+            except SystemExit:
+                pass
+            except Exception as e:
+                console.print(f"[red]Erreur Download: {e}[/red]")
+
+    # ── Étape 3 : Parse ────────────────────────────────────────────────
+    if "parse" in steps:
+        console.print("\n[bold blue]═══ Étape 3/3 : Parsing (Phase 2) ═══[/bold blue]")
+        try:
+            _parse_from_db(
+                status_filter=None,
+                played_only=True,
+                parser_version="auto",
+                limit=limit,
+                skip_parsed=True,
+                dry_run=False,
+                saison=saison,
+                entity=entity,
+                verbose=verbose,
+                verify=False,
+                report=True,
+                output=None,
+                collect_problems=None,
+            )
+        except SystemExit:
+            pass  # typer.Exit est attendu
+        except Exception as e:
+            console.print(f"[red]Erreur Parse: {e}[/red]")
+
+        # Nettoyage post-parse si --no-keep-pdfs
+        if not keep_pdfs:
+            _cleanup_parsed_pdfs(saison=saison, verbose=verbose)
+
+    # Résumé final
+    console.print("\n" + "═" * 60)
+    console.print(Panel(
+        f"[bold green]Pipeline terminé[/bold green]\n"
+        f"Étapes exécutées: {', '.join(steps)}"
+        + ("\n[dim]PDFs supprimés après parsing[/dim]" if not keep_pdfs else ""),
+        title="✅ Terminé"
+    ))
+
+
+def _download_from_db(
+    *,
+    limit: Optional[int] = None,
+    saison: Optional[List[str]] = None,
+    verbose: bool = False,
+) -> None:
+    """Télécharge les PDFs des matchs trouvés en DB avec statut 'discovered'.
+
+    Cherche les matchs joués qui ont une source_url mais pas de PDF local,
+    les télécharge, et met à jour le parsing_status → 'downloaded'.
+
+    Le fichier est stocké sous ``data/pdfs/{saison}/{code_match}.pdf``
+    (structure plate par saison, cohérente avec la recherche de
+    ``_parse_from_db``).
+    """
+    from pyvolley.database.connection import DatabaseSession, init_db
+    from pyvolley.database.models import MatchDB, SaisonDB
+    from sqlalchemy import select
+
+    init_db()
+
+    with DatabaseSession() as session:
+        stmt = (
+            select(MatchDB)
+            .where(
+                MatchDB.parsing_status == "discovered",
+                MatchDB.match_joue == True,  # noqa: E712
+                MatchDB.source_url.isnot(None),
+            )
+        )
+
+        if saison:
+            normalized = [s.replace("/", "-") for s in saison]
+            saison_ids = [
+                s.id for s in session.scalars(
+                    select(SaisonDB).where(SaisonDB.code.in_(normalized))
+                ).all()
+            ]
+            if saison_ids:
+                stmt = stmt.where(MatchDB.saison_id.in_(saison_ids))
+
+        stmt = stmt.order_by(MatchDB.code_match)
+        if limit:
+            stmt = stmt.limit(limit)
+
+        matches = list(session.scalars(stmt).all())
+
+    if not matches:
+        console.print("[yellow]Aucun match à télécharger (pas de matchs avec statut 'discovered')[/yellow]")
+        return
+
+    console.print(f"[blue]📥 {len(matches)} matchs à télécharger[/blue]")
+
+    import httpx
+    pdf_base = Path("data/pdfs")
+    downloaded = 0
+    dl_failed = 0
+
+    with httpx.Client(timeout=30, follow_redirects=True) as http:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            console=console,
+        ) as progress:
+            dl_task = progress.add_task("Téléchargement...", total=len(matches))
+
+            with DatabaseSession() as session:
+                for match_db in matches:
+                    match_fresh = session.get(MatchDB, match_db.id)
+                    if not match_fresh or not match_fresh.source_url:
+                        progress.update(dl_task, advance=1)
+                        continue
+
+                    # Déterminer le dossier de destination
+                    saison_db = session.get(SaisonDB, match_fresh.saison_id) if match_fresh.saison_id else None
+                    saison_code = saison_db.code if saison_db else "unknown"
+
+                    dest_dir = pdf_base / saison_code
+                    dest_dir.mkdir(parents=True, exist_ok=True)
+                    dest_file = dest_dir / f"{match_fresh.code_match}.pdf"
+
+                    # Vérifier aussi les anciens formats
+                    # (PDFs téléchargés par l'ancien système d'organisation)
+                    already_exists = dest_file.exists()
+                    if not already_exists:
+                        old_candidates = list(pdf_base.glob(
+                            f"**/*_{match_fresh.code_match}.pdf"
+                        ))
+                        if old_candidates:
+                            already_exists = True
+                            # Mettre à jour source_pdf pour pointer vers le fichier existant
+                            match_fresh.source_pdf = str(old_candidates[0])
+
+                    if already_exists:
+                        match_fresh.parsing_status = "downloaded"
+                        downloaded += 1
+                        progress.update(dl_task, advance=1)
+                        continue
+
+                    try:
+                        response = http.get(match_fresh.source_url)
+                        response.raise_for_status()
+
+                        # Vérifier que c'est bien un PDF
+                        if not response.content[:5].startswith(b"%PDF"):
+                            raise ValueError("Réponse non-PDF reçue")
+
+                        dest_file.write_bytes(response.content)
+                        match_fresh.parsing_status = "downloaded"
+                        match_fresh.source_pdf = str(dest_file)
+                        downloaded += 1
+
+                        if verbose:
+                            progress.console.print(
+                                f"  [green]✓[/green] {match_fresh.code_match} → {dest_file}"
+                            )
+
+                    except Exception as e:
+                        dl_failed += 1
+                        match_fresh.parsing_status = "error"
+                        match_fresh.remarques = f"Download error: {str(e)[:100]}"
+                        if verbose:
+                            progress.console.print(
+                                f"  [red]✗[/red] {match_fresh.code_match}: {e}"
+                            )
+
+                    progress.update(dl_task, advance=1)
+
+                    # Commit par batch
+                    if (downloaded + dl_failed) % 50 == 0 and (downloaded + dl_failed) > 0:
+                        try:
+                            session.commit()
+                        except Exception:
+                            session.rollback()
+
+                try:
+                    session.commit()
+                except Exception:
+                    session.rollback()
+
+    console.print(
+        f"\n[green]✓ {downloaded} PDFs téléchargés[/green]"
+        + (f" | [red]{dl_failed} échecs[/red]" if dl_failed else "")
+    )
+
+
+def _stream_download_parse(
+    *,
+    limit: Optional[int] = None,
+    saison: Optional[List[str]] = None,
+    entity: Optional[List[str]] = None,
+    verbose: bool = False,
+) -> None:
+    """Télécharge et parse les matchs en streaming, sans conserver les PDFs.
+
+    Pour chaque match « discovered » en DB :
+    1. Télécharge le PDF dans un fichier temporaire
+    2. Parse immédiatement
+    3. Enrichit la base de données
+    4. Supprime le fichier temporaire
+
+    Ce mode est idéal quand on ne souhaite pas stocker les fichiers
+    intermédiaires (économise plusieurs Go d'espace disque).
+    """
+    import tempfile
+    import httpx
+    from pyvolley.parsers.factory import ParserFactory
+    from pyvolley.database.connection import DatabaseSession, init_db
+    from pyvolley.database.import_service import MatchImportService
+    from pyvolley.database.models import MatchDB, SaisonDB, ImportLogDB
+    from sqlalchemy import select
+
+    init_db()
+    parser = ParserFactory.get_default()
+
+    with DatabaseSession() as session:
+        stmt = (
+            select(MatchDB)
+            .where(
+                MatchDB.parsing_status == "discovered",
+                MatchDB.match_joue == True,  # noqa: E712
+                MatchDB.source_url.isnot(None),
+            )
+        )
+
+        if saison:
+            normalized = [s.replace("/", "-") for s in saison]
+            saison_ids = [
+                s.id for s in session.scalars(
+                    select(SaisonDB).where(SaisonDB.code.in_(normalized))
+                ).all()
+            ]
+            if saison_ids:
+                stmt = stmt.where(MatchDB.saison_id.in_(saison_ids))
+
+        if entity:
+            from pyvolley.database.models import EntiteFFVBDB, CompetitionDB
+            entite_ids = [
+                e.id for e in session.scalars(
+                    select(EntiteFFVBDB).where(EntiteFFVBDB.code.in_(entity))
+                ).all()
+            ]
+            if entite_ids:
+                comp_ids = [
+                    c.id for c in session.scalars(
+                        select(CompetitionDB).where(
+                            CompetitionDB.entite_id.in_(entite_ids)
+                        )
+                    ).all()
+                ]
+                if comp_ids:
+                    stmt = stmt.where(MatchDB.competition_id.in_(comp_ids))
+
+        stmt = stmt.order_by(MatchDB.code_match)
+        if limit:
+            stmt = stmt.limit(limit)
+
+        matches = list(session.scalars(stmt).all())
+
+    if not matches:
+        console.print("[yellow]Aucun match à traiter en streaming[/yellow]")
+        return
+
+    console.print(Panel(
+        f"[bold blue]⚡ Streaming : download → parse → DB[/bold blue]\n\n"
+        f"Matchs à traiter : [cyan]{len(matches)}[/cyan]\n"
+        f"Parser :           [cyan]{parser.name} v{parser.version}[/cyan]\n"
+        f"Mode :             [cyan]Streaming (PDFs non conservés)[/cyan]",
+        title="Configuration"
+    ))
+
+    downloaded = 0
+    enriched = 0
+    failed = 0
+
+    with httpx.Client(timeout=30, follow_redirects=True) as http:
+        with DatabaseSession() as session:
+            service = MatchImportService(session)
+
+            import_log = ImportLogDB(
+                operation="stream-pipeline",
+                source="streaming",
+                total_attempted=len(matches),
+                status="running",
+            )
+            session.add(import_log)
+            session.flush()
+
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                "[", TextColumn("{task.completed}/{task.total}"), "]",
+                TimeRemainingColumn(),
+                console=console,
+            ) as progress:
+                task = progress.add_task(
+                    "Streaming...", total=len(matches)
+                )
+
+                for match_db in matches:
+                    match_fresh = session.get(MatchDB, match_db.id)
+                    if not match_fresh or not match_fresh.source_url:
+                        progress.update(task, advance=1)
+                        continue
+
+                    try:
+                        # 1. Télécharger dans un fichier temporaire
+                        response = http.get(match_fresh.source_url)
+                        response.raise_for_status()
+
+                        if not response.content[:5].startswith(b"%PDF"):
+                            raise ValueError("Réponse non-PDF")
+
+                        with tempfile.NamedTemporaryFile(
+                            suffix=".pdf", delete=True
+                        ) as tmp:
+                            tmp.write(response.content)
+                            tmp.flush()
+
+                            # 2. Parser immédiatement
+                            result = parser.parse(Path(tmp.name))
+
+                        downloaded += 1
+
+                        if result.success and result.match:
+                            # 3. Enrichir en base
+                            was_enriched = service.enrich_from_pdf(
+                                match_fresh, result.match, force=True,
+                            )
+                            if was_enriched:
+                                enriched += 1
+
+                            if verbose:
+                                m = result.match
+                                progress.console.print(
+                                    f"  [green]✓[/green] {match_fresh.code_match}: "
+                                    f"{m.equipe_a.nom[:20] if m.equipe_a else '?'} vs "
+                                    f"{m.equipe_b.nom[:20] if m.equipe_b else '?'}"
+                                )
+                        else:
+                            failed += 1
+                            match_fresh.parsing_status = "error"
+                            match_fresh.remarques = (
+                                result.errors[0][:200] if result.errors else "Parsing error"
+                            )
+
+                        progress.update(
+                            task, advance=1,
+                            description=f"[green]✓ {match_fresh.code_match}[/green]",
+                        )
+
+                    except Exception as e:
+                        failed += 1
+                        match_fresh.parsing_status = "error"
+                        match_fresh.remarques = str(e)[:200]
+                        progress.update(
+                            task, advance=1,
+                            description=f"[red]✗ {match_fresh.code_match}[/red]",
+                        )
+
+                    # Commit par batch
+                    if (enriched + failed) % 50 == 0 and (enriched + failed) > 0:
+                        try:
+                            session.commit()
+                        except Exception:
+                            session.rollback()
+                            service.clear_caches()
+
+            # Commit final
+            import_log.finished_at = datetime.now()
+            import_log.imported = enriched
+            import_log.errors = failed
+            import_log.status = (
+                "success" if failed == 0
+                else "partial" if enriched > 0
+                else "failed"
+            )
+            try:
+                session.commit()
+            except Exception:
+                session.rollback()
+
+    console.print(Panel(
+        f"[green]✓ Téléchargés : {downloaded}[/green]\n"
+        f"[green]✓ Enrichis :    {enriched}[/green]\n"
+        f"[red]✗ Échecs :      {failed}[/red]\n"
+        f"[dim]Aucun PDF conservé sur disque[/dim]",
+        title="Résumé du streaming"
+    ))
+
+
+def _cleanup_parsed_pdfs(
+    *,
+    saison: Optional[List[str]] = None,
+    verbose: bool = False,
+) -> None:
+    """Supprime les PDFs locaux des matchs déjà parsés en base.
+
+    Ne supprime que les fichiers dont le match a ``parsing_status='parsed'``
+    en base de données.
+    """
+    from pyvolley.database.connection import DatabaseSession
+    from pyvolley.database.models import MatchDB, SaisonDB
+    from sqlalchemy import select
+
+    pdf_base_dir = Path("data/pdfs")
+    if not pdf_base_dir.exists():
+        return
+
+    with DatabaseSession() as session:
+        stmt = select(MatchDB.code_match).where(MatchDB.parsing_status == "parsed")
+
+        if saison:
+            normalized = [s.replace("/", "-") for s in saison]
+            saison_ids = [
+                s.id for s in session.scalars(
+                    select(SaisonDB).where(SaisonDB.code.in_(normalized))
+                ).all()
+            ]
+            if saison_ids:
+                stmt = stmt.where(MatchDB.saison_id.in_(saison_ids))
+
+        parsed_codes = set(session.scalars(stmt).all())
+
+    if not parsed_codes:
+        return
+
+    deleted = 0
+    freed_bytes = 0
+
+    for pdf_file in pdf_base_dir.glob("**/*.pdf"):
+        stem = pdf_file.stem
+        # Extraire le code_match du nom de fichier
+        code = stem.split("_", 1)[1] if "_" in stem else stem
+        if code in parsed_codes or stem in parsed_codes:
+            size = pdf_file.stat().st_size
+            pdf_file.unlink()
+            deleted += 1
+            freed_bytes += size
+            if verbose:
+                console.print(f"  [dim]🗑 {pdf_file}[/dim]")
+
+    if deleted:
+        freed_mb = freed_bytes / (1024 * 1024)
+        console.print(
+            f"[green]🗑 {deleted} PDFs supprimés ({freed_mb:.1f} Mo libérés)[/green]"
+        )
+
+
+# ============== Commande Cleanup ==============
+
+@app.command()
+def cleanup(
+    target: str = typer.Argument(
+        "pdfs",
+        help="Cible du nettoyage : 'pdfs' (supprime les PDFs parsés), "
+             "'orphans' (supprime les PDFs sans match en DB), "
+             "'all' (les deux)"
+    ),
+    saison: Optional[List[str]] = typer.Option(
+        None,
+        "--saison", "-s",
+        help="Filtrer par saison. Répétable."
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Afficher ce qui serait supprimé sans supprimer"
+    ),
+    verbose: bool = typer.Option(
+        False,
+        "--verbose", "-v",
+        help="Afficher chaque fichier supprimé"
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force", "-f",
+        help="Ne pas demander confirmation"
+    ),
+):
+    """
+    🧹 Nettoie les fichiers PDF téléchargés pour libérer de l'espace disque.
+
+    Trois modes de nettoyage :
+
+    - **pdfs** : supprime les PDFs dont le match a déjà été parsé et stocké
+      en base de données (parsing_status='parsed'). Les données sont en
+      sécurité dans la DB, le PDF n'est plus nécessaire.
+
+    - **orphans** : supprime les PDFs qui ne correspondent à aucun match en
+      base de données (fichiers téléchargés par l'ancien système ou par
+      erreur).
+
+    - **all** : combine les deux nettoyages.
+
+    Exemples:
+
+        # Voir ce qui serait supprimé
+        pyvolley cleanup pdfs --dry-run
+
+        # Supprimer les PDFs orphelins
+        pyvolley cleanup orphans
+
+        # Tout nettoyer pour une saison
+        pyvolley cleanup all -s 2021-2022
+
+        # Nettoyage complet sans confirmation
+        pyvolley cleanup all --force
+    """
+    from pyvolley.database.connection import DatabaseSession, init_db
+    from pyvolley.database.models import MatchDB, SaisonDB
+    from sqlalchemy import select
+
+    init_db()
+
+    pdf_base_dir = Path("data/pdfs")
+    if not pdf_base_dir.exists():
+        console.print("[yellow]Aucun dossier PDF trouvé[/yellow]")
+        raise typer.Exit(0)
+
+    # Collecter tous les PDFs locaux
+    all_pdfs = list(pdf_base_dir.glob("**/*.pdf"))
+    if not all_pdfs:
+        console.print("[yellow]Aucun fichier PDF trouvé[/yellow]")
+        raise typer.Exit(0)
+
+    # Filtrer par saison si demandé
+    if saison:
+        normalized = [s.replace("/", "-") for s in saison]
+        all_pdfs = [
+            f for f in all_pdfs
+            if any(ns in str(f) for ns in normalized)
+        ]
+
+    total_size = sum(f.stat().st_size for f in all_pdfs)
+    console.print(
+        f"[blue]📁 {len(all_pdfs)} PDFs trouvés "
+        f"({total_size / (1024**3):.2f} Go)[/blue]"
+    )
+
+    # Récupérer les codes de matchs en base
+    with DatabaseSession() as session:
+        all_codes = set(session.scalars(select(MatchDB.code_match)).all())
+        parsed_codes = set(session.scalars(
+            select(MatchDB.code_match).where(MatchDB.parsing_status == "parsed")
+        ).all())
+
+    # Classifier chaque PDF
+    to_delete_parsed: list[Path] = []
+    to_delete_orphan: list[Path] = []
+
+    for pdf_file in all_pdfs:
+        stem = pdf_file.stem
+        code = stem.split("_", 1)[1] if "_" in stem else stem
+
+        is_in_db = code in all_codes or stem in all_codes
+        is_parsed = code in parsed_codes or stem in parsed_codes
+
+        if target in ("pdfs", "all") and is_parsed:
+            to_delete_parsed.append(pdf_file)
+        elif target in ("orphans", "all") and not is_in_db:
+            to_delete_orphan.append(pdf_file)
+
+    to_delete = to_delete_parsed + to_delete_orphan
+    delete_size = sum(f.stat().st_size for f in to_delete)
+
+    if not to_delete:
+        console.print("[green]Rien à nettoyer ![/green]")
+        raise typer.Exit(0)
+
+    # Résumé
+    table = Table(title="🧹 Nettoyage prévu")
+    table.add_column("Catégorie", style="white")
+    table.add_column("Fichiers", justify="right", style="cyan")
+    table.add_column("Taille", justify="right", style="yellow")
+
+    if to_delete_parsed:
+        sz = sum(f.stat().st_size for f in to_delete_parsed)
+        table.add_row(
+            "PDFs parsés (données en DB)",
+            str(len(to_delete_parsed)),
+            f"{sz / (1024**2):.1f} Mo",
+        )
+    if to_delete_orphan:
+        sz = sum(f.stat().st_size for f in to_delete_orphan)
+        table.add_row(
+            "PDFs orphelins (pas de match en DB)",
+            str(len(to_delete_orphan)),
+            f"{sz / (1024**2):.1f} Mo",
+        )
+
+    table.add_section()
+    table.add_row(
+        "[bold]Total[/bold]",
+        f"[bold]{len(to_delete)}[/bold]",
+        f"[bold]{delete_size / (1024**2):.1f} Mo[/bold]",
+    )
+    console.print(table)
+
+    if dry_run:
+        if verbose:
+            for f in to_delete[:100]:
+                console.print(f"  [dim]{f}[/dim]")
+            if len(to_delete) > 100:
+                console.print(f"  [dim]... et {len(to_delete) - 100} autres[/dim]")
+        console.print(f"\n[yellow]Mode dry-run : aucun fichier supprimé[/yellow]")
+        raise typer.Exit(0)
+
+    if not force:
+        confirm = typer.confirm(
+            f"⚠️  Supprimer {len(to_delete)} fichiers "
+            f"({delete_size / (1024**2):.1f} Mo) ?"
+        )
+        if not confirm:
+            console.print("[yellow]Annulé[/yellow]")
+            raise typer.Exit(0)
+
+    # Supprimer
+    deleted = 0
+    freed = 0
+    for f in to_delete:
+        try:
+            size = f.stat().st_size
+            f.unlink()
+            deleted += 1
+            freed += size
+            if verbose:
+                console.print(f"  [dim]🗑 {f}[/dim]")
+        except Exception as e:
+            console.print(f"  [red]Erreur: {f}: {e}[/red]")
+
+    # Nettoyer les dossiers vides
+    empty_cleaned = 0
+    for dirpath in sorted(pdf_base_dir.glob("**"), reverse=True):
+        if dirpath.is_dir() and dirpath != pdf_base_dir:
+            try:
+                if not any(dirpath.iterdir()):
+                    dirpath.rmdir()
+                    empty_cleaned += 1
+            except Exception:
+                pass
+
+    console.print(Panel(
+        f"[green]🗑 {deleted} fichiers supprimés[/green]\n"
+        f"[green]💾 {freed / (1024**2):.1f} Mo libérés[/green]"
+        + (f"\n[dim]{empty_cleaned} dossiers vides nettoyés[/dim]" if empty_cleaned else ""),
+        title="Nettoyage terminé"
+    ))
 
 
 # ============== Helpers : rapport de parsing organisé ==============

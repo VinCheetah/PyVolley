@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     ffvb_base_url: str = "https://www.ffvbbeach.org/ffvbapp/resu/"
     ffvb_request_delay: float = 0.3  # Délai entre requêtes (secondes)
     ffvb_timeout: int = 30
+
+    # Gestion des PDFs
+    keep_pdfs: bool = True  # Conserver les PDFs après parsing (défaut: oui)
     
     # Serveur Web
     web_host: str = "127.0.0.1"
