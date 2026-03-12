@@ -839,10 +839,23 @@ class MatchImportService:
     # =================================================================
 
     def _import_sets(self, match_db: MatchDB, sets: List[Set]) -> None:
-        """Importe les sets d'un match avec formations, changements, timeouts."""
+        """Importe les sets d'un match avec formations, changements, timeouts, services."""
         for set_data in sets:
             heure_debut_str = self._time_to_string(set_data.debut) if set_data.debut else None
             heure_fin_str = self._time_to_string(set_data.fin) if set_data.fin else None
+
+            # Sérialiser les données de services (position → scores cumulés)
+            # Les clés int doivent être converties en str pour JSON
+            services_a = None
+            services_b = None
+            if set_data.equipe_a and set_data.equipe_a.services:
+                services_a = {
+                    str(k): v for k, v in set_data.equipe_a.services.items()
+                }
+            if set_data.equipe_b and set_data.equipe_b.services:
+                services_b = {
+                    str(k): v for k, v in set_data.equipe_b.services.items()
+                }
 
             set_db = SetDB(
                 match_id=match_db.id,
@@ -853,6 +866,8 @@ class MatchImportService:
                 heure_fin=heure_fin_str,
                 duree_minutes=set_data.duree_minutes,
                 service_initial=set_data.service_initial,
+                services_a=services_a,
+                services_b=services_b,
             )
             self.session.add(set_db)
             self.session.flush()

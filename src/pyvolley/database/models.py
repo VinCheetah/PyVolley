@@ -17,7 +17,7 @@ from typing import Optional, List
 
 from sqlalchemy import (
     Integer, String, Boolean, Date, Time, DateTime, Float,
-    Text, ForeignKey, Table, Column, UniqueConstraint, Index,
+    Text, JSON, ForeignKey, Table, Column, UniqueConstraint, Index,
 )
 from sqlalchemy.orm import DeclarativeBase, relationship, Mapped, mapped_column
 
@@ -494,6 +494,11 @@ class SetDB(Base):
     duree_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
     service_initial: Mapped[Optional[str]] = mapped_column(String(1), nullable=True)
+
+    # Services data from PDF parsing (position → list of cumulative scores
+    # at each service loss). Stored as JSON: {"1": [3, 12], "4": [8, 20]}.
+    services_a: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    services_b: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     # Relations
     match: Mapped["MatchDB"] = relationship(back_populates="sets")

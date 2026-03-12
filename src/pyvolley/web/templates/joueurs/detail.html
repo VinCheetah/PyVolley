@@ -106,6 +106,186 @@
     </div>
     {% endif %}
 
+    <!-- ═══════════════ Performance Stats ═══════════════ -->
+    {% if aggregated_stats and aggregated_stats.matchs_joues > 0 %}
+    <div class="card overflow-hidden" x-data="{ showPerfDetail: false }">
+        <div class="p-4 cursor-pointer"
+             style="border-bottom: 1px solid var(--border-color);"
+             @click="showPerfDetail = !showPerfDetail">
+            <div class="flex items-center justify-between">
+                <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--accent-cyan);">
+                    <i data-lucide="bar-chart-3" class="w-4 h-4 inline-block mr-1"></i>
+                    Statistiques de performance
+                </h2>
+                <button class="text-xs px-2 py-1 rounded transition"
+                        style="color: var(--text-muted); background: var(--bg-card-hover);">
+                    <i :data-lucide="showPerfDetail ? 'chevron-up' : 'chevron-down'" class="w-4 h-4 inline-block"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- Aggregated stats summary -->
+        <div class="p-4">
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                <div class="stat-card">
+                    <div class="stat-value" style="color: var(--accent-cyan);">{{ aggregated_stats.total_points_joues }}</div>
+                    <div class="stat-label">Points joués</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" style="color: var(--accent-green);">{{ aggregated_stats.total_points_gagnes }}</div>
+                    <div class="stat-label">Pts gagnés (serv.)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" style="color: var(--accent-red);">{{ aggregated_stats.total_points_perdus }}</div>
+                    <div class="stat-label">Pts perdus</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value gradient-text-gold">{{ aggregated_stats.total_tours_service }}</div>
+                    <div class="stat-label">Tours de service</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" style="color: var(--accent-gold);">{{ aggregated_stats.meilleure_serie_service }}</div>
+                    <div class="stat-label">Meilleure série</div>
+                </div>
+                <div class="stat-card">
+                    {% if aggregated_stats.total_temps_jeu > 0 %}
+                    <div class="stat-value gradient-text-blue">{{ aggregated_stats.total_temps_jeu|round(0)|int }}′</div>
+                    {% else %}
+                    <div class="stat-value" style="color: var(--text-muted);">—</div>
+                    {% endif %}
+                    <div class="stat-label">Temps de jeu total</div>
+                </div>
+            </div>
+
+            <!-- Moyennes row -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+                <div class="p-3 rounded-lg text-center" style="background: var(--bg-card-hover);">
+                    <div class="text-lg font-bold" style="color: var(--accent-cyan);">
+                        {% if aggregated_stats.matchs_joues > 0 %}
+                        {{ (aggregated_stats.total_points_joues / aggregated_stats.matchs_joues)|round(1) }}
+                        {% else %}—{% endif %}
+                    </div>
+                    <div class="text-xs" style="color: var(--text-muted);">Pts/match</div>
+                </div>
+                <div class="p-3 rounded-lg text-center" style="background: var(--bg-card-hover);">
+                    <div class="text-lg font-bold" style="color: var(--accent-green);">
+                        {{ aggregated_stats.moyenne_points_par_tour|round(2) }}
+                    </div>
+                    <div class="text-xs" style="color: var(--text-muted);">Pts/tour de service</div>
+                </div>
+                <div class="p-3 rounded-lg text-center" style="background: var(--bg-card-hover);">
+                    <div class="text-lg font-bold" style="color: var(--accent-blue);">
+                        {% if aggregated_stats.moyenne_temps_par_match > 0 %}
+                        {{ aggregated_stats.moyenne_temps_par_match|round(0)|int }}′
+                        {% else %}—{% endif %}
+                    </div>
+                    <div class="text-xs" style="color: var(--text-muted);">Temps/match</div>
+                </div>
+                <div class="p-3 rounded-lg text-center" style="background: var(--bg-card-hover);">
+                    <div class="text-lg font-bold" style="color: var(--accent-gold);">
+                        {{ aggregated_stats.moyenne_temps_morts_par_match|round(2) }}
+                    </div>
+                    <div class="text-xs" style="color: var(--text-muted);">TM prov./match</div>
+                </div>
+            </div>
+
+            <!-- Changements + Sanctions row -->
+            <div class="flex flex-wrap gap-3 mt-4 text-xs" style="color: var(--text-muted);">
+                <span>Changements : <strong style="color: var(--accent-green);">{{ aggregated_stats.total_entrees }}</strong> entrées / <strong style="color: var(--accent-red);">{{ aggregated_stats.total_sorties }}</strong> sorties</span>
+                <span>•</span>
+                <span>TM provoqués : <strong style="color: var(--accent-gold);">{{ aggregated_stats.total_temps_morts_provoques }}</strong></span>
+                {% if aggregated_stats.total_sanctions > 0 %}
+                <span>•</span>
+                <span>Sanctions : <strong style="color: var(--accent-red);">{{ aggregated_stats.total_sanctions }}</strong></span>
+                {% endif %}
+                <span>•</span>
+                <span>Sets : <strong style="color: var(--accent-cyan);">{{ aggregated_stats.total_sets_joues }}</strong> joués (<strong>{{ aggregated_stats.total_sets_titulaire }}</strong> titulaire)</span>
+            </div>
+        </div>
+
+        <!-- Per-match stats table (collapsible) -->
+        <div x-show="showPerfDetail" x-transition x-cloak>
+            <div class="p-4" style="border-top: 1px solid var(--border-color);">
+                <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">
+                    <i data-lucide="table" class="w-3 h-3 inline-block mr-1"></i>
+                    Détail par match ({{ per_match_stats|length }})
+                </h3>
+            </div>
+            {% if per_match_stats %}
+            <div class="overflow-x-auto">
+                <table class="data-table text-xs">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Adversaire</th>
+                            <th class="text-center">V/D</th>
+                            <th class="text-center">Sets</th>
+                            <th class="text-center">Pts joués</th>
+                            <th class="text-center">Pts gagnés</th>
+                            <th class="text-center">Pts perdus</th>
+                            <th class="text-center">Services</th>
+                            <th class="text-center">Série</th>
+                            <th class="text-center">Temps</th>
+                            <th class="text-center">Chg</th>
+                            <th class="text-center">TM prov.</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for pm in per_match_stats %}
+                        {% set pms = pm.stats %}
+                        <tr>
+                            <td class="whitespace-nowrap" style="color: var(--text-muted);">
+                                {% if pm.date %}{{ pm.date|format_date }}{% else %}—{% endif %}
+                            </td>
+                            <td class="whitespace-nowrap">
+                                <a href="{{ path_for_entity('match', pm.match_id) }}" class="hover:text-white transition" style="color: var(--accent-blue);">
+                                    {{ pm.adversaire|truncate(25, True) if pm.adversaire else '?' }}
+                                </a>
+                            </td>
+                            <td class="text-center">
+                                {% if pms.victoire %}
+                                <span class="badge badge-green text-xs">V</span>
+                                {% else %}
+                                <span class="badge badge-red text-xs">D</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">{{ pms.sets_joues }}<span class="opacity-50">/{{ pms.sets_titulaire }}T</span></td>
+                            <td class="text-center font-semibold" style="color: var(--accent-cyan);">{{ pms.points_joues }}</td>
+                            <td class="text-center font-semibold" style="color: var(--accent-green);">{{ pms.points_gagnes }}</td>
+                            <td class="text-center font-semibold" style="color: var(--accent-red);">{{ pms.points_perdus }}</td>
+                            <td class="text-center">{{ pms.nb_services }}</td>
+                            <td class="text-center">
+                                {% if pms.meilleure_serie > 0 %}
+                                <span class="font-bold" style="color: var(--accent-gold);">{{ pms.meilleure_serie }}</span>
+                                {% else %}—{% endif %}
+                            </td>
+                            <td class="text-center whitespace-nowrap">
+                                {% if pms.temps_jeu_estime is not none %}
+                                {{ pms.temps_jeu_estime|round(0)|int }}′
+                                {% else %}—{% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if pms.nb_changements_total > 0 %}{{ pms.nb_changements_total }}{% else %}—{% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if pms.temps_morts_provoques > 0 %}
+                                <span class="font-semibold" style="color: var(--accent-gold);">{{ pms.temps_morts_provoques }}</span>
+                                {% else %}—{% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="p-8 text-center text-sm" style="color: var(--text-muted);">
+                Aucune donnée de performance détaillée disponible.
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Charts row -->
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
@@ -163,7 +343,7 @@
                     </div>
                     <div class="flex flex-wrap gap-2">
                         {% for eq in season.equipes %}
-                        <a href="/equipes/{{ eq.id }}" class="badge badge-blue text-xs">
+                        <a href="{{ path_for_entity('equipe', eq.id) }}" class="badge badge-blue text-xs">
                             {{ eq.nom|truncate_name(25) }}
                             {% if eq.niveau %}
                             <span class="ml-1 opacity-75">· {{ eq.niveau }}</span>
@@ -175,7 +355,7 @@
                 {% if season.competitions %}
                 <div class="flex flex-wrap gap-2 mt-2">
                     {% for comp in season.competitions %}
-                    <a href="/competitions/{{ comp.id }}" class="badge badge-green text-xs hover:opacity-80 transition">
+                    <a href="{{ path_for_entity('competition', comp.id) }}" class="badge badge-green text-xs hover:opacity-80 transition">
                         <i data-lucide="medal" class="w-3 h-3 mr-1"></i>
                         {{ comp.nom|truncate_name(40) }}
                         {% if comp.niveau %}· {{ comp.niveau }}{% endif %}
@@ -206,7 +386,7 @@
         </h2>
         <div class="flex flex-wrap gap-2">
             {% for eq in stats.equipes %}
-            <a href="/equipes/{{ eq.id }}" class="badge badge-blue">
+            <a href="{{ path_for_entity('equipe', eq.id) }}" class="badge badge-blue">
                 {{ eq.nom }}
                 {% if eq.genre %}
                 <span class="opacity-75">· {{ eq.genre }}</span>
@@ -260,7 +440,7 @@
                         {{ m.date_match|format_date }}
                     </td>
                     <td>
-                        <a href="/equipes/{{ m.equipe_a.id }}" class="font-medium hover:text-white transition"
+                        <a href="{{ path_for_entity('equipe', m.equipe_a.id) }}" class="font-medium hover:text-white transition"
                            style="color: var(--team-a-light);">
                             {{ m.equipe_a.nom|truncate_name(20) if m.equipe_a else '?' }}
                         </a>
@@ -271,13 +451,13 @@
                         </span>
                     </td>
                     <td>
-                        <a href="/equipes/{{ m.equipe_b.id }}" class="font-medium hover:text-white transition"
+                        <a href="{{ path_for_entity('equipe', m.equipe_b.id) }}" class="font-medium hover:text-white transition"
                            style="color: var(--team-b-light);">
                             {{ m.equipe_b.nom|truncate_name(20) if m.equipe_b else '?' }}
                         </a>
                     </td>
                     <td class="text-right">
-                        <a href="/matchs/{{ m.id }}" class="badge badge-blue text-xs">Voir</a>
+                        <a href="{{ path_for_entity('match', m.id) }}" class="badge badge-blue text-xs">Voir</a>
                     </td>
                 </tr>
                 {% else %}

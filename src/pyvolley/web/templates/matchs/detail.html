@@ -19,7 +19,7 @@
         <div class="text-center mb-6">
             <div class="flex items-center justify-center gap-3 flex-wrap mb-2">
                 {% if match.competition %}
-                <a href="/competitions/{{ match.competition.id }}" class="badge badge-purple hover:opacity-80 transition">{{ match.competition.nom|truncate_name(40) }}</a>
+                <a href="{{ path_for_entity('competition', match.competition.id) }}" class="badge badge-purple hover:opacity-80 transition">{{ match.competition.nom|truncate_name(40) }}</a>
                 {% endif %}
                 {% if match.competition and match.competition.genre %}
                 <span class="badge {% if match.competition.genre == 'MASCULIN' %}badge-blue{% elif match.competition.genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %}">
@@ -28,6 +28,12 @@
                 {% endif %}
                 {% if match.competition and match.competition.categorie %}
                 <span class="badge badge-gold">{{ match.competition.categorie }}</span>
+                {% endif %}
+                {% if match.competition %}
+                {% set niveau_badge = resolve_niveau_badge(match.competition.niveau, match.competition.nom, match.competition.categorie, match.competition.division) %}
+                {% if niveau_badge %}
+                <span class="badge {{ niveau_badge.css_class }}"><i data-lucide="bar-chart-3" class="w-3 h-3 mr-1"></i>{{ niveau_badge.label }}</span>
+                {% endif %}
                 {% endif %}
                 {% if match.poule %}
                 <span class="badge badge-green" title="Poule">
@@ -75,7 +81,7 @@
         <div class="flex items-center justify-center gap-4 md:gap-8">
             <!-- Equipe A -->
             <div class="text-center flex-1">
-                <a href="{% if match.equipe_a %}/equipes/{{ match.equipe_a.id }}{% else %}#{% endif %}"
+                <a href="{{ path_for_entity('equipe', match.equipe_a.id if match.equipe_a else None) }}"
                    class="text-lg md:text-2xl font-bold block mb-2 transition"
                    style="color: var(--team-a-light);">
                     {{ match.equipe_a.nom if match.equipe_a else 'Équipe A' }}
@@ -101,7 +107,7 @@
 
             <!-- Equipe B -->
             <div class="text-center flex-1">
-                <a href="{% if match.equipe_b %}/equipes/{{ match.equipe_b.id }}{% else %}#{% endif %}"
+                <a href="{{ path_for_entity('equipe', match.equipe_b.id if match.equipe_b else None) }}"
                    class="text-lg md:text-2xl font-bold block mb-2 transition"
                    style="color: var(--team-b-light);">
                     {{ match.equipe_b.nom if match.equipe_b else 'Équipe B' }}
@@ -161,6 +167,12 @@
         </button>
         {% endif %}
         {% if match.has_details %}
+        <button @click="activeTab = 'statistiques'" class="px-4 py-2 text-sm font-medium rounded-t-lg transition"
+                :style="activeTab === 'statistiques' ? 'color: var(--accent-cyan); border-bottom: 2px solid var(--accent-cyan)' : 'color: var(--text-muted)'">
+            <i data-lucide="bar-chart-3" class="w-4 h-4 inline-block mr-1"></i> Statistiques
+        </button>
+        {% endif %}
+        {% if match.has_details %}
         <button @click="activeTab = 'simulation'" class="px-4 py-2 text-sm font-medium rounded-t-lg transition"
                 :style="activeTab === 'simulation' ? 'color: var(--accent-gold); border-bottom: 2px solid var(--accent-gold)' : 'color: var(--text-muted)'">
             <i data-lucide="play-circle" class="w-4 h-4 inline-block mr-1"></i> Simulation
@@ -184,7 +196,7 @@
                 <div class="flex justify-between items-center py-1" style="border-bottom: 1px solid rgba(42,48,80,0.3);">
                     <dt style="color: var(--text-secondary);">Compétition</dt>
                     <dd class="font-medium text-right max-w-xs">
-                        <a href="/competitions/{{ match.competition.id }}" class="hover:text-white transition" style="color: var(--text-primary);">{{ match.competition.nom }}</a>
+                        <a href="{{ path_for_entity('competition', match.competition.id) }}" class="hover:text-white transition" style="color: var(--text-primary);">{{ match.competition.nom }}</a>
                     </dd>
                 </div>
                 {% endif %}
@@ -471,7 +483,7 @@
             {% endif %}
             <div class="space-y-1">
                 {% for p in participants_a %}
-                <a href="/joueurs/{{ p.joueur.id }}" class="player-row no-underline">
+                <a href="{{ path_for_entity('joueur', p.joueur.id) }}" class="player-row no-underline">
                     <span class="player-number team-a {% if p.est_libero %}libero{% endif %}">
                         {{ p.numero_maillot or '?' }}
                     </span>
@@ -503,7 +515,7 @@
             {% endif %}
             <div class="space-y-1">
                 {% for p in participants_b %}
-                <a href="/joueurs/{{ p.joueur.id }}" class="player-row no-underline">
+                <a href="{{ path_for_entity('joueur', p.joueur.id) }}" class="player-row no-underline">
                     <span class="player-number team-b {% if p.est_libero %}libero{% endif %}">
                         {{ p.numero_maillot or '?' }}
                     </span>
@@ -528,7 +540,7 @@
         </h3>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {% for am in match.arbitrages %}
-            <a href="/arbitres/{{ am.arbitre.id }}" class="card card-interactive p-4 flex items-center gap-3 no-underline">
+            <a href="{{ path_for_entity('arbitre', am.arbitre.id) }}" class="card card-interactive p-4 flex items-center gap-3 no-underline">
                 <div class="w-10 h-10 rounded-full flex items-center justify-center"
                      style="background: rgba(168,85,247,0.15);">
                     <i data-lucide="shield" class="w-5 h-5" style="color: var(--accent-purple);"></i>
@@ -588,6 +600,300 @@
                 {% endfor %}
             </tbody>
         </table>
+    </div>
+    {% endif %}
+
+    <!-- ═══════════════ Tab: Statistiques ═══════════════ -->
+    {% if match.has_details and (player_stats_a or player_stats_b) %}
+    <div x-show="activeTab === 'statistiques'" x-cloak class="space-y-6"
+         x-data="playerStatsController()">
+
+        <div class="card p-4">
+            <div class="flex items-center justify-between flex-wrap gap-3">
+                <h3 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                    <i data-lucide="bar-chart-3" class="w-4 h-4 inline-block mr-1"></i> Statistiques individuelles
+                </h3>
+                <!-- Options libéro -->
+                <div class="flex items-center gap-4">
+                    <label class="flex items-center gap-2 text-xs cursor-pointer" style="color: var(--text-secondary);">
+                        <input type="checkbox" x-model="showLiberoMode" class="rounded" style="accent-color: var(--accent-cyan);">
+                        Mode libéro / remplacement
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Libéro options panel -->
+        <div x-show="showLiberoMode" x-transition class="card p-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <p class="text-xs font-semibold uppercase mb-2" style="color: var(--accent-cyan);">
+                        <i data-lucide="info" class="w-3 h-3 inline-block mr-1"></i> Remplacement libéro
+                    </p>
+                    <p class="text-xs mb-3" style="color: var(--text-muted);">
+                        Cochez un joueur pour indiquer qu'il est remplacé par le libéro en zone arrière.
+                        Ses stats seront ajustées (ne joue pas les points en positions 1, 5, 6 sauf service).
+                    </p>
+                </div>
+                <div>
+                    <p class="text-xs font-semibold uppercase mb-2" style="color: var(--accent-purple);">
+                        <i data-lucide="info" class="w-3 h-3 inline-block mr-1"></i> Stats libéro
+                    </p>
+                    <p class="text-xs" style="color: var(--text-muted);">
+                        Pour un libéro, sélectionnez les joueurs qu'il remplace pour estimer
+                        son temps de jeu effectif (zone arrière uniquement, hors service).
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Équipe A -->
+        {% if player_stats_a %}
+        <div class="card overflow-hidden">
+            <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
+                <h3 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--team-a-light);">
+                    <i data-lucide="users" class="w-4 h-4 inline-block mr-1"></i>
+                    {{ match.equipe_a.nom if match.equipe_a else 'Équipe A' }}
+                </h3>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="data-table text-xs">
+                    <thead>
+                        <tr>
+                            <th class="sticky left-0" style="background: var(--bg-card); z-index: 1;">Joueur</th>
+                            <th class="text-center" title="Numéro de maillot">#</th>
+                            <th class="text-center" title="Sets joués">Sets</th>
+                            <th class="text-center" title="Points joués estimés">Pts joués</th>
+                            <th class="text-center" title="Points gagnés au service">Pts gagnés</th>
+                            <th class="text-center" title="Points perdus estimés">Pts perdus</th>
+                            <th class="text-center" title="Nombre de tours de service">Services</th>
+                            <th class="text-center" title="Meilleure série de points au service">Meilleure série</th>
+                            <th class="text-center" title="Temps de jeu estimé">Temps</th>
+                            <th class="text-center" title="Changements (entrées/sorties)">Chg</th>
+                            <th class="text-center" title="Temps morts provoqués par l'adversaire pendant un service">TM prov.</th>
+                            <th class="text-center" title="Sanctions reçues">Sanc.</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in player_stats_a %}
+                        {% set ps = item.stats %}
+                        <tr class="{% if ps.est_libero %}opacity-80{% endif %} cursor-pointer hover:opacity-80 transition"
+                            @click="selectPlayer({{ ps.model_dump_json() }})">
+                            <td class="sticky left-0 font-medium whitespace-nowrap" style="background: var(--bg-card); z-index: 1;">
+                                <a href="{{ path_for_entity('joueur', item.joueur_id) }}" class="hover:text-white transition" style="color: var(--team-a-light);">
+                                    {{ ps.prenom[0] }}. {{ ps.nom }}
+                                </a>
+                                {% if ps.est_capitaine %}<span class="badge badge-gold text-xs ml-1" title="Capitaine">C</span>{% endif %}
+                                {% if ps.est_libero %}<span class="badge badge-purple text-xs ml-1" title="Libéro">L</span>{% endif %}
+                            </td>
+                            <td class="text-center font-mono">{{ ps.numero }}</td>
+                            <td class="text-center">
+                                <span class="font-semibold">{{ ps.sets_joues }}</span>
+                                {% if ps.sets_titulaire > 0 %}
+                                <span class="text-xs" style="color: var(--text-muted);">({{ ps.sets_titulaire }}T)</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center font-semibold" style="color: var(--accent-cyan);">{{ ps.points_joues }}</td>
+                            <td class="text-center font-semibold" style="color: var(--accent-green);">{{ ps.points_gagnes }}</td>
+                            <td class="text-center font-semibold" style="color: var(--accent-red);">{{ ps.points_perdus }}</td>
+                            <td class="text-center">{{ ps.nb_services }}</td>
+                            <td class="text-center">
+                                {% if ps.meilleure_serie > 0 %}
+                                <span class="font-bold" style="color: var(--accent-gold);">{{ ps.meilleure_serie }}</span>
+                                {% else %}—{% endif %}
+                            </td>
+                            <td class="text-center whitespace-nowrap">
+                                {% if ps.temps_jeu_estime is not none %}
+                                {{ ps.temps_jeu_estime|round(0)|int }}′
+                                {% else %}—{% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if ps.nb_changements_total > 0 %}
+                                <span title="{{ ps.nb_entrees }} entrée(s), {{ ps.nb_sorties }} sortie(s)">
+                                    {{ ps.nb_changements_total }}
+                                </span>
+                                {% else %}—{% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if ps.temps_morts_provoques > 0 %}
+                                <span class="font-semibold" style="color: var(--accent-gold);">{{ ps.temps_morts_provoques }}</span>
+                                {% else %}—{% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if ps.sanctions|length > 0 %}
+                                <span class="badge badge-red text-xs" title="{{ ps.sanctions|join(', ') }}">{{ ps.sanctions|length }}</span>
+                                {% else %}—{% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Équipe B -->
+        {% if player_stats_b %}
+        <div class="card overflow-hidden">
+            <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
+                <h3 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--team-b-light);">
+                    <i data-lucide="users" class="w-4 h-4 inline-block mr-1"></i>
+                    {{ match.equipe_b.nom if match.equipe_b else 'Équipe B' }}
+                </h3>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="data-table text-xs">
+                    <thead>
+                        <tr>
+                            <th class="sticky left-0" style="background: var(--bg-card); z-index: 1;">Joueur</th>
+                            <th class="text-center" title="Numéro de maillot">#</th>
+                            <th class="text-center" title="Sets joués">Sets</th>
+                            <th class="text-center" title="Points joués estimés">Pts joués</th>
+                            <th class="text-center" title="Points gagnés au service">Pts gagnés</th>
+                            <th class="text-center" title="Points perdus estimés">Pts perdus</th>
+                            <th class="text-center" title="Nombre de tours de service">Services</th>
+                            <th class="text-center" title="Meilleure série de points au service">Meilleure série</th>
+                            <th class="text-center" title="Temps de jeu estimé">Temps</th>
+                            <th class="text-center" title="Changements (entrées/sorties)">Chg</th>
+                            <th class="text-center" title="Temps morts provoqués par l'adversaire pendant un service">TM prov.</th>
+                            <th class="text-center" title="Sanctions reçues">Sanc.</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in player_stats_b %}
+                        {% set ps = item.stats %}
+                        <tr class="{% if ps.est_libero %}opacity-80{% endif %} cursor-pointer hover:opacity-80 transition"
+                            @click="selectPlayer({{ ps.model_dump_json() }})">
+                            <td class="sticky left-0 font-medium whitespace-nowrap" style="background: var(--bg-card); z-index: 1;">
+                                <a href="{{ path_for_entity('joueur', item.joueur_id) }}" class="hover:text-white transition" style="color: var(--team-b-light);">
+                                    {{ ps.prenom[0] }}. {{ ps.nom }}
+                                </a>
+                                {% if ps.est_capitaine %}<span class="badge badge-gold text-xs ml-1" title="Capitaine">C</span>{% endif %}
+                                {% if ps.est_libero %}<span class="badge badge-purple text-xs ml-1" title="Libéro">L</span>{% endif %}
+                            </td>
+                            <td class="text-center font-mono">{{ ps.numero }}</td>
+                            <td class="text-center">
+                                <span class="font-semibold">{{ ps.sets_joues }}</span>
+                                {% if ps.sets_titulaire > 0 %}
+                                <span class="text-xs" style="color: var(--text-muted);">({{ ps.sets_titulaire }}T)</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center font-semibold" style="color: var(--accent-cyan);">{{ ps.points_joues }}</td>
+                            <td class="text-center font-semibold" style="color: var(--accent-green);">{{ ps.points_gagnes }}</td>
+                            <td class="text-center font-semibold" style="color: var(--accent-red);">{{ ps.points_perdus }}</td>
+                            <td class="text-center">{{ ps.nb_services }}</td>
+                            <td class="text-center">
+                                {% if ps.meilleure_serie > 0 %}
+                                <span class="font-bold" style="color: var(--accent-gold);">{{ ps.meilleure_serie }}</span>
+                                {% else %}—{% endif %}
+                            </td>
+                            <td class="text-center whitespace-nowrap">
+                                {% if ps.temps_jeu_estime is not none %}
+                                {{ ps.temps_jeu_estime|round(0)|int }}′
+                                {% else %}—{% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if ps.nb_changements_total > 0 %}
+                                <span title="{{ ps.nb_entrees }} entrée(s), {{ ps.nb_sorties }} sortie(s)">
+                                    {{ ps.nb_changements_total }}
+                                </span>
+                                {% else %}—{% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if ps.temps_morts_provoques > 0 %}
+                                <span class="font-semibold" style="color: var(--accent-gold);">{{ ps.temps_morts_provoques }}</span>
+                                {% else %}—{% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if ps.sanctions|length > 0 %}
+                                <span class="badge badge-red text-xs" title="{{ ps.sanctions|join(', ') }}">{{ ps.sanctions|length }}</span>
+                                {% else %}—{% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Détails par joueur (expandable) -->
+        <template x-if="selectedPlayer">
+            <div class="card p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--accent-cyan);">
+                        <i data-lucide="user" class="w-4 h-4 inline-block mr-1"></i>
+                        Détail : <span x-text="selectedPlayer.prenom"></span> <span x-text="selectedPlayer.nom"></span>
+                    </h3>
+                    <button @click="selectedPlayer = null" class="text-xs px-2 py-1 rounded"
+                            style="color: var(--text-muted); background: var(--bg-card-hover);">
+                        <i data-lucide="x" class="w-3 h-3 inline-block"></i> Fermer
+                    </button>
+                </div>
+
+                <!-- Présence par set -->
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
+                    <template x-for="p in selectedPlayer.presence_par_set" :key="p.set_numero">
+                        <div class="p-3 rounded-lg" style="background: var(--bg-card-hover);">
+                            <div class="text-xs font-semibold mb-1" style="color: var(--text-muted);">
+                                Set <span x-text="p.set_numero"></span>
+                            </div>
+                            <div class="flex items-center gap-2 text-xs">
+                                <span x-show="p.titulaire" class="badge badge-green text-xs">Titulaire</span>
+                                <span x-show="p.entre_en_jeu && !p.titulaire" class="badge badge-blue text-xs">Entré</span>
+                                <span x-show="p.sorti" class="badge badge-red text-xs">Sorti</span>
+                                <span x-show="!p.titulaire && !p.entre_en_jeu" class="badge text-xs" style="color: var(--text-muted);">Non joué</span>
+                            </div>
+                            <template x-if="p.score_entree">
+                                <div class="text-xs mt-1" style="color: var(--text-muted);">
+                                    Entrée : <span x-text="p.score_entree" class="font-mono"></span>
+                                </div>
+                            </template>
+                            <template x-if="p.score_sortie">
+                                <div class="text-xs mt-1" style="color: var(--text-muted);">
+                                    Sortie : <span x-text="p.score_sortie" class="font-mono"></span>
+                                </div>
+                            </template>
+                            <template x-if="p.position_depart">
+                                <div class="text-xs mt-1" style="color: var(--text-muted);">
+                                    Position : P<span x-text="p.position_depart"></span>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                </div>
+
+                <!-- Temps de jeu par set -->
+                <template x-if="Object.keys(selectedPlayer.temps_jeu_par_set).length > 0">
+                    <div class="mb-4">
+                        <div class="text-xs font-semibold uppercase mb-2" style="color: var(--text-muted);">Temps de jeu par set</div>
+                        <div class="flex gap-3">
+                            <template x-for="(minutes, setNum) in selectedPlayer.temps_jeu_par_set" :key="setNum">
+                                <div class="text-center px-3 py-2 rounded" style="background: var(--bg-card-hover);">
+                                    <div class="text-xs" style="color: var(--text-muted);">Set <span x-text="setNum"></span></div>
+                                    <div class="font-semibold text-sm" style="color: var(--accent-cyan);">
+                                        <span x-text="Math.round(minutes)"></span>′
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </template>
+
+        <!-- Légende -->
+        <div class="card p-4">
+            <div class="flex flex-wrap gap-4 text-xs" style="color: var(--text-muted);">
+                <span><strong style="color: var(--accent-cyan);">Pts joués</strong> = estimation des points où le joueur était sur le terrain</span>
+                <span><strong style="color: var(--accent-green);">Pts gagnés</strong> = points marqués au service</span>
+                <span><strong style="color: var(--accent-red);">Pts perdus</strong> = points adverses pendant la présence</span>
+                <span><strong style="color: var(--accent-gold);">Meilleure série</strong> = max de points consécutifs au service</span>
+                <span><strong style="color: var(--accent-gold);">TM prov.</strong> = temps morts adverses pendant une série de service</span>
+                <span><strong>T</strong> = sets titulaire</span>
+                <span><strong>Chg</strong> = total entrées + sorties</span>
+            </div>
+        </div>
     </div>
     {% endif %}
 
@@ -759,6 +1065,17 @@
 {% block extra_scripts %}
 {% if match.has_details %}
 <script>
+// ─── Player Stats Controller ───
+function playerStatsController() {
+    return {
+        showLiberoMode: false,
+        selectedPlayer: null,
+        selectPlayer(stats) {
+            this.selectedPlayer = (this.selectedPlayer && this.selectedPlayer.licence === stats.licence) ? null : stats;
+        }
+    };
+}
+
 (function() {
     'use strict';
 

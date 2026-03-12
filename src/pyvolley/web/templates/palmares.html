@@ -25,7 +25,7 @@
                     {% else %}text-gray-500 bg-gray-500/10{% endif %}">
                     {{ loop.index }}
                 </div>
-                <a href="/joueurs/{{ j.id }}" class="font-semibold text-white hover:text-blue-400 transition">
+                <a href="{{ path_for_entity('joueur', j.id) }}" class="font-semibold text-white hover:text-blue-400 transition">
                     {{ j.nom }} {{ j.prenom }}
                 </a>
             </div>
@@ -65,7 +65,7 @@
                     {% else %}text-gray-500 bg-gray-500/10{% endif %}">
                     {{ loop.index }}
                 </div>
-                <a href="/joueurs/{{ j.id }}" class="font-semibold text-white hover:text-blue-400 transition">
+                <a href="{{ path_for_entity('joueur', j.id) }}" class="font-semibold text-white hover:text-blue-400 transition">
                     {{ j.nom }} {{ j.prenom }}
                 </a>
             </div>
@@ -257,7 +257,7 @@
                                 {{ loop.index }}
                             </div>
                             <div>
-                                <a href="/joueurs/{{ s.id }}" class="font-semibold text-white hover:text-blue-400 transition">
+                                <a href="{{ path_for_entity('joueur', s.id) }}" class="font-semibold text-white hover:text-blue-400 transition">
                                     {{ s.nom }} {{ s.prenom }}
                                 </a>
                                 <div class="text-xs" style="color: var(--text-muted);">{{ s.matchs_total }} matchs joués</div>
@@ -296,7 +296,7 @@
                                 {% else %}text-gray-500 bg-gray-500/10{% endif %}">
                                 {{ loop.index }}
                             </div>
-                            <a href="/joueurs/{{ s.id }}" class="font-semibold text-white hover:text-blue-400 transition">
+                            <a href="{{ path_for_entity('joueur', s.id) }}" class="font-semibold text-white hover:text-blue-400 transition">
                                 {{ s.nom }} {{ s.prenom }}
                             </a>
                         </div>
@@ -346,11 +346,11 @@
                     {% for j in top_fideles[:5] %}
                     <div class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-card-hover)] transition">
                         <div>
-                            <a href="/joueurs/{{ j.id }}" class="font-semibold text-white hover:text-blue-400 transition">
+                            <a href="{{ path_for_entity('joueur', j.id) }}" class="font-semibold text-white hover:text-blue-400 transition">
                                 {{ j.nom }} {{ j.prenom }}
                             </a>
                             <div class="text-xs" style="color: var(--text-muted);">
-                                <a href="/equipes/{{ j.equipe_id }}" class="hover:text-blue-400">{{ j.equipe_nom }}</a>
+                                <a href="{{ path_for_entity('equipe', j.equipe_id) }}" class="hover:text-blue-400">{{ j.equipe_nom }}</a>
                             </div>
                         </div>
                         <span class="badge badge-blue">{{ j.valeur }} matchs</span>
@@ -384,7 +384,7 @@
                 {% if matchs_serres %}
                 <div class="divide-y" style="border-color: rgba(42,48,80,0.5);">
                     {% for m in matchs_serres[:5] %}
-                    <a href="/matchs/{{ m.match_id }}" class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-card-hover)] transition block">
+                    <a href="{{ path_for_entity('match', m.match_id) }}" class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-card-hover)] transition block">
                         <div>
                             <div class="font-semibold text-white text-sm">{{ m.equipe_a }} vs {{ m.equipe_b }}</div>
                             <div class="text-xs" style="color: var(--text-muted);">
@@ -417,7 +417,7 @@
                 {% if sets_serres %}
                 <div class="divide-y" style="border-color: rgba(42,48,80,0.5);">
                     {% for s in sets_serres[:5] %}
-                    <a href="/matchs/{{ s.match_id }}" class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-card-hover)] transition block">
+                    <a href="{{ path_for_entity('match', s.match_id) }}" class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-card-hover)] transition block">
                         <div>
                             <div class="text-sm">
                                 <span class="font-semibold text-white">Set {{ s.numero }}</span>
@@ -457,7 +457,7 @@
                 {% if sets_domination %}
                 <div class="divide-y" style="border-color: rgba(42,48,80,0.5);">
                     {% for s in sets_domination[:5] %}
-                    <a href="/matchs/{{ s.match_id }}" class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-card-hover)] transition block">
+                    <a href="{{ path_for_entity('match', s.match_id) }}" class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-card-hover)] transition block">
                         <div>
                             <div class="font-semibold text-white text-sm">Set {{ s.numero }} — {{ s.dominateur }}</div>
                             <div class="text-xs" style="color: var(--text-muted);">
@@ -490,7 +490,7 @@
                 {% if comebacks %}
                 <div class="divide-y" style="border-color: rgba(42,48,80,0.5);">
                     {% for c in comebacks[:5] %}
-                    <a href="/matchs/{{ c.match_id }}" class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-card-hover)] transition block">
+                    <a href="{{ path_for_entity('match', c.match_id) }}" class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-card-hover)] transition block">
                         <div>
                             <div class="text-sm">
                                 <span class="font-bold text-green-400">{{ c.comeback_par }}</span>
@@ -534,7 +534,7 @@
                 {% if matchs_longs %}
                 <div class="divide-y" style="border-color: rgba(42,48,80,0.5);">
                     {% for m in matchs_longs[:5] %}
-                    <a href="/matchs/{{ m.match_id }}" class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-card-hover)] transition block">
+                    <a href="{{ path_for_entity('match', m.match_id) }}" class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-card-hover)] transition block">
                         <div>
                             <div class="font-semibold text-white text-sm">{{ m.equipe_a }} vs {{ m.equipe_b }}</div>
                             <div class="text-xs" style="color: var(--text-muted);">
@@ -571,7 +571,7 @@
                 {% if matchs_points %}
                 <div class="divide-y" style="border-color: rgba(42,48,80,0.5);">
                     {% for m in matchs_points[:5] %}
-                    <a href="/matchs/{{ m.match_id }}" class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-card-hover)] transition block">
+                    <a href="{{ path_for_entity('match', m.match_id) }}" class="flex items-center justify-between px-4 py-3 hover:bg-[var(--bg-card-hover)] transition block">
                         <div>
                             <div class="font-semibold text-white text-sm">{{ m.equipe_a }} vs {{ m.equipe_b }}</div>
                             <div class="text-xs" style="color: var(--text-muted);">
@@ -632,7 +632,7 @@
                             </span>
                         </td>
                         <td>
-                            <a href="/equipes/{{ e.id }}" class="font-semibold text-white hover:text-blue-400 transition">
+                            <a href="{{ path_for_entity('equipe', e.id) }}" class="font-semibold text-white hover:text-blue-400 transition">
                                 {{ e.nom }}
                             </a>
                         </td>
@@ -692,7 +692,7 @@
                             {{ loop.index }}
                         </div>
                         <div>
-                            <a href="/arbitres/{{ a.id }}" class="font-semibold text-white hover:text-blue-400 transition">
+                            <a href="{{ path_for_entity('arbitre', a.id) }}" class="font-semibold text-white hover:text-blue-400 transition">
                                 {{ a.nom }} {{ a.prenom }}
                             </a>
                             {% if a.ligue %}

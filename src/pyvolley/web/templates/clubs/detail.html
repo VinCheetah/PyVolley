@@ -298,7 +298,7 @@
                 eq.categorie or (eq.competition.categorie if eq.competition else None),
                 eq.division or (eq.competition.division if eq.competition else None)
             ) %}
-            <a href="/equipes/{{ eq.id }}" class="card card-interactive p-4 no-underline">
+            <a href="{{ path_for_entity('equipe', eq.id) }}" class="card card-interactive p-4 no-underline">
                 <div class="flex items-center gap-3">
                     <div class="w-10 h-10 rounded-xl flex items-center justify-center"
                          {% if eq.genre == 'MASCULIN' %}

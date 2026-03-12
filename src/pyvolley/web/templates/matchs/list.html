@@ -213,7 +213,7 @@
                     <td><span class="badge">{{ match.code_match }}</span></td>
                     <td>
                         {% if match.equipe_a %}
-                        <a href="/equipes/{{ match.equipe_a.id }}">{{ match.equipe_a.nom|truncate_name(22) }}</a>
+                        <a href="{{ path_for_entity('equipe', match.equipe_a.id) }}">{{ match.equipe_a.nom|truncate_name(22) }}</a>
                         {% else %}-{% endif %}
                     </td>
                     <td class="text-center font-bold text-lg whitespace-nowrap">
@@ -231,15 +231,15 @@
                     </td>
                     <td>
                         {% if match.equipe_b %}
-                        <a href="/equipes/{{ match.equipe_b.id }}">{{ match.equipe_b.nom|truncate_name(22) }}</a>
+                        <a href="{{ path_for_entity('equipe', match.equipe_b.id) }}">{{ match.equipe_b.nom|truncate_name(22) }}</a>
                         {% else %}-{% endif %}
                     </td>
                     <td>
                         {% if match.competition %}
-                        <a href="/competitions/{{ match.competition.id }}" class="block text-xs mb-1 hover:text-white transition" style="color: var(--text-secondary);">
+                        <a href="{{ path_for_entity('competition', match.competition.id) }}" class="block text-xs mb-1 hover:text-white transition" style="color: var(--text-secondary);">
                             {{ match.competition.nom|truncate_name(34) }}
                         </a>
-                        <a href="/competitions/{{ match.competition.id }}" class="flex flex-wrap gap-1 hover:opacity-80 transition">
+                        <a href="{{ path_for_entity('competition', match.competition.id) }}" class="flex flex-wrap gap-1 hover:opacity-80 transition">
                         {% if match.competition.genre %}
                         <span class="badge {% if match.competition.genre == 'MASCULIN' %}badge-blue{% elif match.competition.genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %}" style="font-size: 0.55rem;">
                             {% if match.competition.genre == 'MASCULIN' %}♂{% elif match.competition.genre == 'FEMININ' %}♀{% else %}⚥{% endif %}
@@ -253,7 +253,7 @@
                     </td>
                     <td class="text-center">
                         <div class="flex items-center justify-center gap-1">
-                            <a href="/matchs/{{ match.id }}" class="badge badge-blue">
+                            <a href="{{ path_for_entity('match', match.id) }}" class="badge badge-blue">
                                 {% if match.has_details %}Détails{% else %}Voir{% endif %}
                             </a>
                             {% if match.competition and match.competition.entite and match.saison %}

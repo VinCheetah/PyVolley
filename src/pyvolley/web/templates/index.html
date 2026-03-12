@@ -147,7 +147,7 @@
                         </td>
                         <td>
                             {% if match.equipe_a %}
-                            <a href="/equipes/{{ match.equipe_a.id }}" class="font-medium">
+                            <a href="{{ path_for_entity('equipe', match.equipe_a.id) }}" class="font-medium">
                                 {{ match.equipe_a.nom|truncate_name(25) }}
                             </a>
                             {% else %}-{% endif %}
@@ -163,14 +163,14 @@
                         </td>
                         <td>
                             {% if match.equipe_b %}
-                            <a href="/equipes/{{ match.equipe_b.id }}" class="font-medium">
+                            <a href="{{ path_for_entity('equipe', match.equipe_b.id) }}" class="font-medium">
                                 {{ match.equipe_b.nom|truncate_name(25) }}
                             </a>
                             {% else %}-{% endif %}
                         </td>
                         <td style="color: var(--text-secondary);">{{ match.lieu|truncate_name(20) }}</td>
                         <td class="text-center">
-                            <a href="/matchs/{{ match.id }}" class="badge badge-blue">
+                            <a href="{{ path_for_entity('match', match.id) }}" class="badge badge-blue">
                                 {% if match.has_details %}Détails{% else %}Voir{% endif %}
                             </a>
                         </td>

@@ -186,9 +186,42 @@ async def joueur_detail(
     matchs = match_repo.get_by_joueur(joueur_id, limit=200)
     stats = joueur_repo.get_stats(joueur_id)
     detailed_stats = joueur_repo.get_detailed_stats(joueur_id)
+
+    # Calcul des statistiques de performance agrégées
+    aggregated_stats = None
+    per_match_stats = []
+    from pyvolley.database.converters import match_db_to_core
+    from pyvolley.analysis.joueur_stats import analyze_joueur_match, aggregate_joueur_stats
+
+    all_detailed = []
+    for m in matchs:
+        if not m.has_details:
+            continue
+        m_full = match_repo.get_with_details(m.id)
+        if not m_full:
+            continue
+        participants_a = [p for p in (m_full.participations or []) if p.equipe_id == m_full.equipe_a_id]
+        participants_b = [p for p in (m_full.participations or []) if p.equipe_id == m_full.equipe_b_id]
+        match_core = match_db_to_core(m_full, participants_a, participants_b)
+        s = analyze_joueur_match(match_core, joueur.licence)
+        if s:
+            all_detailed.append(s)
+            per_match_stats.append({
+                "match_id": m.id,
+                "date": m.date_match,
+                "adversaire": (m.equipe_b.nom if m.equipe_a_id and any(
+                    p.equipe_id == m.equipe_a_id for p in (m_full.participations or []) if p.joueur_id == joueur_id
+                ) else m.equipe_a.nom) if m.equipe_a and m.equipe_b else "?",
+                "stats": s,
+            })
+
+    aggregated_stats = aggregate_joueur_stats(all_detailed)
+
     return templates.TemplateResponse("joueurs/detail.html", {
         "request": request, "joueur": joueur, "matchs": matchs,
         "stats": stats, "detailed_stats": detailed_stats,
+        "aggregated_stats": aggregated_stats,
+        "per_match_stats": per_match_stats,
     })
 
 
@@ -383,11 +416,32 @@ async def match_detail(
     # Construire les données de simulation pour l'embarqué
     sim_data = _build_simulation_data(match, participants_a, participants_b, officiels_a, officiels_b)
 
+    # Calculer les statistiques détaillées par joueur
+    player_stats_a = []
+    player_stats_b = []
+    if match.has_details:
+        from pyvolley.database.converters import match_db_to_core
+        from pyvolley.analysis.joueur_stats import analyze_joueur_match
+
+        match_core = match_db_to_core(match, participants_a, participants_b)
+        for p in participants_a:
+            if p.joueur:
+                s = analyze_joueur_match(match_core, p.joueur.licence)
+                if s:
+                    player_stats_a.append({"stats": s, "joueur_id": p.joueur_id})
+        for p in participants_b:
+            if p.joueur:
+                s = analyze_joueur_match(match_core, p.joueur.licence)
+                if s:
+                    player_stats_b.append({"stats": s, "joueur_id": p.joueur_id})
+
     return templates.TemplateResponse("matchs/detail.html", {
         "request": request, "match": match,
         "participants_a": participants_a, "participants_b": participants_b,
         "officiels_a": officiels_a, "officiels_b": officiels_b,
         "sim_data_json": json.dumps(sim_data, ensure_ascii=False),
+        "player_stats_a": player_stats_a,
+        "player_stats_b": player_stats_b,
     })
 
 
@@ -1317,11 +1371,15 @@ def _build_simulation_data(match, participants_a, participants_b, officiels_a, o
 _NIVEAU_ORDER = {
     "LOISIR": 0,
     "DEPARTEMENTAL": 1, "DÉPARTEMENTAL": 1, "DEPARTEMENTALE": 1, "DÉPARTEMENTALE": 1,
-    "REGIONAL": 2, "RÉGIONAL": 2, "REGIONALE": 2, "RÉGIONALE": 2,
-    "PRENATIONAL": 3, "PRÉNATIONAL": 3, "PRENATIONALE": 3, "PRÉNATIONALE": 3,
-    "PRE-NATIONAL": 3, "PRÉ-NATIONAL": 3, "PRE-NATIONALE": 3, "PRÉ-NATIONALE": 3,
-    "NATIONAL": 4, "NATIONALE": 4,
-    "ELITE": 5, "ÉLITE": 5,
+    "PRE_REGIONALE": 2, "PRÉ_RÉGIONALE": 2, "PREREGIONALE": 2,
+    "REGIONAL": 3, "RÉGIONAL": 3, "REGIONALE": 3, "RÉGIONALE": 3,
+    "PRE_NATIONALE": 4, "PRÉNATIONAL": 4, "PRENATIONAL": 4,
+    "PRENATIONALE": 4, "PRÉNATIONALE": 4,
+    "PRE-NATIONAL": 4, "PRÉ-NATIONAL": 4, "PRE-NATIONALE": 4, "PRÉ-NATIONALE": 4,
+    "NATIONAL": 5, "NATIONALE": 5,
+    "N3": 5, "N2": 6, "N1": 7,
+    "ELITE": 8, "ÉLITE": 8,
+    "PRO": 9, "PRO B": 9, "PRO A": 10,
 }
 
 

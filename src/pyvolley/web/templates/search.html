@@ -182,7 +182,7 @@
                         <td>{{ j.prenom }}</td>
                         <td style="color: var(--text-muted);">{{ j.licence }}</td>
                         <td class="text-center">
-                            <a href="/joueurs/{{ j.id }}" class="badge badge-blue">Voir profil</a>
+                            <a href="{{ path_for_entity('joueur', j.id) }}" class="badge badge-blue">Voir profil</a>
                         </td>
                     </tr>
                     {% endfor %}
@@ -212,7 +212,7 @@
                         <td style="color: var(--text-secondary);">{{ c.ville or '-' }}</td>
                         <td style="color: var(--text-muted);">{{ c.departement or '-' }}</td>
                         <td class="text-center">
-                            <a href="/clubs/{{ c.id }}" class="badge badge-green">Voir club</a>
+                            <a href="{{ path_for_entity('club', c.id) }}" class="badge badge-green">Voir club</a>
                         </td>
                     </tr>
                     {% endfor %}
@@ -268,7 +268,7 @@
                             {% else %}<span style="color: var(--text-muted);">—</span>{% endif %}
                         </td>
                         <td class="text-center">
-                            <a href="/equipes/{{ e.id }}" class="badge badge-purple">Voir équipe</a>
+                            <a href="{{ path_for_entity('equipe', e.id) }}" class="badge badge-purple">Voir équipe</a>
                         </td>
                     </tr>
                     {% endfor %}
@@ -298,7 +298,7 @@
                         <td>{{ a.prenom or '-' }}</td>
                         <td style="color: var(--text-muted);">{{ a.ligue or '-' }}</td>
                         <td class="text-center">
-                            <a href="/arbitres/{{ a.id }}" class="badge badge-gold">Voir profil</a>
+                            <a href="{{ path_for_entity('arbitre', a.id) }}" class="badge badge-gold">Voir profil</a>
                         </td>
                     </tr>
                     {% endfor %}

@@ -24,16 +24,21 @@ from pyvolley.database.models import (
 _NIVEAU_ORDER = {
     "LOISIR": 0,
     "DEPARTEMENTAL": 1, "DÉPARTEMENTAL": 1, "DEPARTEMENTALE": 1, "DÉPARTEMENTALE": 1,
-    "REGIONAL": 2, "RÉGIONAL": 2, "REGIONALE": 2, "RÉGIONALE": 2,
-    "PRENATIONAL": 3, "PRÉNATIONAL": 3, "PRENATIONALE": 3, "PRÉNATIONALE": 3,
-    "PRE-NATIONAL": 3, "PRÉ-NATIONAL": 3, "PRE-NATIONALE": 3, "PRÉ-NATIONALE": 3,
-    "NATIONAL": 4, "NATIONALE": 4,
-    "ELITE": 5, "ÉLITE": 5,
+    "PRE_REGIONALE": 2, "PRÉ_RÉGIONALE": 2, "PREREGIONALE": 2,
+    "REGIONAL": 3, "RÉGIONAL": 3, "REGIONALE": 3, "RÉGIONALE": 3,
+    "PRE_NATIONALE": 4, "PRÉNATIONAL": 4, "PRENATIONAL": 4,
+    "PRENATIONALE": 4, "PRÉNATIONALE": 4,
+    "PRE-NATIONAL": 4, "PRÉ-NATIONAL": 4, "PRE-NATIONALE": 4, "PRÉ-NATIONALE": 4,
+    "NATIONAL": 5, "NATIONALE": 5,
+    "N3": 5, "N2": 6, "N1": 7,
+    "ELITE": 8, "ÉLITE": 8,
+    "PRO": 9, "PRO B": 9, "PRO A": 10,
 }
 
 _NIVEAUX_LABELS = {
-    0: "Loisir", 1: "Départemental", 2: "Régional",
-    3: "Pré-national", 4: "National", 5: "Élite",
+    0: "Loisir", 1: "Départemental", 2: "Pré-régional",
+    3: "Régional", 4: "Pré-national", 5: "National",
+    6: "N2", 7: "N1", 8: "Élite", 9: "Pro B", 10: "Pro A",
 }
 
 

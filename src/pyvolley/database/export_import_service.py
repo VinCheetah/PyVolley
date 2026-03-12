@@ -185,8 +185,17 @@ class ExportImportService:
         competition = self._get_or_create_competition(
             match_info, saison, entite
         )
+
+        # Utiliser le code de base pour les poules avec phase aller/retour.
+        # Par exemple, "PMAA" (aller) et "PMAR" (retour) doivent partager
+        # la même poule "PMA" au lieu de créer deux poules distinctes.
+        effective_poule_code = (
+            match_info.poule_code_ffvb
+            if match_info.poule_code_ffvb
+            else match_info.poule_code
+        )
         poule = self._get_or_create_poule(
-            match_info.poule_code, competition,
+            effective_poule_code, competition,
             poule_nom=match_info.competition_nom,
             entite_code=match_info.entite_code,
             saison_code=match_info.saison,
