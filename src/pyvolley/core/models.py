@@ -240,6 +240,18 @@ class SetTeamData(PyVolleyModel):
     changements: list[Changement] = Field(default_factory=list)
     services: dict[int, list[int]] = Field(default_factory=dict)
 
+    @property
+    def nb_changements(self) -> int:
+        return len(self.changements)
+
+    @property
+    def nb_timeouts(self) -> int:
+        return len(self.timeouts)
+
+    @property
+    def nb_services(self) -> int:
+        return sum(len(scores) for scores in self.services.values())
+
 
 class Set(PyVolleyModel):
     """Données d'un set de volleyball.
@@ -291,6 +303,14 @@ class Set(PyVolleyModel):
     @property
     def score_str(self) -> str:
         return f"{self.score_a}-{self.score_b}"
+
+    def team_data(self, side: str) -> Optional["SetTeamData"]:
+        """Retourne les données d'équipe pour un côté ('A' ou 'B')."""
+        if side == "A":
+            return self.equipe_a
+        elif side == "B":
+            return self.equipe_b
+        return None
 
 
 # ============== Match ==============
@@ -349,6 +369,30 @@ class Match(MatchBase):
     @property
     def is_played(self) -> bool:
         return bool(self.match_joue or self.vainqueur_nom or self.sets_a > 0 or self.sets_b > 0)
+
+    def equipe(self, side: str) -> Optional[Equipe]:
+        """Retourne l'équipe pour un côté ('A' ou 'B')."""
+        if side == "A":
+            return self.equipe_a
+        elif side == "B":
+            return self.equipe_b
+        return None
+
+    @property
+    def vainqueur(self) -> Optional[str]:
+        """Retourne 'A' ou 'B' selon le vainqueur, ou None."""
+        if self.sets_a > self.sets_b:
+            return "A"
+        elif self.sets_b > self.sets_a:
+            return "B"
+        return None
+
+    @property
+    def score_sets(self) -> Optional[str]:
+        """Retourne le score en sets sous forme 'X-Y'."""
+        if self.sets_a > 0 or self.sets_b > 0:
+            return f"{self.sets_a}-{self.sets_b}"
+        return None
 
 
 # ============== Saison ==============

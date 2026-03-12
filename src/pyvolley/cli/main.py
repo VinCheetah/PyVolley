@@ -2404,6 +2404,11 @@ def pipeline(
         "--dry-run",
         help="N'effectuer aucune action, afficher le plan d'exécution"
     ),
+    enrich_clubs: bool = typer.Option(
+        True,
+        "--enrich-clubs/--no-enrich-clubs",
+        help="Enrichit les clubs avec les données de l'adressier FFVB lors du scraping. Activé par défaut."
+    ),
     verbose: bool = typer.Option(
         False,
         "--verbose", "-v",
@@ -2537,6 +2542,36 @@ def pipeline(
                                     result = import_service.import_matches(
                                         export_data, target_entity, target_saison,
                                     )
+
+                                    # Enrichissement clubs (adressier) — comme dans `scrape`
+                                    if enrich_clubs:
+                                        try:
+                                            from pyvolley.scrapers.ffvb.adressier_scraper import fetch_adressier
+                                            from pyvolley.scrapers.ffvb.export_scraper import get_unique_poules
+                                            poules = get_unique_poules(export_data)
+                                            poule_codes = sorted(poules.keys())
+                                            with console.status(
+                                                f"[bold magenta]Enrichissement clubs {target_entity} "
+                                                f"({len(poule_codes)} poules)..."
+                                            ):
+                                                clubs_info = fetch_adressier(
+                                                    scraper_p.client, scraper_p.base_url,
+                                                    target_entity, target_saison, poule_codes,
+                                                )
+                                            if clubs_info:
+                                                club_stats = import_service.enrich_clubs(
+                                                    clubs_info, target_entity,
+                                                    target_saison, scraper_p.base_url,
+                                                )
+                                                enriched = club_stats.get("enriched", 0) + club_stats.get("created", 0)
+                                                console.print(
+                                                    f"  [magenta]Clubs: {enriched} enrichis/créés[/magenta]"
+                                                )
+                                        except Exception as e:
+                                            console.print(
+                                                f"  [red]Erreur enrichissement clubs: {e}[/red]"
+                                            )
+
                                     session.commit()
                                     console.print(
                                         f"  [green]✓[/green] Scrape {target_entity} "
@@ -2679,6 +2714,20 @@ def _download_from_db(
     downloaded = 0
     dl_failed = 0
 
+    # Construire un index des PDFs existants pour une recherche rapide
+    # au lieu de faire un glob par match (O(n²) → O(n))
+    _pdf_index: dict[str, Path] = {}
+    if pdf_base.exists():
+        for pdf_file in pdf_base.glob("**/*.pdf"):
+            stem = pdf_file.stem  # ex: "ABCCS_2FA001" ou "2FA001"
+            _pdf_index[stem] = pdf_file
+            # Si le nom contient un underscore (ancien format: {entity}_{code}),
+            # indexer aussi par la partie après l'underscore  (le code match)
+            if "_" in stem:
+                code_part = stem.split("_", 1)[1]
+                if code_part not in _pdf_index:
+                    _pdf_index[code_part] = pdf_file
+
     with httpx.Client(timeout=30, follow_redirects=True) as http:
         with Progress(
             SpinnerColumn(),
@@ -2704,17 +2753,17 @@ def _download_from_db(
                     dest_dir.mkdir(parents=True, exist_ok=True)
                     dest_file = dest_dir / f"{match_fresh.code_match}.pdf"
 
-                    # Vérifier aussi les anciens formats
-                    # (PDFs téléchargés par l'ancien système d'organisation)
-                    already_exists = dest_file.exists()
-                    if not already_exists:
-                        old_candidates = list(pdf_base.glob(
-                            f"**/*_{match_fresh.code_match}.pdf"
-                        ))
-                        if old_candidates:
-                            already_exists = True
-                            # Mettre à jour source_pdf pour pointer vers le fichier existant
-                            match_fresh.source_pdf = str(old_candidates[0])
+                    # Vérifier si le PDF existe déjà (nouveau ou ancien format)
+                    already_exists = False
+                    if dest_file.exists():
+                        already_exists = True
+                        if not match_fresh.source_pdf:
+                            match_fresh.source_pdf = str(dest_file)
+                    elif match_fresh.code_match in _pdf_index:
+                        # Trouvé dans l'index (ancien format {entity}_{code}.pdf
+                        # ou fichier dans un autre répertoire de saison)
+                        already_exists = True
+                        match_fresh.source_pdf = str(_pdf_index[match_fresh.code_match])
 
                     if already_exists:
                         match_fresh.parsing_status = "downloaded"

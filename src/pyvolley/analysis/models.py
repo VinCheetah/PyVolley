@@ -72,6 +72,122 @@ class JoueurMatchAnalysis(BaseModel):
     )
 
 
+# ============== Statistiques détaillées joueur par match ==============
+
+class ServiceSetDetail(BaseModel):
+    """Détail de service pour un set."""
+    set_numero: int
+    nb_tours: int = 0
+    points_marques: int = 0
+    meilleure_serie: int = 0
+    scores_perte: list[int] = Field(default_factory=list)
+
+
+class JoueurMatchDetailedStats(BaseModel):
+    """Statistiques détaillées d'un joueur pour un match.
+
+    Inclut points gagnés/perdus, services, meilleure série,
+    temps de jeu estimé, changements, temps morts provoqués, etc.
+    """
+    # Identité
+    numero: str
+    nom: str
+    prenom: str
+    licence: str
+    equipe: str
+    side: str  # "A" ou "B"
+    est_libero: bool = False
+    est_capitaine: bool = False
+
+    # Résultat du match
+    victoire: bool = False
+    score_match: Optional[str] = None  # "3-1"
+
+    # Points
+    points_gagnes: int = Field(0, description="Points marqués au service")
+    points_perdus: int = Field(0, description="Points estimés perdus (points adverses pendant présence)")
+    points_joues: int = Field(0, description="Nombre total de points joués pendant la présence")
+
+    # Services
+    nb_services: int = Field(0, description="Nombre total de tours de service")
+    meilleure_serie: int = Field(0, description="Plus longue série de services consécutifs (points au service)")
+    detail_services_par_set: list[ServiceSetDetail] = Field(default_factory=list)
+
+    # Présence
+    sets_joues: int = 0
+    sets_titulaire: int = 0
+    presence_par_set: list[PresenceSet] = Field(default_factory=list)
+
+    # Temps de jeu
+    temps_jeu_estime: Optional[float] = Field(None, description="Temps de jeu estimé en minutes")
+    temps_jeu_par_set: dict[int, float] = Field(default_factory=dict, description="Temps par set en minutes")
+
+    # Changements
+    nb_entrees: int = 0
+    nb_sorties: int = 0
+    nb_changements_total: int = Field(0, description="Total entrées + sorties")
+
+    # Temps morts provoqués (pris par l'adversaire pendant une série de service)
+    temps_morts_provoques: int = Field(
+        0,
+        description="Nombre de temps morts pris par l'adversaire pendant une série de service du joueur",
+    )
+
+    # Sanctions
+    sanctions: list[str] = Field(default_factory=list)
+
+    # Mode libéro
+    est_calcul_libero: bool = Field(False, description="Stats calculées en mode libéro")
+    joueurs_remplaces: list[str] = Field(
+        default_factory=list,
+        description="Numéros des joueurs remplacés par le libéro",
+    )
+
+    # Mode remplacement libéro
+    remplace_par_libero: bool = Field(False, description="Joueur remplacé par un libéro en zone arrière")
+
+
+class JoueurStatsAggregated(BaseModel):
+    """Statistiques agrégées d'un joueur sur plusieurs matchs."""
+    nom: str
+    prenom: str
+    licence: str
+
+    # Nombre de matchs
+    matchs_joues: int = 0
+    matchs_victoires: int = 0
+    matchs_defaites: int = 0
+
+    # Sets
+    total_sets_joues: int = 0
+    total_sets_titulaire: int = 0
+
+    # Points
+    total_points_gagnes: int = 0
+    total_points_perdus: int = 0
+    total_points_joues: int = 0
+
+    # Services
+    total_tours_service: int = 0
+    meilleure_serie_service: int = 0
+    moyenne_points_par_tour: float = 0.0
+
+    # Temps de jeu
+    total_temps_jeu: float = 0.0
+    moyenne_temps_par_match: float = 0.0
+
+    # Changements
+    total_entrees: int = 0
+    total_sorties: int = 0
+
+    # Temps morts provoqués
+    total_temps_morts_provoques: int = 0
+    moyenne_temps_morts_par_match: float = 0.0
+
+    # Sanctions
+    total_sanctions: int = 0
+
+
 # ============== Résultats set ==============
 
 class SetAnalysis(BaseModel):
