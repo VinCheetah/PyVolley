@@ -13,7 +13,7 @@ from pyvolley.database.models import (
     Base, JoueurDB, ClubDB, ClubAliasDB, EquipeDB, MatchDB,
     SaisonDB, CompetitionDB, PouleDB, EntiteFFVBDB, SetDB,
     ParticipationMatchDB, OfficielMatchDB, ArbitreDB, ArbitreMatchDB,
-    SanctionDB, FormationDB, ChangementDB, TimeoutDB,
+    SanctionDB, FormationDB, ChangementDB, TimeoutDB, StatsCacheDB,
 )
 from pyvolley.analysis.classement import (
     MatchData, ClassementComplet, calculer_classement_complet,
@@ -1108,3 +1108,59 @@ class ArbitreRepository(BaseRepository[ArbitreDB]):
             .limit(limit)
         )
         return list(self.session.scalars(stmt).unique())
+
+
+# =====================================================================
+# StatsCacheRepository
+# =====================================================================
+
+class StatsCacheRepository(BaseRepository[StatsCacheDB]):
+    """Repository pour le cache des statistiques pré-calculées."""
+
+    def __init__(self, session: Session):
+        super().__init__(session, StatsCacheDB)
+
+    def get_by_filter_key(self, filter_key: str) -> Optional[StatsCacheDB]:
+        """Récupère une entrée de cache par sa clé de filtre."""
+        return self.session.scalar(
+            select(StatsCacheDB).where(StatsCacheDB.filter_key == filter_key)
+        )
+
+    def upsert(self, filter_key: str, stats_data: dict, match_count: int) -> StatsCacheDB:
+        """Crée ou met à jour une entrée de cache pour la clé donnée."""
+        from datetime import datetime
+        entry = self.get_by_filter_key(filter_key)
+        if entry is None:
+            entry = StatsCacheDB(
+                filter_key=filter_key,
+                stats_data=stats_data,
+                match_count=match_count,
+                computed_at=datetime.now(),
+            )
+            self.session.add(entry)
+        else:
+            entry.stats_data = stats_data
+            entry.match_count = match_count
+            entry.computed_at = datetime.now()
+        self.session.flush()
+        return entry
+
+    def is_stale(self, filter_key: str, current_match_count: int) -> bool:
+        """Retourne True si le cache est absent ou que le nombre de matchs a changé."""
+        entry = self.get_by_filter_key(filter_key)
+        if entry is None:
+            return True
+        return entry.match_count != current_match_count
+
+    def delete_all(self) -> int:
+        """Supprime toutes les entrées de cache. Retourne le nombre de lignes supprimées."""
+        from sqlalchemy import delete as sa_delete
+        result = self.session.execute(sa_delete(StatsCacheDB))
+        self.session.flush()
+        return result.rowcount
+
+    def list_all(self) -> list:
+        """Retourne toutes les entrées de cache, triées par date de calcul décroissante."""
+        return list(self.session.scalars(
+            select(StatsCacheDB).order_by(StatsCacheDB.computed_at.desc())
+        ))

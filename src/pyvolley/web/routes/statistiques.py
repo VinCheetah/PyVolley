@@ -96,7 +96,7 @@ async def palmares_page(
         departement=departement,
     )
 
-    all_stats = service.get_all_stats(filters)
+    all_stats, from_cache = service.get_cached_or_compute(filters)
     filter_options = service.get_filter_options()
 
     return templates.TemplateResponse(
@@ -105,6 +105,7 @@ async def palmares_page(
             "request": request,
             **all_stats,
             "filter_options": filter_options,
+            "from_cache": from_cache,
             "current_filters": {
                 "saison_id": saison_id,
                 "genre": genre or "",

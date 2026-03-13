@@ -2,17 +2,18 @@
 Interface CLI principale pour PyVolley.
 
 Commandes principales :
-- ``import``  : importer des données FFVB (scrape → download → parse)
-- ``status``  : tableau de bord du pipeline
-- ``list``    : consulter entités, poules, matchs disponibles
-- ``parse``   : analyser un PDF de feuille de match (sans base de données)
-- ``cleanup`` : nettoyer les PDFs locaux
-- ``serve``   : lancer le serveur web
-- ``simulate``: visualiser un match en HTML interactif
-- ``stats``   : statistiques globales de la base de données
-- ``init``    : initialiser la base de données
-- ``db``      : gestion de la base (migrations, exploration)
-- ``report``  : rapports détaillés sur les entités en base
+- ``import``        : importer des données FFVB (scrape → download → parse)
+- ``status``        : tableau de bord du pipeline
+- ``list``          : consulter entités, poules, matchs disponibles
+- ``parse``         : analyser un PDF de feuille de match (sans base de données)
+- ``cleanup``       : nettoyer les PDFs locaux
+- ``serve``         : lancer le serveur web
+- ``simulate``      : visualiser un match en HTML interactif
+- ``stats``         : statistiques globales de la base de données
+- ``compute-stats`` : pré-calculer les statistiques palmarès et les stocker en base
+- ``init``          : initialiser la base de données
+- ``db``            : gestion de la base (migrations, exploration)
+- ``report``        : rapports détaillés sur les entités en base
 """
 
 import asyncio
@@ -1564,8 +1565,93 @@ def stats():
         console.print(table)
 
 
-@app.command()
-def init():
+@app.command("compute-stats")
+def compute_stats(
+    saison_id: Optional[int] = typer.Option(
+        None, "--saison-id", help="Restreindre au calcul pour une saison (ID).",
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Recalculer même si le cache est à jour.",
+    ),
+    clear: bool = typer.Option(
+        False, "--clear", help="Vider le cache avant de recalculer.",
+    ),
+):
+    """🔢 Pré-calcule les statistiques palmarès et les stocke en base.
+
+    Par défaut, calcule les statistiques pour les combinaisons les plus
+    courantes de filtres (toutes saisons confondues + chaque saison).
+    Utilisez ``--force`` pour forcer le recalcul même si le cache est déjà
+    à jour.
+    """
+    from pyvolley.database.connection import get_db, init_db
+    from pyvolley.database.repositories import (
+        StatsCacheRepository, MatchRepository, SaisonRepository,
+    )
+    from pyvolley.database.stats_service import StatsAmusantesService, StatsFilters
+
+    init_db()
+
+    with get_db() as session:
+        if clear:
+            repo = StatsCacheRepository(session)
+            deleted = repo.delete_all()
+            session.commit()
+            console.print(f"[yellow]🗑 Cache vidé ({deleted} entrée(s) supprimée(s))[/yellow]")
+
+        match_count = MatchRepository(session).count()
+        if match_count == 0:
+            console.print("[yellow]⚠ Aucun match en base — rien à calculer.[/yellow]")
+            return
+
+        # Construire la liste des combinaisons de filtres à précalculer
+        filters_to_compute: list[StatsFilters] = [StatsFilters()]  # global (aucun filtre)
+
+        if saison_id is not None:
+            filters_to_compute.append(StatsFilters(saison_id=saison_id))
+        else:
+            saisons = SaisonRepository(session).get_all(limit=50)
+            for s in saisons:
+                filters_to_compute.append(StatsFilters(saison_id=s.id))
+
+        service = StatsAmusantesService(session)
+        cache_repo = StatsCacheRepository(session)
+
+        computed = 0
+        skipped = 0
+
+        table = Table(title="🔢 Calcul des statistiques palmarès")
+        table.add_column("Filtre", style="cyan")
+        table.add_column("Statut", style="green")
+        table.add_column("Matchs", justify="right")
+
+        for f in filters_to_compute:
+            key = service.build_filter_key(f)
+            label = key
+
+            if not force and not cache_repo.is_stale(key, match_count):
+                table.add_row(label, "[dim]à jour[/dim]", str(match_count))
+                skipped += 1
+                continue
+
+            try:
+                stats_data = service.get_all_stats(f)
+                cache_repo.upsert(key, stats_data, match_count)
+                session.commit()
+                table.add_row(label, "[green]✓ calculé[/green]", str(match_count))
+                computed += 1
+            except Exception as exc:
+                session.rollback()
+                table.add_row(label, f"[red]✗ {exc}[/red]", str(match_count))
+
+        console.print(table)
+        console.print(
+            f"[green]✓ {computed} combinaison(s) calculée(s)[/green], "
+            f"[dim]{skipped} déjà à jour[/dim]"
+        )
+
+
+
     """🔧 Initialise la base de données."""
     from pyvolley.database.connection import init_db
 

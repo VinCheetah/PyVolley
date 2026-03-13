@@ -1071,3 +1071,57 @@ class StatsAmusantesService:
             "niveaux": niveaux_db,
             "niveaux_ordre": _NIVEAUX_LABELS,
         }
+
+    # ─── Cache base de données ────────────────────────
+
+    @staticmethod
+    def build_filter_key(filters: StatsFilters) -> str:
+        """Construit la clé canonique de cache pour une combinaison de filtres."""
+        import json
+        return json.dumps({
+            "saison_id": filters.saison_id,
+            "genre": filters.genre,
+            "categorie": filters.categorie,
+            "niveau_min": filters.niveau_min,
+            "niveau_max": filters.niveau_max,
+            "departement": filters.departement,
+        }, sort_keys=True)
+
+    def compute_and_store(self, filters: StatsFilters) -> Dict[str, Any]:
+        """Calcule toutes les statistiques pour les filtres donnés et les stocke en base.
+
+        Retourne le dictionnaire de statistiques (identique à ``get_all_stats``).
+        """
+        from pyvolley.database.repositories import StatsCacheRepository
+
+        stats_data = self.get_all_stats(filters)
+        filter_key = self.build_filter_key(filters)
+        match_count = self.session.scalar(
+            select(func.count()).select_from(MatchDB).where(MatchDB.match_joue == True)
+        ) or 0
+
+        repo = StatsCacheRepository(self.session)
+        repo.upsert(filter_key, stats_data, match_count)
+        self.session.commit()
+        return stats_data
+
+    def get_cached_or_compute(self, filters: StatsFilters) -> tuple[Dict[str, Any], bool]:
+        """Retourne les statistiques depuis le cache si disponible, sinon les calcule à la volée.
+
+        Retourne ``(stats_data, from_cache)`` où ``from_cache`` indique si les données
+        viennent du cache base de données.
+        """
+        from pyvolley.database.repositories import StatsCacheRepository
+
+        filter_key = self.build_filter_key(filters)
+        repo = StatsCacheRepository(self.session)
+        current_match_count = self.session.scalar(
+            select(func.count()).select_from(MatchDB).where(MatchDB.match_joue == True)
+        ) or 0
+
+        if not repo.is_stale(filter_key, current_match_count):
+            entry = repo.get_by_filter_key(filter_key)
+            if entry is not None:
+                return entry.stats_data, True
+
+        return self.get_all_stats(filters), False
