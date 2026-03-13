@@ -235,3 +235,110 @@ class TestMatchRepository:
         repo = MatchRepository(test_session)
         results = repo.get_all(limit=2)
         assert len(results) == 2
+
+
+# ============== StatsCacheRepository ==============
+
+
+class TestStatsCacheRepository:
+    """Tests pour le repository du cache de statistiques."""
+
+    def test_upsert_creates_entry(self, test_session: Session):
+        from pyvolley.database.repositories import StatsCacheRepository
+
+        repo = StatsCacheRepository(test_session)
+        entry = repo.upsert(
+            filter_key='{"saison_id": null}',
+            stats_data={"top_matchs": [{"id": 1, "nom": "DUPONT"}]},
+            match_count=10,
+        )
+        test_session.commit()
+        assert entry.id is not None
+        assert entry.match_count == 10
+        assert entry.stats_data["top_matchs"][0]["nom"] == "DUPONT"
+
+    def test_upsert_updates_existing(self, test_session: Session):
+        from pyvolley.database.repositories import StatsCacheRepository
+
+        repo = StatsCacheRepository(test_session)
+        repo.upsert(
+            filter_key='{"saison_id": 1}',
+            stats_data={"top_matchs": []},
+            match_count=5,
+        )
+        test_session.commit()
+
+        # Update with new data
+        repo.upsert(
+            filter_key='{"saison_id": 1}',
+            stats_data={"top_matchs": [{"id": 99}]},
+            match_count=6,
+        )
+        test_session.commit()
+
+        entry = repo.get_by_filter_key('{"saison_id": 1}')
+        assert entry is not None
+        assert entry.match_count == 6
+        assert entry.stats_data["top_matchs"][0]["id"] == 99
+
+    def test_get_by_filter_key_missing(self, test_session: Session):
+        from pyvolley.database.repositories import StatsCacheRepository
+
+        repo = StatsCacheRepository(test_session)
+        assert repo.get_by_filter_key("nonexistent_key") is None
+
+    def test_is_stale_when_absent(self, test_session: Session):
+        from pyvolley.database.repositories import StatsCacheRepository
+
+        repo = StatsCacheRepository(test_session)
+        assert repo.is_stale("missing_key", 5) is True
+
+    def test_is_stale_same_match_count(self, test_session: Session):
+        from pyvolley.database.repositories import StatsCacheRepository
+
+        repo = StatsCacheRepository(test_session)
+        repo.upsert(
+            filter_key='{"genre": "M"}',
+            stats_data={},
+            match_count=20,
+        )
+        test_session.commit()
+        assert repo.is_stale('{"genre": "M"}', 20) is False
+
+    def test_is_stale_different_match_count(self, test_session: Session):
+        from pyvolley.database.repositories import StatsCacheRepository
+
+        repo = StatsCacheRepository(test_session)
+        repo.upsert(
+            filter_key='{"genre": "F"}',
+            stats_data={},
+            match_count=20,
+        )
+        test_session.commit()
+        assert repo.is_stale('{"genre": "F"}', 21) is True
+
+    def test_delete_all(self, test_session: Session):
+        from pyvolley.database.repositories import StatsCacheRepository
+
+        repo = StatsCacheRepository(test_session)
+        repo.upsert(filter_key="k1", stats_data={}, match_count=1)
+        repo.upsert(filter_key="k2", stats_data={}, match_count=2)
+        test_session.commit()
+
+        deleted = repo.delete_all()
+        test_session.commit()
+        assert deleted == 2
+        assert repo.list_all() == []
+
+    def test_list_all(self, test_session: Session):
+        from pyvolley.database.repositories import StatsCacheRepository
+
+        repo = StatsCacheRepository(test_session)
+        repo.upsert(filter_key="key_a", stats_data={"x": 1}, match_count=1)
+        repo.upsert(filter_key="key_b", stats_data={"x": 2}, match_count=2)
+        test_session.commit()
+
+        entries = repo.list_all()
+        assert len(entries) == 2
+        keys = {e.filter_key for e in entries}
+        assert keys == {"key_a", "key_b"}

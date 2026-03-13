@@ -757,3 +757,41 @@ class ImportLogDB(Base):
             f"<ImportLog {self.operation} {self.started_at:%Y-%m-%d %H:%M} "
             f"imported={self.imported} errors={self.errors} status={self.status}>"
         )
+
+
+# =====================================================================
+# Cache des statistiques pré-calculées
+# =====================================================================
+
+class StatsCacheDB(Base):
+    """Résultats de statistiques pré-calculés et stockés en base.
+
+    Chaque ligne correspond à une combinaison de filtres (saison, genre,
+    catégorie, niveau, département). Les données JSON peuvent être servies
+    directement par la route ``/palmares`` sans recalcul.
+
+    La clé ``filter_key`` est la sérialisation canonique des filtres et
+    sert d'identifiant naturel unique pour la mise à jour.
+    """
+    __tablename__ = "stats_cache"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    # Clé unique représentant la combinaison de filtres
+    filter_key: Mapped[str] = mapped_column(String(500), unique=True, index=True)
+
+    # Résultats sérialisés (dict JSON retourné par get_all_stats)
+    stats_data: Mapped[dict] = mapped_column(JSON, nullable=False)
+
+    # Horodatage du calcul
+    computed_at: Mapped[dt] = mapped_column(DateTime, default=dt.now)
+
+    # Nombre de matchs présents lors du calcul (pour détection d'obsolescence)
+    match_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    __table_args__ = (
+        Index("ix_stats_cache_computed_at", "computed_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<StatsCache key={self.filter_key!r} computed={self.computed_at:%Y-%m-%d %H:%M}>"
