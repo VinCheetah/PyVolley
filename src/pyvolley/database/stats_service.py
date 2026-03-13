@@ -5,6 +5,7 @@ Calcule des records et classements ludiques à partir des données
 de matchs, joueurs, équipes et arbitres, avec filtrage avancé.
 """
 
+import datetime
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any
 from collections import defaultdict
@@ -1007,8 +1008,27 @@ class StatsAmusantesService:
 
     # ─── Agrégation principale ────────────────────────
 
+    @staticmethod
+    def _make_json_safe(obj: Any) -> Any:
+        """Convertit récursivement les objets non-sérialisables en types JSON natifs.
+
+        En particulier, ``datetime.date`` et ``datetime.datetime`` sont convertis
+        en chaîne ISO 8601 (``"YYYY-MM-DD"`` / ``"YYYY-MM-DDTHH:MM:SS"``).
+        """
+        if isinstance(obj, dict):
+            return {k: StatsAmusantesService._make_json_safe(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [StatsAmusantesService._make_json_safe(v) for v in obj]
+        if isinstance(obj, (datetime.datetime, datetime.date)):
+            return obj.isoformat()
+        return obj
+
     def get_all_stats(self, filters: StatsFilters) -> Dict[str, Any]:
-        """Calcule toutes les statistiques amusantes avec les filtres donnés."""
+        """Calcule toutes les statistiques amusantes avec les filtres donnés.
+
+        Les valeurs retournées sont garanties JSON-sérialisables (les dates
+        sont converties en chaînes ISO 8601).
+        """
         # Calculer les séries une seule fois et réutiliser
         series_record = self.meilleure_serie_victoires(filters)
         series_actuelles = sorted(
@@ -1016,7 +1036,7 @@ class StatsAmusantesService:
             key=lambda x: (-x["serie_actuelle"], -x["record"]),
         )[:10]
 
-        return {
+        result = {
             "top_matchs": self.top_joueurs_matchs(filters),
             "top_victoires": self.top_joueurs_victoires(filters),
             "top_defaites": self.top_joueurs_defaites(filters),
@@ -1034,6 +1054,8 @@ class StatsAmusantesService:
             "top_equipes": self.top_equipes_victoires(filters),
             "top_arbitres": self.top_arbitres(filters),
         }
+        # Garantir la sérialisabilité JSON (dates → ISO strings)
+        return self._make_json_safe(result)
 
     # ─── Données pour les filtres ────────────────────
 

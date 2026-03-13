@@ -145,15 +145,36 @@ def get_db() -> Generator[Session, None, None]:
 def init_db() -> None:
     """
     Initialise la base de données en créant toutes les tables.
-    
+
     À appeler au démarrage de l'application.
     Pour les changements de schéma en production, utiliser Alembic.
+
+    Après un ``create_all`` initial (base vide), la révision Alembic est
+    automatiquement stampée à ``head`` pour éviter que ``db upgrade`` tente de
+    recréer des tables déjà existantes.
     """
     from pyvolley.database.models import Base
-    
+
     engine = get_engine()
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables created successfully")
+
+    # Synchroniser Alembic : si aucune révision n'est encore enregistrée,
+    # stamper à head pour indiquer que le schéma actuel est à jour.
+    try:
+        from alembic.runtime.migration import MigrationContext
+
+        with engine.connect() as conn:
+            ctx = MigrationContext.configure(conn)
+            current_rev = ctx.get_current_revision()
+
+        if current_rev is None:
+            from pyvolley.database.migrations import stamp
+            stamp("head")
+            logger.info("Alembic stamped at head after create_all")
+    except Exception as e:
+        # Ne pas bloquer le démarrage si le stamp échoue
+        logger.warning("Could not stamp Alembic revision after init_db: %s", e)
 
 
 def drop_db() -> None:

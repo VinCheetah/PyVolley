@@ -1651,7 +1651,13 @@ def compute_stats(
         )
 
 
+# ════════════════════════════════════════════════════════════════════
+# init — initialiser la base de données
+# ════════════════════════════════════════════════════════════════════
 
+
+@app.command("init")
+def init_database():
     """🔧 Initialise la base de données."""
     from pyvolley.database.connection import init_db
 
