@@ -1,5 +1,5 @@
 """
-Module API - Endpoints FastAPI pour l'application PyVolley.
+Module API — Endpoints FastAPI pour l'application PyVolley.
 
 Fournit les routes pour :
 - Recherche de joueurs, clubs, équipes

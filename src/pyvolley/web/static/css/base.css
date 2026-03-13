@@ -1,0 +1,60 @@
+/* ═══════════════════════════════════════════════════════════════
+   PyVolley — Base layer
+   Design tokens (CSS custom properties), resets, typography
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Backgrounds ── */
+  --bg-primary: #0b0e17;
+  --bg-secondary: #131829;
+  --bg-card: #1a1f35;
+  --bg-card-hover: #222845;
+  --border-color: #2a3050;
+
+  /* ── Text ── */
+  --text-primary: #e8eaf0;
+  --text-secondary: #8b92a8;
+  --text-muted: #5a6178;
+
+  /* ── Accents ── */
+  --accent-blue: #3b82f6;
+  --accent-blue-light: #60a5fa;
+  --accent-red: #ef4444;
+  --accent-red-light: #f87171;
+  --accent-green: #22c55e;
+  --accent-green-light: #4ade80;
+  --accent-gold: #f59e0b;
+  --accent-purple: #a855f7;
+  --accent-cyan: #06b6d4;
+
+  /* ── Teams ── */
+  --team-a: #3b82f6;
+  --team-a-light: #60a5fa;
+  --team-a-bg: rgba(59, 130, 246, 0.12);
+  --team-b: #ef4444;
+  --team-b-light: #f87171;
+  --team-b-bg: rgba(239, 68, 68, 0.12);
+
+  /* ── Shared tokens ── */
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 4px 24px rgba(0,0,0,0.3);
+  --shadow-sm: 0 2px 8px rgba(0,0,0,0.2);
+  --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Base ── */
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-secondary); }
+::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ── Alpine.js cloak ── */
+[x-cloak] { display: none !important; }

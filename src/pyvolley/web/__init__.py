@@ -1,5 +1,5 @@
 """
-Module Web - Interface utilisateur web pour PyVolley.
+Module Web — Interface utilisateur web pour PyVolley.
 
 Utilise FastAPI + Jinja2 pour le rendu des templates.
 """

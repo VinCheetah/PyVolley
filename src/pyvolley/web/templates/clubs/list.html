@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros/ui.html" import pagination %}
 {% block title %}Clubs - PyVolley{% endblock %}
 
 {% block content %}
@@ -94,21 +95,7 @@
     </div>
 
     <!-- Pagination -->
-    {% if not query %}
-    <div class="flex justify-center gap-2">
-        {% if has_prev %}
-        <a href="/clubs?page={{ page - 1 }}" class="pagination-btn">
-            <i data-lucide="chevron-left" class="w-4 h-4"></i> Précédent
-        </a>
-        {% endif %}
-        <span class="pagination-btn opacity-60">Page {{ page }}</span>
-        {% if has_next %}
-        <a href="/clubs?page={{ page + 1 }}" class="pagination-btn">
-            Suivant <i data-lucide="chevron-right" class="w-4 h-4"></i>
-        </a>
-        {% endif %}
-    </div>
-    {% endif %}
+    {{ pagination(page, has_prev, has_next, '/clubs', guard=true) }}
 
 </div>
 {% endblock %}

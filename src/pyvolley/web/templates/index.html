@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "macros/ui.html" import stat_card %}
 {% block title %}PyVolley — Tableau de bord{% endblock %}
 
 {% block content %}
@@ -32,30 +33,12 @@
 
     <!-- Stats Cards -->
     <section class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <a href="/matchs" class="stat-card card-interactive">
-            <div class="stat-value">{{ stats.matchs }}</div>
-            <div class="stat-label">Matchs</div>
-        </a>
-        <a href="/joueurs" class="stat-card card-interactive">
-            <div class="stat-value" style="background: linear-gradient(135deg, #22c55e, #06b6d4); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">{{ stats.joueurs }}</div>
-            <div class="stat-label">Joueurs</div>
-        </a>
-        <a href="/equipes" class="stat-card card-interactive">
-            <div class="stat-value" style="background: linear-gradient(135deg, #a855f7, #3b82f6); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">{{ stats.equipes }}</div>
-            <div class="stat-label">Équipes</div>
-        </a>
-        <a href="/clubs" class="stat-card card-interactive">
-            <div class="stat-value" style="background: linear-gradient(135deg, #f59e0b, #ef4444); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">{{ stats.clubs }}</div>
-            <div class="stat-label">Clubs</div>
-        </a>
-        <a href="/arbitres" class="stat-card card-interactive">
-            <div class="stat-value" style="background: linear-gradient(135deg, #06b6d4, #a855f7); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">{{ stats.arbitres }}</div>
-            <div class="stat-label">Arbitres</div>
-        </a>
-        <a href="/competitions" class="stat-card card-interactive">
-            <div class="stat-value" style="background: linear-gradient(135deg, #ef4444, #f59e0b); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">{{ stats.competitions }}</div>
-            <div class="stat-label">Compétitions</div>
-        </a>
+        {{ stat_card(stats.matchs, 'Matchs', href='/matchs') }}
+        {{ stat_card(stats.joueurs, 'Joueurs', href='/joueurs', gradient='linear-gradient(135deg, #22c55e, #06b6d4)') }}
+        {{ stat_card(stats.equipes, 'Équipes', href='/equipes', gradient='linear-gradient(135deg, #a855f7, #3b82f6)') }}
+        {{ stat_card(stats.clubs, 'Clubs', href='/clubs', gradient='linear-gradient(135deg, #f59e0b, #ef4444)') }}
+        {{ stat_card(stats.arbitres, 'Arbitres', href='/arbitres', gradient='linear-gradient(135deg, #06b6d4, #a855f7)') }}
+        {{ stat_card(stats.competitions, 'Compétitions', href='/competitions', gradient='linear-gradient(135deg, #ef4444, #f59e0b)') }}
     </section>
 
     <!-- Charts Row -->
@@ -188,48 +171,22 @@
 {% block extra_scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const chartColors = {
-        blue: '#3b82f6',
-        cyan: '#06b6d4',
-        grid: 'rgba(42, 48, 80, 0.5)',
-        text: '#5a6178',
-    };
-
-    const defaultOptions = {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-            legend: { display: false },
-        },
-        scales: {
-            x: {
-                grid: { color: chartColors.grid },
-                ticks: { color: chartColors.text, font: { size: 11 } },
-            },
-            y: {
-                grid: { color: chartColors.grid },
-                ticks: { color: chartColors.text, font: { size: 11 } },
-                beginAtZero: true,
-            },
-        },
-    };
+    const C = PyVolleyCharts;
 
     // Matchs par saison
     const saisonData = {{ matchs_par_saison | tojson }};
     if (saisonData.length > 0) {
-        new Chart(document.getElementById('chartSaison'), {
-            type: 'bar',
+        C.create('chartSaison', 'bar', {
             data: {
                 labels: saisonData.map(d => d.saison),
                 datasets: [{
                     data: saisonData.map(d => d.count),
                     backgroundColor: 'rgba(59, 130, 246, 0.6)',
-                    borderColor: chartColors.blue,
+                    borderColor: C.colors.blue,
                     borderWidth: 1,
                     borderRadius: 6,
                 }],
             },
-            options: defaultOptions,
         });
     }
 
@@ -237,21 +194,19 @@ document.addEventListener('DOMContentLoaded', function() {
     const moisData = {{ matchs_par_mois | tojson }};
     if (moisData.length > 0) {
         const moisNoms = ['', 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
-        new Chart(document.getElementById('chartMois'), {
-            type: 'line',
+        C.create('chartMois', 'line', {
             data: {
                 labels: moisData.map(d => `${moisNoms[d.month]} ${d.year}`),
                 datasets: [{
                     data: moisData.map(d => d.count),
-                    borderColor: chartColors.cyan,
+                    borderColor: C.colors.cyan,
                     backgroundColor: 'rgba(6, 182, 212, 0.1)',
                     fill: true,
                     tension: 0.4,
                     pointRadius: 3,
-                    pointBackgroundColor: chartColors.cyan,
+                    pointBackgroundColor: C.colors.cyan,
                 }],
             },
-            options: defaultOptions,
         });
     }
 });
