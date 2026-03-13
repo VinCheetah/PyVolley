@@ -1,11 +1,12 @@
 """
-Module CLI - Interface en ligne de commande pour PyVolley.
+Module CLI — Interface en ligne de commande pour PyVolley.
 
-Fournit des commandes pour :
-- Scraper les feuilles de match
-- Parser les PDFs
-- Importer en base de données
-- Lancer le serveur web
+Commandes principales :
+- import : importer des données FFVB (scrape → download → parse)
+- status : tableau de bord du pipeline
+- list   : consulter entités, poules, matchs
+- parse  : analyser un PDF
+- serve  : lancer le serveur web
 """
 
 from pyvolley.cli.main import app, main

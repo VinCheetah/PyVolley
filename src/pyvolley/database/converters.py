@@ -5,32 +5,65 @@ Reconstruit un objet Match à partir des données en base de données,
 pour permettre l'utilisation des fonctions d'analyse.
 """
 
+import logging
+from datetime import time as datetime_time
 from typing import Optional
 
 from ..core.models import (
     Match, Set, SetTeamData, Formation, Joueur, Equipe,
     Changement, TimeOut, Sanction, TypeSanction,
+    Arbitre, RoleArbitre, Officiel,
 )
 from ..database.models import (
     MatchDB, SetDB, FormationDB, ChangementDB, TimeoutDB,
-    ParticipationMatchDB, SanctionDB,
+    ParticipationMatchDB, SanctionDB, ArbitreMatchDB, OfficielMatchDB,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _parse_heure(heure_str: Optional[str]) -> Optional[datetime_time]:
+    """Parse une chaîne HH:MM ou HH:MM:SS en objet time."""
+    if not heure_str:
+        return None
+    try:
+        parts = heure_str.split(":")
+        if len(parts) >= 2:
+            return datetime_time(int(parts[0]), int(parts[1]),
+                                 int(parts[2]) if len(parts) > 2 else 0)
+    except (ValueError, IndexError):
+        pass
+    return None
 
 
 def match_db_to_core(
     match_db: MatchDB,
-    participants_a: list[ParticipationMatchDB],
-    participants_b: list[ParticipationMatchDB],
+    participants_a: Optional[list[ParticipationMatchDB]] = None,
+    participants_b: Optional[list[ParticipationMatchDB]] = None,
 ) -> Match:
     """Convertit un MatchDB (SQLAlchemy) en Match (Pydantic).
 
-    Note : les données de services (scores à la perte de
-    service par position) ne sont pas stockées en BDD.
-    Les ServiceStats seront donc vides.
+    Si ``participants_a`` et ``participants_b`` ne sont pas fournis,
+    les participations sont automatiquement réparties depuis
+    ``match_db.participations`` en fonction de l'équipe.
+
+    Inclut les arbitres, officiels, remarques et heure du match.
     """
-    # Construire les équipes
-    equipe_a = _build_equipe(match_db, "A", participants_a)
-    equipe_b = _build_equipe(match_db, "B", participants_b)
+    # Auto-split des participations si non fournies
+    if participants_a is None or participants_b is None:
+        participants_a = []
+        participants_b = []
+        for p in (match_db.participations or []):
+            if p.equipe_id == match_db.equipe_a_id:
+                participants_a.append(p)
+            elif p.equipe_id == match_db.equipe_b_id:
+                participants_b.append(p)
+
+    # Construire les équipes (avec officiels)
+    officiels_a = [o for o in (match_db.officiels or []) if o.equipe == "A"]
+    officiels_b = [o for o in (match_db.officiels or []) if o.equipe == "B"]
+    equipe_a = _build_equipe(match_db, "A", participants_a, officiels_a)
+    equipe_b = _build_equipe(match_db, "B", participants_b, officiels_b)
 
     # Construire les sets
     sets = [_build_set(s) for s in sorted(match_db.sets, key=lambda s: s.numero)]
@@ -38,10 +71,14 @@ def match_db_to_core(
     # Sanctions
     sanctions = [_build_sanction(s) for s in (match_db.sanctions or [])]
 
+    # Arbitres
+    arbitres = [_build_arbitre(am) for am in (match_db.arbitrages or [])]
+
     return Match(
         id=match_db.id,
         code_match=match_db.code_match,
         date=match_db.date_match,
+        heure=_parse_heure(match_db.heure_match),
         lieu=match_db.salle,
         salle=match_db.salle,
         competition=match_db.competition.nom if match_db.competition else None,
@@ -60,6 +97,8 @@ def match_db_to_core(
         has_details=match_db.has_details,
         sets=sets,
         sanctions=sanctions,
+        arbitres=arbitres,
+        remarques=match_db.remarques,
         source_pdf=match_db.source_pdf,
     )
 
@@ -68,8 +107,9 @@ def _build_equipe(
     match_db: MatchDB,
     side: str,
     participants: list[ParticipationMatchDB],
+    officiels_db: Optional[list[OfficielMatchDB]] = None,
 ) -> Equipe:
-    """Construit une Equipe à partir des participations."""
+    """Construit une Equipe à partir des participations et officiels."""
     equipe_db = match_db.equipe_a if side == "A" else match_db.equipe_b
     nom = equipe_db.nom if equipe_db else f"Équipe {side}"
 
@@ -89,11 +129,22 @@ def _build_equipe(
         if p.est_libero:
             liberos.append(j)
 
+    # Officiels d'équipe
+    officials = []
+    for off_db in (officiels_db or []):
+        officials.append(Officiel(
+            role=off_db.role,
+            nom=off_db.nom,
+            prenom=off_db.prenom,
+            licence=off_db.licence,
+        ))
+
     return Equipe(
         id=equipe_db.id if equipe_db else None,
         nom=nom,
         joueurs=joueurs,
         liberos=liberos,
+        officiels=officials,
     )
 
 
@@ -164,10 +215,42 @@ def _build_timeout(to_db: TimeoutDB) -> TimeOut:
     return TimeOut(score_a=to_db.score_a, score_b=to_db.score_b)
 
 
+def _build_arbitre(am_db: ArbitreMatchDB) -> Arbitre:
+    """Construit un Arbitre Pydantic depuis une association ArbitreMatchDB."""
+    arb = am_db.arbitre
+    # Convertir le rôle stocké en enum
+    try:
+        role = RoleArbitre(am_db.role)
+    except ValueError:
+        # Gérer les rôles stockés sous forme "arbitre_1", "arbitre_2"
+        if "1" in am_db.role:
+            role = RoleArbitre.PREMIER
+        elif "2" in am_db.role:
+            role = RoleArbitre.SECOND
+        else:
+            role = RoleArbitre.PREMIER
+
+    return Arbitre(
+        id=arb.id,
+        licence=arb.licence,
+        nom=arb.nom,
+        prenom=arb.prenom,
+        ligue=arb.ligue,
+        role=role,
+    )
+
+
 def _build_sanction(s_db: SanctionDB) -> Sanction:
     """Construit une Sanction Pydantic."""
     try:
         type_sanction = TypeSanction(s_db.type_sanction)
+    except ValueError:
+        logger.warning(
+            "Type de sanction invalide '%s' pour sanction id=%s, "
+            "fallback vers AVERTISSEMENT",
+            s_db.type_sanction, s_db.id,
+        )
+        type_sanction = TypeSanction.AVERTISSEMENT
     except ValueError:
         type_sanction = TypeSanction.AVERTISSEMENT
 

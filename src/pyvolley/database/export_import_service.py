@@ -14,7 +14,6 @@ l'export CSV, avec fallback sur le matching par nom normalisé.
 from __future__ import annotations
 
 import logging
-import unicodedata
 import re
 from datetime import datetime
 from typing import Optional
@@ -24,6 +23,7 @@ from sqlalchemy import select
 
 from pyvolley.scrapers.ffvb.export_scraper import ExportMatchInfo, ArbitreInfo
 from pyvolley.scrapers.ffvb.adressier_scraper import AdressierClubInfo, SalleInfo
+from pyvolley.database.club_matching import normalize_club_name
 from pyvolley.database.models import (
     SaisonDB, EntiteFFVBDB, CompetitionDB, PouleDB,
     ClubDB, ClubAliasDB, EquipeDB, MatchDB,
@@ -32,21 +32,6 @@ from pyvolley.database.models import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def normalize_club_name(name: str) -> str:
-    """Normalise un nom de club pour le matching."""
-    n = name.upper().strip()
-    n = ''.join(
-        c for c in unicodedata.normalize('NFD', n)
-        if unicodedata.category(c) != 'Mn'
-    )
-    n = re.sub(r'[.\-/\'\",;:()]+', ' ', n)
-    n = re.sub(r'\s+\d$', '', n.strip())
-    n = re.sub(r'\bSAINTE?\b', 'ST', n)
-    n = re.sub(r'\bSTE\b', 'ST', n)
-    n = re.sub(r'\s+', ' ', n)
-    return n.strip()
 
 
 class ExportImportService:
@@ -121,11 +106,9 @@ class ExportImportService:
 
         # Détecter le nom/type d'entité depuis les métadonnées enrichies
         entite_nom = None
-        entite_type_hint = None
         if matches:
             first = matches[0]
             entite_nom = getattr(first, 'entite_nom', None)
-            entite_type_hint = getattr(first, 'entite_type', None)
         entite = self._get_or_create_entite(entite_code, nom=entite_nom)
 
         for match_info in matches:
@@ -139,6 +122,8 @@ class ExportImportService:
                     "Erreur import match %s: %s",
                     match_info.code_match, e,
                 )
+                # Rollback pour nettoyer la session après une erreur
+                self.session.rollback()
                 stats["errors"] += 1
 
         # Finaliser l'audit
@@ -331,7 +316,7 @@ class ExportImportService:
     # =================================================================
 
     def _get_or_create_saison(self, code: str) -> SaisonDB:
-        """Récupère ou crée une saison."""
+        """Récupère ou crée une saison avec les dates de début/fin."""
         if code in self._saison_cache:
             return self._saison_cache[code]
 
@@ -340,7 +325,16 @@ class ExportImportService:
         ).scalar_one_or_none()
 
         if not saison:
-            saison = SaisonDB(code=code)
+            from datetime import date as datetime_date
+            parts = code.split("-")
+            annee_debut = int(parts[0])
+            annee_fin = int(parts[1]) if len(parts) > 1 else annee_debut + 1
+            saison = SaisonDB(
+                code=code,
+                nom=f"Saison {code}",
+                date_debut=datetime_date(annee_debut, 9, 1),
+                date_fin=datetime_date(annee_fin, 6, 30),
+            )
             self.session.add(saison)
             self.session.flush()
 
@@ -848,10 +842,6 @@ class ExportImportService:
             )
 
             # Salles — supprimer les existantes et recréer
-            self.session.execute(
-                select(SalleClubDB).where(SalleClubDB.club_id == club.id)
-            )
-            # Supprimer les salles existantes
             for existing_salle in club.salles:
                 self.session.delete(existing_salle)
             self.session.flush()
