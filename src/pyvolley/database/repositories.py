@@ -1312,7 +1312,11 @@ class EntraineurRepository:
                 or_(
                     OfficielMatchDB.nom.ilike(pattern),
                     OfficielMatchDB.prenom.ilike(pattern),
-                    func.concat(OfficielMatchDB.nom, " ", OfficielMatchDB.prenom).ilike(pattern),
+                    func.concat(
+                        func.coalesce(OfficielMatchDB.nom, ""),
+                        " ",
+                        func.coalesce(OfficielMatchDB.prenom, ""),
+                    ).ilike(pattern),
                 )
             )
             .group_by(OfficielMatchDB.nom, OfficielMatchDB.prenom, OfficielMatchDB.licence)

@@ -128,13 +128,13 @@
     <!-- Results summary -->
     <div class="flex items-center gap-2" style="color: var(--text-secondary);">
         <span class="font-medium">
-            {{ joueurs|length + clubs|length + equipes|length + arbitres|length }} résultat(s)
+            {{ joueurs|length + clubs|length + equipes|length + arbitres|length + entraineurs|length }} résultat(s)
         </span>
         <span>pour « <span class="text-white font-medium">{{ query }}</span> »</span>
     </div>
 
     <!-- Results by category -->
-    <div x-data="{ tab: '{% if joueurs %}joueurs{% elif clubs %}clubs{% elif equipes %}equipes{% elif arbitres %}arbitres{% else %}joueurs{% endif %}' }" class="space-y-4">
+    <div x-data="{ tab: '{% if joueurs %}joueurs{% elif clubs %}clubs{% elif equipes %}equipes{% elif entraineurs %}entraineurs{% elif arbitres %}arbitres{% else %}joueurs{% endif %}' }" class="space-y-4">
         <!-- Tabs -->
         <div class="flex gap-2 flex-wrap">
             <button @click="tab = 'joueurs'"
@@ -154,6 +154,12 @@
                     class="badge cursor-pointer transition">
                 <i data-lucide="users" class="w-3 h-3"></i>
                 Équipes ({{ equipes|length }})
+            </button>
+            <button @click="tab = 'entraineurs'"
+                    :class="tab === 'entraineurs' ? 'badge-green' : ''"
+                    class="badge cursor-pointer transition">
+                <i data-lucide="clipboard-list" class="w-3 h-3"></i>
+                Entraîneurs ({{ entraineurs|length }})
             </button>
             <button @click="tab = 'arbitres'"
                     :class="tab === 'arbitres' ? 'badge-gold' : ''"
@@ -306,6 +312,40 @@
             </table>
             {% else %}
             <p class="p-8 text-center" style="color: var(--text-muted);">Aucun arbitre trouvé</p>
+            {% endif %}
+        </div>
+
+        <!-- Entraîneurs -->
+        <div x-show="tab === 'entraineurs'" x-cloak class="card overflow-hidden">
+            {% if entraineurs %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Nom</th>
+                        <th>Prénom</th>
+                        <th>Licence</th>
+                        <th class="text-center">Matchs</th>
+                        <th class="text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for e in entraineurs %}
+                    <tr>
+                        <td class="font-semibold">{{ e.nom }}</td>
+                        <td>{{ e.prenom or '-' }}</td>
+                        <td style="color: var(--text-muted);">{{ e.licence or '-' }}</td>
+                        <td class="text-center">
+                            <span class="badge badge-green">{{ e.matchs_count }}</span>
+                        </td>
+                        <td class="text-center">
+                            <a href="/entraineurs/{{ e.id }}" class="badge badge-green">Voir profil</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="p-8 text-center" style="color: var(--text-muted);">Aucun entraîneur trouvé</p>
             {% endif %}
         </div>
     </div>
