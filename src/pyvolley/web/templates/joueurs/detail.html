@@ -409,6 +409,28 @@
     </div>
     {% endif %}
 
+    <!-- Competition level evolution -->
+    {% if detailed_stats.niveau_evolution and detailed_stats.niveau_evolution|selectattr('niveau_principal')|list|length > 1 %}
+    <div class="card p-6">
+        <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+            <i data-lucide="bar-chart-3" class="w-4 h-4 inline-block mr-1"></i> Évolution du niveau de compétition
+        </h2>
+        <div style="height: 250px;">
+            <canvas id="levelChart"></canvas>
+        </div>
+        <div class="flex flex-wrap gap-2 mt-4">
+            {% for niv in detailed_stats.niveau_evolution %}
+            {% if niv.niveau_principal %}
+            <div class="flex items-center gap-2">
+                <span class="badge badge-purple text-xs">{{ niv.saison }}</span>
+                <span class="text-sm" style="color: var(--text-secondary);">{{ niv.niveau_principal }}</span>
+            </div>
+            {% endif %}
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Historique des matchs -->
     <div class="card overflow-hidden">
         <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
@@ -605,6 +627,87 @@ document.addEventListener('DOMContentLoaded', function() {
                 },
                 plugins: {
                     legend: { labels: { color: textColor, font: { size: 11 } } }
+                }
+            }
+        });
+    }
+    {% endif %}
+
+    // Competition level evolution chart
+    {% if detailed_stats.niveau_evolution and detailed_stats.niveau_evolution|selectattr('niveau_principal')|list|length > 1 %}
+    const levelCtx = document.getElementById('levelChart');
+    if (levelCtx) {
+        const NIVEAU_ORDER = {
+            'LOISIR': 0, 'DEPARTEMENTAL': 1, 'DÉPARTEMENTAL': 1, 'DEPARTEMENTALE': 1, 'DÉPARTEMENTALE': 1,
+            'PRE_REGIONALE': 2, 'PRÉ_RÉGIONALE': 2, 'PREREGIONALE': 2,
+            'REGIONAL': 3, 'RÉGIONAL': 3, 'REGIONALE': 3, 'RÉGIONALE': 3,
+            'PRE_NATIONALE': 4, 'PRÉNATIONAL': 4, 'PRENATIONAL': 4, 'PRENATIONALE': 4, 'PRÉNATIONALE': 4,
+            'PRE-NATIONAL': 4, 'PRÉ-NATIONAL': 4, 'PRE-NATIONALE': 4, 'PRÉ-NATIONALE': 4,
+            'NATIONAL': 5, 'NATIONALE': 5, 'N3': 5, 'N2': 6, 'N1': 7,
+            'ELITE': 8, 'ÉLITE': 8, 'PRO': 9, 'PRO B': 9, 'PRO A': 10,
+        };
+        const NIVEAU_LABELS = {
+            0: 'Loisir', 1: 'Départemental', 2: 'Pré-régional', 3: 'Régional',
+            4: 'Pré-national', 5: 'National', 6: 'N2', 7: 'N1', 8: 'Élite', 9: 'Pro B', 10: 'Pro A',
+        };
+        const niveauData = {{ detailed_stats.niveau_evolution | tojson }};
+        const nlabels = [];
+        const nvalues = [];
+        const ntips = [];
+        niveauData.forEach(d => {
+            if (d.niveau_principal) {
+                nlabels.push(d.saison);
+                const rank = NIVEAU_ORDER[d.niveau_principal.toUpperCase()] ?? null;
+                nvalues.push(rank);
+                ntips.push(d.niveau_principal);
+            }
+        });
+
+        // Find min/max ranks for Y axis
+        const validValues = nvalues.filter(v => v !== null);
+        const minRank = Math.max(0, Math.min(...validValues) - 1);
+        const maxRank = Math.min(10, Math.max(...validValues) + 1);
+
+        new Chart(levelCtx, {
+            type: 'line',
+            data: {
+                labels: nlabels,
+                datasets: [{
+                    label: 'Niveau',
+                    data: nvalues,
+                    borderColor: chartColors.purple,
+                    backgroundColor: chartColors.purpleBg,
+                    borderWidth: 3,
+                    pointRadius: 6,
+                    pointBackgroundColor: chartColors.purple,
+                    tension: 0.3,
+                    fill: true,
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        min: minRank, max: maxRank,
+                        grid: { color: gridColor },
+                        ticks: {
+                            color: textColor,
+                            stepSize: 1,
+                            callback: function(v) { return NIVEAU_LABELS[v] || ''; }
+                        },
+                        title: { display: true, text: 'Niveau', color: textColor }
+                    },
+                    x: { grid: { display: false }, ticks: { color: textColor } }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(ctx) {
+                                return ntips[ctx.dataIndex] || '';
+                            }
+                        }
+                    }
                 }
             }
         });

@@ -16,6 +16,7 @@ from pyvolley.web.routes.arbitres import router as arbitres_router
 from pyvolley.web.routes.competitions import router as competitions_router
 from pyvolley.web.routes.poules import router as poules_router
 from pyvolley.web.routes.statistiques import router as statistiques_router
+from pyvolley.web.routes.entraineurs import router as entraineurs_router
 
 web_router = APIRouter()
 
@@ -26,6 +27,7 @@ web_router.include_router(equipes_router)
 web_router.include_router(clubs_router)
 web_router.include_router(matchs_router)
 web_router.include_router(arbitres_router)
+web_router.include_router(entraineurs_router)
 web_router.include_router(competitions_router)
 web_router.include_router(poules_router)
 web_router.include_router(statistiques_router)

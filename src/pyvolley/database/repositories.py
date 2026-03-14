@@ -14,6 +14,7 @@ from pyvolley.database.models import (
     SaisonDB, CompetitionDB, PouleDB, EntiteFFVBDB, SetDB,
     ParticipationMatchDB, OfficielMatchDB, ArbitreDB, ArbitreMatchDB,
     SanctionDB, FormationDB, ChangementDB, TimeoutDB, StatsCacheDB,
+    JoueurStatsCacheDB,
 )
 from pyvolley.analysis.classement import (
     MatchData, ClassementComplet, calculer_classement_complet,
@@ -311,12 +312,33 @@ class JoueurRepository(BaseRepository[JoueurDB]):
             .order_by("year", "month")
         ).all()
 
+        # Évolution du niveau de compétition par saison
+        niveau_evolution = []
+        for season in stats_par_saison:
+            niveaux = []
+            for eq in season.get("equipes", []):
+                niv = eq.get("niveau")
+                if niv:
+                    niveaux.append(niv)
+            for comp in season.get("competitions", []):
+                niv = comp.get("niveau")
+                if niv:
+                    niveaux.append(niv)
+            # Dédupliquer
+            niveaux = list(dict.fromkeys(niveaux))
+            niveau_evolution.append({
+                "saison": season["saison"],
+                "niveaux": niveaux,
+                "niveau_principal": niveaux[0] if niveaux else None,
+            })
+
         return {
             "stats_par_saison": stats_par_saison,
             "matchs_par_mois": [
                 {"year": int(y), "month": int(m), "count": c}
                 for y, m, c in matchs_par_mois
             ],
+            "niveau_evolution": niveau_evolution,
         }
 
     def get_match_stats(self, joueur_id: int, match_id: int) -> dict:
@@ -1164,3 +1186,317 @@ class StatsCacheRepository(BaseRepository[StatsCacheDB]):
         return list(self.session.scalars(
             select(StatsCacheDB).order_by(StatsCacheDB.computed_at.desc())
         ))
+
+
+# =====================================================================
+# JoueurStatsCacheRepository
+# =====================================================================
+
+class JoueurStatsCacheRepository(BaseRepository[JoueurStatsCacheDB]):
+    """Repository pour le cache des statistiques joueur pré-calculées."""
+
+    def __init__(self, session: Session):
+        super().__init__(session, JoueurStatsCacheDB)
+
+    def get_by_joueur(self, joueur_id: int) -> Optional[JoueurStatsCacheDB]:
+        """Récupère le cache pour un joueur donné."""
+        return self.session.scalar(
+            select(JoueurStatsCacheDB).where(
+                JoueurStatsCacheDB.joueur_id == joueur_id
+            )
+        )
+
+    def upsert(
+        self,
+        joueur_id: int,
+        aggregated_stats: Optional[dict],
+        per_match_stats: Optional[list],
+        match_count: int,
+    ) -> JoueurStatsCacheDB:
+        """Crée ou met à jour le cache pour un joueur."""
+        from datetime import datetime
+
+        entry = self.get_by_joueur(joueur_id)
+        if entry is None:
+            entry = JoueurStatsCacheDB(
+                joueur_id=joueur_id,
+                aggregated_stats=aggregated_stats,
+                per_match_stats=per_match_stats,
+                match_count=match_count,
+                computed_at=datetime.now(),
+            )
+            self.session.add(entry)
+        else:
+            entry.aggregated_stats = aggregated_stats
+            entry.per_match_stats = per_match_stats
+            entry.match_count = match_count
+            entry.computed_at = datetime.now()
+        self.session.flush()
+        return entry
+
+    def is_stale(self, joueur_id: int, current_match_count: int) -> bool:
+        """Retourne True si le cache est absent ou obsolète."""
+        entry = self.get_by_joueur(joueur_id)
+        if entry is None:
+            return True
+        return entry.match_count != current_match_count
+
+
+# ─── Entraîneur (via OfficielMatchDB) ─────────────────────────────
+
+class EntraineurRepository:
+    """Repository pour les entraîneurs, basé sur OfficielMatchDB.
+
+    Les entraîneurs sont identifiés par leur rôle 'EA' ou 'EB' dans
+    la table officiels_match. Ce repository agrège les données pour
+    fournir des statistiques et listes d'entraîneurs.
+    """
+
+    _COACH_ROLES = ("EA", "EB")
+
+    def __init__(self, session: Session):
+        self.session = session
+
+    def get_all(self, limit: int = 100, offset: int = 0) -> List[dict]:
+        """Liste tous les entraîneurs distincts avec leur nombre de matchs."""
+        stmt = (
+            select(
+                OfficielMatchDB.nom,
+                OfficielMatchDB.prenom,
+                OfficielMatchDB.licence,
+                func.count(distinct(OfficielMatchDB.match_id)).label("matchs_count"),
+            )
+            .where(OfficielMatchDB.role.in_(self._COACH_ROLES))
+            .group_by(OfficielMatchDB.nom, OfficielMatchDB.prenom, OfficielMatchDB.licence)
+            .order_by(desc("matchs_count"), OfficielMatchDB.nom)
+            .limit(limit)
+            .offset(offset)
+        )
+        rows = self.session.execute(stmt).all()
+        return [
+            {
+                "nom": nom,
+                "prenom": prenom,
+                "licence": licence,
+                "matchs_count": count,
+                "id": self._build_id(nom, prenom, licence),
+            }
+            for nom, prenom, licence, count in rows
+        ]
+
+    def count(self) -> int:
+        """Nombre total d'entraîneurs distincts."""
+        stmt = (
+            select(func.count())
+            .select_from(
+                select(OfficielMatchDB.nom, OfficielMatchDB.prenom, OfficielMatchDB.licence)
+                .where(OfficielMatchDB.role.in_(self._COACH_ROLES))
+                .group_by(OfficielMatchDB.nom, OfficielMatchDB.prenom, OfficielMatchDB.licence)
+                .subquery()
+            )
+        )
+        return self.session.scalar(stmt) or 0
+
+    def search_by_name(self, query: str, limit: int = 20) -> List[dict]:
+        """Recherche d'entraîneurs par nom."""
+        pattern = f"%{query}%"
+        stmt = (
+            select(
+                OfficielMatchDB.nom,
+                OfficielMatchDB.prenom,
+                OfficielMatchDB.licence,
+                func.count(distinct(OfficielMatchDB.match_id)).label("matchs_count"),
+            )
+            .where(OfficielMatchDB.role.in_(self._COACH_ROLES))
+            .where(
+                or_(
+                    OfficielMatchDB.nom.ilike(pattern),
+                    OfficielMatchDB.prenom.ilike(pattern),
+                    func.concat(OfficielMatchDB.nom, " ", OfficielMatchDB.prenom).ilike(pattern),
+                )
+            )
+            .group_by(OfficielMatchDB.nom, OfficielMatchDB.prenom, OfficielMatchDB.licence)
+            .order_by(desc("matchs_count"))
+            .limit(limit)
+        )
+        rows = self.session.execute(stmt).all()
+        return [
+            {
+                "nom": nom,
+                "prenom": prenom,
+                "licence": licence,
+                "matchs_count": count,
+                "id": self._build_id(nom, prenom, licence),
+            }
+            for nom, prenom, licence, count in rows
+        ]
+
+    def get_by_id(self, entraineur_id: str) -> Optional[dict]:
+        """Récupère un entraîneur par son identifiant construit."""
+        nom, prenom, licence = self._parse_id(entraineur_id)
+        conditions = [
+            OfficielMatchDB.role.in_(self._COACH_ROLES),
+            OfficielMatchDB.nom == nom,
+        ]
+        if prenom:
+            conditions.append(OfficielMatchDB.prenom == prenom)
+        else:
+            conditions.append(
+                or_(OfficielMatchDB.prenom.is_(None), OfficielMatchDB.prenom == "")
+            )
+        if licence:
+            conditions.append(OfficielMatchDB.licence == licence)
+        else:
+            conditions.append(
+                or_(OfficielMatchDB.licence.is_(None), OfficielMatchDB.licence == "")
+            )
+
+        first = self.session.scalar(
+            select(OfficielMatchDB).where(and_(*conditions))
+        )
+        if not first:
+            return None
+
+        return {
+            "nom": first.nom,
+            "prenom": first.prenom,
+            "licence": first.licence,
+            "id": entraineur_id,
+        }
+
+    def get_stats(self, entraineur_id: str) -> dict:
+        """Statistiques complètes d'un entraîneur."""
+        nom, prenom, licence = self._parse_id(entraineur_id)
+        conditions = self._build_conditions(nom, prenom, licence)
+
+        # Nombre total de matchs
+        matchs_count = self.session.scalar(
+            select(func.count(distinct(OfficielMatchDB.match_id)))
+            .where(and_(*conditions))
+        ) or 0
+
+        # Victoires / défaites
+        victoires = 0
+        defaites = 0
+        matchs_data = self.session.execute(
+            select(
+                OfficielMatchDB.equipe,
+                MatchDB.equipe_a_id,
+                MatchDB.equipe_b_id,
+                MatchDB.sets_equipe_a,
+                MatchDB.sets_equipe_b,
+            )
+            .join(MatchDB, OfficielMatchDB.match_id == MatchDB.id)
+            .where(and_(*conditions))
+            .where(MatchDB.match_joue == True)
+        ).all()
+        for equipe_side, eq_a_id, eq_b_id, sets_a, sets_b in matchs_data:
+            if equipe_side == "A":
+                if sets_a > sets_b:
+                    victoires += 1
+                elif sets_b > sets_a:
+                    defaites += 1
+            elif equipe_side == "B":
+                if sets_b > sets_a:
+                    victoires += 1
+                elif sets_a > sets_b:
+                    defaites += 1
+
+        # Équipes entraînées
+        equipes = self.session.execute(
+            select(
+                distinct(EquipeDB.nom),
+                EquipeDB.id,
+                EquipeDB.niveau,
+                EquipeDB.genre,
+            )
+            .select_from(OfficielMatchDB)
+            .join(MatchDB, OfficielMatchDB.match_id == MatchDB.id)
+            .join(
+                EquipeDB,
+                or_(
+                    and_(OfficielMatchDB.equipe == "A", MatchDB.equipe_a_id == EquipeDB.id),
+                    and_(OfficielMatchDB.equipe == "B", MatchDB.equipe_b_id == EquipeDB.id),
+                ),
+            )
+            .where(and_(*conditions))
+        ).all()
+        equipes_list = [
+            {"nom": nom, "id": eid, "niveau": niv, "genre": g}
+            for nom, eid, niv, g in equipes
+        ]
+
+        # Saisons
+        saisons = self.session.execute(
+            select(SaisonDB.code, func.count(distinct(MatchDB.id)))
+            .select_from(OfficielMatchDB)
+            .join(MatchDB, OfficielMatchDB.match_id == MatchDB.id)
+            .join(SaisonDB, MatchDB.saison_id == SaisonDB.id)
+            .where(and_(*conditions))
+            .group_by(SaisonDB.code)
+            .order_by(SaisonDB.code)
+        ).all()
+        saisons_list = [{"saison": code, "matchs": count} for code, count in saisons]
+
+        return {
+            "matchs_count": matchs_count,
+            "victoires": victoires,
+            "defaites": defaites,
+            "equipes": equipes_list,
+            "saisons": saisons_list,
+        }
+
+    def get_matchs(self, entraineur_id: str, limit: int = 50) -> List[MatchDB]:
+        """Matchs d'un entraîneur."""
+        nom, prenom, licence = self._parse_id(entraineur_id)
+        conditions = self._build_conditions(nom, prenom, licence)
+        match_ids = self.session.scalars(
+            select(distinct(OfficielMatchDB.match_id)).where(and_(*conditions))
+        ).all()
+        if not match_ids:
+            return []
+        stmt = (
+            select(MatchDB)
+            .where(MatchDB.id.in_(match_ids))
+            .options(joinedload(MatchDB.equipe_a), joinedload(MatchDB.equipe_b))
+            .order_by(MatchDB.date_match.desc())
+            .limit(limit)
+        )
+        return list(self.session.scalars(stmt).unique())
+
+    # ─── Helpers ────────────────────────────────────
+
+    @staticmethod
+    def _build_id(nom: str, prenom: Optional[str], licence: Optional[str]) -> str:
+        """Construit un identifiant unique textuel pour un entraîneur."""
+        parts = [nom or "", prenom or "", licence or ""]
+        return "::".join(parts)
+
+    @staticmethod
+    def _parse_id(entraineur_id: str) -> tuple:
+        """Parse un identifiant d'entraîneur en (nom, prenom, licence)."""
+        parts = entraineur_id.split("::")
+        nom = parts[0] if len(parts) > 0 else ""
+        prenom = parts[1] if len(parts) > 1 and parts[1] else None
+        licence = parts[2] if len(parts) > 2 and parts[2] else None
+        return nom, prenom, licence
+
+    def _build_conditions(self, nom: str, prenom: Optional[str], licence: Optional[str]) -> list:
+        """Construit les conditions SQLAlchemy pour identifier un entraîneur."""
+        conditions = [
+            OfficielMatchDB.role.in_(self._COACH_ROLES),
+            OfficielMatchDB.nom == nom,
+        ]
+        if prenom:
+            conditions.append(OfficielMatchDB.prenom == prenom)
+        else:
+            conditions.append(
+                or_(OfficielMatchDB.prenom.is_(None), OfficielMatchDB.prenom == "")
+            )
+        if licence:
+            conditions.append(OfficielMatchDB.licence == licence)
+        else:
+            conditions.append(
+                or_(OfficielMatchDB.licence.is_(None), OfficielMatchDB.licence == "")
+            )
+        return conditions
