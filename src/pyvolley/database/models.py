@@ -795,3 +795,45 @@ class StatsCacheDB(Base):
 
     def __repr__(self) -> str:
         return f"<StatsCache key={self.filter_key!r} computed={self.computed_at:%Y-%m-%d %H:%M}>"
+
+
+# =====================================================================
+# Cache des statistiques joueur pré-calculées
+# =====================================================================
+
+class JoueurStatsCacheDB(Base):
+    """Cache des statistiques de performance pré-calculées pour un joueur.
+
+    Stocke les résultats de l'analyse détaillée (``analyze_joueur_match``)
+    pour chaque joueur afin d'accélérer le chargement de la page joueur.
+    Le cache est invalidé lorsque le nombre de matchs du joueur change.
+    """
+    __tablename__ = "joueur_stats_cache"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+
+    # Joueur concerné
+    joueur_id: Mapped[int] = mapped_column(
+        ForeignKey("joueurs.id", ondelete="CASCADE"), unique=True, index=True,
+    )
+
+    # Statistiques agrégées (JSON sérialisé)
+    aggregated_stats: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
+    # Statistiques par match (liste JSON)
+    per_match_stats: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+
+    # Nombre de matchs lors du calcul (pour détection d'obsolescence)
+    match_count: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Horodatage du calcul
+    computed_at: Mapped[dt] = mapped_column(DateTime, default=dt.now)
+
+    joueur: Mapped["JoueurDB"] = relationship()
+
+    __table_args__ = (
+        Index("ix_joueur_stats_cache_computed_at", "computed_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<JoueurStatsCache joueur_id={self.joueur_id} matchs={self.match_count}>"

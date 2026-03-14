@@ -16,6 +16,7 @@ from pyvolley.database.repositories import (
     CompetitionRepository,
     ArbitreRepository,
     PouleRepository,
+    EntraineurRepository,
 )
 
 
@@ -71,3 +72,9 @@ def get_poule_repo(
     session: Session = Depends(get_session)
 ) -> PouleRepository:
     return PouleRepository(session)
+
+
+def get_entraineur_repo(
+    session: Session = Depends(get_session)
+) -> EntraineurRepository:
+    return EntraineurRepository(session)

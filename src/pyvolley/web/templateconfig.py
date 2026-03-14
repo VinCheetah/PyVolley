@@ -64,6 +64,7 @@ def path_for_entity(
         "equipe": f"/equipes/{entity_id}",
         "club": f"/clubs/{entity_id}",
         "arbitre": f"/arbitres/{entity_id}",
+        "entraineur": f"/entraineurs/{entity_id}",
         "competition": f"/competitions/{entity_id}",
         "poule": f"/poules/{entity_id}",
     }

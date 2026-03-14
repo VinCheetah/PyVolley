@@ -14,6 +14,7 @@ from pyvolley.api.dependencies import (
     get_equipe_repo,
     get_arbitre_repo,
     get_saison_repo,
+    get_entraineur_repo,
 )
 from pyvolley.database.repositories import (
     JoueurRepository,
@@ -21,6 +22,7 @@ from pyvolley.database.repositories import (
     EquipeRepository,
     ArbitreRepository,
     SaisonRepository,
+    EntraineurRepository,
 )
 
 router = APIRouter()
@@ -39,12 +41,14 @@ async def search_page(
     equipe_repo: EquipeRepository = Depends(get_equipe_repo),
     arbitre_repo: ArbitreRepository = Depends(get_arbitre_repo),
     saison_repo: SaisonRepository = Depends(get_saison_repo),
+    entraineur_repo: EntraineurRepository = Depends(get_entraineur_repo),
 ):
     results = {
         "joueurs": [],
         "clubs": [],
         "equipes": [],
         "arbitres": [],
+        "entraineurs": [],
         "query": q or "",
         "genre": genre or "",
         "niveau": niveau or "",
@@ -61,6 +65,7 @@ async def search_page(
             q, genre=genre, niveau=niveau, saison_id=saison_id, limit=30
         )
         results["arbitres"] = arbitre_repo.search_by_name(q, ligue=ligue, limit=30)
+        results["entraineurs"] = entraineur_repo.search_by_name(q, limit=20)
 
     saisons = saison_repo.get_all(limit=20)
     genres = equipe_repo.get_distinct_genres()
