@@ -357,9 +357,11 @@ def analyze_joueur_match(
     presence_par_set: list[PresenceSet] = []
     detail_services: list[ServiceSetDetail] = []
     total_points_joues = 0
+    total_points_gagnes = 0
     total_points_perdus = 0
     total_nb_services = 0
-    meilleure_serie_match = 0
+    total_nb_series = 0
+    max_serie_match = 0
     temps_total = 0.0
     temps_par_set: dict[int, float] = {}
     any_duration = False
@@ -419,22 +421,27 @@ def analyze_joueur_match(
 
         # ── Points joués / perdus (exacts) ─────────────
         set_pts_joues = 0
+        set_pts_gagnes = 0
         set_pts_perdus = 0
         for iv in intervals:
             set_pts_joues += iv.points_total
+            set_pts_gagnes += iv.team_points(side)
             set_pts_perdus += iv.opp_points(side)
 
         # Ajustement libéro
         if remplace_par_libero:
             set_pts_joues = round(set_pts_joues * 4.0 / 6.0)
+            set_pts_gagnes = round(set_pts_gagnes * 4.0 / 6.0)
             set_pts_perdus = round(set_pts_perdus * 4.0 / 6.0)
         elif est_mode_libero:
             nb_j = len(joueurs_remplaces_numeros) if joueurs_remplaces_numeros else 1
             ratio = min(1.0, nb_j * 2.0 / 6.0)
             set_pts_joues = round(set_pts_joues * ratio)
+            set_pts_gagnes = round(set_pts_gagnes * ratio)
             set_pts_perdus = round(set_pts_perdus * ratio)
 
         total_points_joues += set_pts_joues
+        total_points_gagnes += set_pts_gagnes
         total_points_perdus += set_pts_perdus
 
         # ── Timeline exacte ───────────────────────────
@@ -442,8 +449,10 @@ def analyze_joueur_match(
 
         # ── Services du joueur (exacts) ────────────────
         set_nb_tours = 0
+        set_nb_services = 0
+        set_nb_series = 0
         set_service_pts = 0
-        set_best_streak = 0
+        set_max_serie = 0
         set_scores_perte: list[int] = []
 
         if timeline:
@@ -459,8 +468,11 @@ def analyze_joueur_match(
                     continue
 
                 set_nb_tours += 1
+                set_nb_series += 1
+                services_turn = turn.points_scored + (0 if turn.is_set_winner else 1)
+                set_nb_services += services_turn
                 set_service_pts += turn.points_scored
-                set_best_streak = max(set_best_streak, turn.points_scored)
+                set_max_serie = max(set_max_serie, services_turn)
 
                 end_score = turn.score_a_end if side == "A" else turn.score_b_end
                 set_scores_perte.append(end_score)
@@ -468,14 +480,18 @@ def analyze_joueur_match(
         if set_nb_tours > 0:
             detail_services.append(ServiceSetDetail(
                 set_numero=s.numero,
+                nb_services=set_nb_services,
+                nb_series=set_nb_series,
+                max_serie=set_max_serie,
                 nb_tours=set_nb_tours,
                 points_marques=set_service_pts,
-                meilleure_serie=set_best_streak,
+                meilleure_serie=set_max_serie,
                 scores_perte=set_scores_perte,
             ))
 
-        total_nb_services += set_nb_tours
-        meilleure_serie_match = max(meilleure_serie_match, set_best_streak)
+        total_nb_services += set_nb_services
+        total_nb_series += set_nb_series
+        max_serie_match = max(max_serie_match, set_max_serie)
 
         # ── Temps morts provoqués (exacts) ─────────────
         if timeline and td_opp:
@@ -511,6 +527,8 @@ def analyze_joueur_match(
     victoire = match.vainqueur == side
 
     pts_service_total = sum(d.points_marques for d in detail_services)
+    ratio_points_gagnes = round(total_points_gagnes / total_points_joues, 3) if total_points_joues > 0 else 0.0
+    moyenne_services_par_serie = round(total_nb_services / total_nb_series, 2) if total_nb_series > 0 else 0.0
     sanctions = _collect_sanctions(match, joueur, side)
 
     return JoueurMatchDetailedStats(
@@ -524,11 +542,17 @@ def analyze_joueur_match(
         est_capitaine=joueur.est_capitaine,
         victoire=victoire,
         score_match=match.score_sets,
-        points_gagnes=pts_service_total,
+        points_gagnes=total_points_gagnes,
+        points_gagnes_service=pts_service_total,
         points_perdus=total_points_perdus,
         points_joues=total_points_joues,
+        ratio_points_gagnes=ratio_points_gagnes,
+        services=total_nb_services,
+        serie=total_nb_series,
+        max_serie=max_serie_match,
+        moyenne_services_par_serie=moyenne_services_par_serie,
         nb_services=total_nb_services,
-        meilleure_serie=meilleure_serie_match,
+        meilleure_serie=max_serie_match,
         detail_services_par_set=detail_services,
         sets_joues=sets_joues,
         sets_titulaire=sets_titulaire,
@@ -568,9 +592,13 @@ def aggregate_joueur_stats(
         total_sets_joues=sum(s.sets_joues for s in stats_list),
         total_sets_titulaire=sum(s.sets_titulaire for s in stats_list),
         total_points_gagnes=sum(s.points_gagnes for s in stats_list),
+        total_points_gagnes_service=sum(s.points_gagnes_service for s in stats_list),
         total_points_perdus=sum(s.points_perdus for s in stats_list),
         total_points_joues=sum(s.points_joues for s in stats_list),
-        total_tours_service=sum(s.nb_services for s in stats_list),
+        total_services=sum(s.services for s in stats_list),
+        total_series_service=sum(s.serie for s in stats_list),
+        max_serie_service=max((s.max_serie for s in stats_list), default=0),
+        total_tours_service=sum(s.serie for s in stats_list),
         meilleure_serie_service=max(
             (s.meilleure_serie for s in stats_list), default=0
         ),
@@ -585,9 +613,16 @@ def aggregate_joueur_stats(
         total_sanctions=sum(len(s.sanctions) for s in stats_list),
     )
 
-    if result.total_tours_service > 0:
+    if result.total_series_service > 0:
         result.moyenne_points_par_tour = round(
-            result.total_points_gagnes / result.total_tours_service, 2,
+            result.total_points_gagnes_service / result.total_series_service, 2,
+        )
+        result.moyenne_services_par_serie = round(
+            result.total_services / result.total_series_service, 2,
+        )
+    if result.total_points_joues > 0:
+        result.ratio_points_gagnes_global = round(
+            result.total_points_gagnes / result.total_points_joues, 3,
         )
     if result.matchs_joues > 0:
         result.moyenne_temps_par_match = round(

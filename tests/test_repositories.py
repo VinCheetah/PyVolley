@@ -342,3 +342,111 @@ class TestStatsCacheRepository:
         assert len(entries) == 2
         keys = {e.filter_key for e in entries}
         assert keys == {"key_a", "key_b"}
+
+
+# ============== JoueurMatchStatsRepository ==============
+
+
+class TestJoueurMatchStatsRepository:
+    """Tests pour le repository des stats détaillées joueur par match."""
+
+    def _seed_match_and_player(self, session: Session):
+        equipe_repo = EquipeRepository(session)
+        equipe_a, _ = equipe_repo.get_or_create("Equipe Stats A")
+        equipe_b, _ = equipe_repo.get_or_create("Equipe Stats B")
+        session.flush()
+
+        match_repo = MatchRepository(session)
+        match = match_repo.add(
+            MatchDB(
+                code_match="STATS-MATCH-001",
+                equipe_a_id=equipe_a.id,
+                equipe_b_id=equipe_b.id,
+                has_details=True,
+            )
+        )
+
+        joueur_repo = JoueurRepository(session)
+        joueur, _ = joueur_repo.get_or_create("JS-001", "DURABLE", "Stats")
+        session.flush()
+        return match, joueur, equipe_a
+
+    def test_replace_for_match(self, test_session: Session):
+        from pyvolley.database.repositories import JoueurMatchStatsRepository
+
+        match, joueur, equipe = self._seed_match_and_player(test_session)
+        repo = JoueurMatchStatsRepository(test_session)
+
+        rows = [
+            {
+                "joueur_id": joueur.id,
+                "equipe_id": equipe.id,
+                "stats_data": {
+                    "side": "A",
+                    "points_gagnes": 12,
+                    "points_perdus": 8,
+                    "points_joues": 20,
+                    "points_gagnes_service": 4,
+                    "services": 11,
+                    "serie": 5,
+                    "max_serie": 4,
+                    "moyenne_services_par_serie": 2.2,
+                    "ratio_points_gagnes": 0.6,
+                },
+            }
+        ]
+        repo.replace_for_match(match.id, rows, match.updated_at)
+        test_session.commit()
+
+        persisted = repo.get_for_match_joueur(match.id, joueur.id)
+        assert persisted is not None
+        assert persisted.stats_data["points_gagnes"] == 12
+        assert persisted.points_gagnes == 12
+        assert persisted.points_gagnes_service == 4
+        assert persisted.services == 11
+        assert persisted.series == 5
+        assert persisted.max_serie == 4
+
+    def test_is_match_stale_false_when_synced(self, test_session: Session):
+        from pyvolley.database.repositories import JoueurMatchStatsRepository
+
+        match, joueur, equipe = self._seed_match_and_player(test_session)
+        repo = JoueurMatchStatsRepository(test_session)
+        repo.replace_for_match(
+            match.id,
+            [{
+                "joueur_id": joueur.id,
+                "equipe_id": equipe.id,
+                "stats_data": {"side": "A"},
+            }],
+            match.updated_at,
+        )
+        test_session.commit()
+
+        assert repo.is_match_stale(
+            match.id,
+            expected_joueur_ids=[joueur.id],
+            match_updated_at=match.updated_at,
+        ) is False
+
+    def test_is_match_stale_true_when_missing_player(self, test_session: Session):
+        from pyvolley.database.repositories import JoueurMatchStatsRepository
+
+        match, joueur, equipe = self._seed_match_and_player(test_session)
+        repo = JoueurMatchStatsRepository(test_session)
+        repo.replace_for_match(
+            match.id,
+            [{
+                "joueur_id": joueur.id,
+                "equipe_id": equipe.id,
+                "stats_data": {"side": "A"},
+            }],
+            match.updated_at,
+        )
+        test_session.commit()
+
+        assert repo.is_match_stale(
+            match.id,
+            expected_joueur_ids=[joueur.id, 9999],
+            match_updated_at=match.updated_at,
+        ) is True

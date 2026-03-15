@@ -332,6 +332,9 @@ class JoueurDB(Base):
 
     # Relations
     participations: Mapped[List["ParticipationMatchDB"]] = relationship(back_populates="joueur")
+    match_stats: Mapped[List["JoueurMatchStatsDB"]] = relationship(
+        back_populates="joueur", cascade="all, delete-orphan"
+    )
     personne: Mapped[Optional["PersonneDB"]] = relationship(back_populates="joueurs")
 
     __table_args__ = (
@@ -424,6 +427,9 @@ class MatchDB(Base):
         back_populates="match", cascade="all, delete-orphan"
     )
     participations: Mapped[List["ParticipationMatchDB"]] = relationship(
+        back_populates="match", cascade="all, delete-orphan"
+    )
+    joueur_stats: Mapped[List["JoueurMatchStatsDB"]] = relationship(
         back_populates="match", cascade="all, delete-orphan"
     )
     officiels: Mapped[List["OfficielMatchDB"]] = relationship(
@@ -710,6 +716,56 @@ class OfficielMatchDB(Base):
 
     def __repr__(self) -> str:
         return f"<Officiel {self.role} {self.nom}>"
+
+
+# =====================================================================
+# Statistiques détaillées joueur par match
+# =====================================================================
+
+class JoueurMatchStatsDB(Base):
+    """Statistiques détaillées persistées d'un joueur pour un match.
+
+    Les statistiques sont calculées à partir des données détaillées de feuille
+    de match (sets, formations, changements, services) et stockées en JSON
+    afin d'éviter les recalculs coûteux côté interface/API.
+    """
+    __tablename__ = "joueur_match_stats"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    match_id: Mapped[int] = mapped_column(ForeignKey("matchs.id", ondelete="CASCADE"))
+    joueur_id: Mapped[int] = mapped_column(ForeignKey("joueurs.id", ondelete="CASCADE"))
+    equipe_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("equipes.id", ondelete="CASCADE"), nullable=True
+    )
+
+    stats_data: Mapped[dict] = mapped_column(JSON, nullable=False)
+    points_gagnes: Mapped[int] = mapped_column(Integer, default=0)
+    points_perdus: Mapped[int] = mapped_column(Integer, default=0)
+    points_joues: Mapped[int] = mapped_column(Integer, default=0)
+    points_gagnes_service: Mapped[int] = mapped_column(Integer, default=0)
+    services: Mapped[int] = mapped_column(Integer, default=0)
+    series: Mapped[int] = mapped_column(Integer, default=0)
+    max_serie: Mapped[int] = mapped_column(Integer, default=0)
+    moyenne_services_par_serie: Mapped[float] = mapped_column(Float, default=0.0)
+    ratio_points_gagnes: Mapped[float] = mapped_column(Float, default=0.0)
+    match_updated_at: Mapped[Optional[dt]] = mapped_column(DateTime, nullable=True)
+    computed_at: Mapped[dt] = mapped_column(DateTime, default=dt.now)
+
+    match: Mapped["MatchDB"] = relationship(back_populates="joueur_stats")
+    joueur: Mapped["JoueurDB"] = relationship(back_populates="match_stats")
+    equipe: Mapped[Optional["EquipeDB"]] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("match_id", "joueur_id", name="uq_joueur_match_stats"),
+        Index("ix_joueur_match_stats_match", "match_id"),
+        Index("ix_joueur_match_stats_joueur", "joueur_id"),
+        Index("ix_joueur_match_stats_services", "services"),
+        Index("ix_joueur_match_stats_points_gagnes", "points_gagnes"),
+        Index("ix_joueur_match_stats_match_updated", "match_updated_at"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<JoueurMatchStats joueur={self.joueur_id} match={self.match_id}>"
 
 
 # =====================================================================

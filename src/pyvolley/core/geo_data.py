@@ -383,11 +383,11 @@ def extract_entite_code_from_path(source_pdf: str) -> str | None:
     
     Le chemin suit la convention : .../saison/ENTITE_CODE/poule/fichier.pdf
     Exemples :
-        "data/pdfs/2024-2025/PTRA38/1RMA/PTRA38_1RMA001.pdf" → "PTRA38"
-        "data/pdfs/2025-2026/LIRA/EMA/LIRA_EMA001.pdf"       → "LIRA"
-        "2024-2025/ABCCS/EMA/ABCCS_EMA001.pdf"                → "ABCCS"
+        "data/pdfs/2024-2025/PTRA38/1RMA/1RMA001.pdf" → "PTRA38"
+        "data/pdfs/2025-2026/LIRA/EMA/EMA001.pdf"     → "LIRA"
+        "2024-2025/ABCCS/EMA/EFA001.pdf"              → "ABCCS"
     
-    Peut aussi extraire depuis le nom de fichier (entite_code_matchcode.pdf).
+    Peut aussi extraire depuis le nom de fichier (anciens formats legacy).
     """
     if not source_pdf:
         return None
@@ -403,7 +403,7 @@ def extract_entite_code_from_path(source_pdf: str) -> str | None:
             if candidate and not candidate.endswith('.pdf'):
                 return candidate
     
-    # Fallback : extraire du nom de fichier (ENTITE_CODE_matchcode.pdf)
+    # Fallback : extraire du nom de fichier (format legacy ENTITE_CODE_matchcode.pdf)
     filename = parts[-1] if parts else source_pdf
     if filename.endswith('.pdf'):
         filename = filename[:-4]

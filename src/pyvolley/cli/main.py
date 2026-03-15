@@ -11,6 +11,7 @@ Commandes principales :
 - ``simulate``      : visualiser un match en HTML interactif
 - ``stats``         : statistiques globales de la base de données
 - ``compute-stats`` : pré-calculer les statistiques palmarès et les stocker en base
+- ``compute-player-stats`` : pré-calculer les statistiques détaillées joueurs par match
 - ``init``          : initialiser la base de données
 - ``db``            : gestion de la base (migrations, exploration)
 - ``report``        : rapports détaillés sur les entités en base
@@ -32,6 +33,8 @@ from pyvolley.core.config import settings
 from pyvolley.cli.helpers import (
     resolve_entities,
     resolve_saisons,
+    format_saison_short,
+    saisons_to_db_codes,
     display_entities,
     build_pdf_index,
     find_pdf_for_match,
@@ -40,6 +43,10 @@ from pyvolley.cli.helpers import (
     make_progress,
     sanitize_filename,
     format_entities_display,
+)
+from pyvolley.shared.pdf_storage import (
+    build_pdf_storage_path,
+    extract_match_code_from_pdf_path,
 )
 
 app = typer.Typer(
@@ -63,7 +70,7 @@ def import_data(
     ),
     saison: Optional[List[str]] = typer.Option(
         None, "--saison", "-s",
-        help="Saison au format YYYY/YYYY. Répétable. Défaut : saison courante.",
+        help="Saison au format YY/YY (ex: 23/24). Accepte les plages (ex: 22/25). Répétable.",
     ),
     entity_type: Optional[str] = typer.Option(
         None, "--type", "-t",
@@ -123,7 +130,8 @@ def import_data(
     Exemples :
 
         pyvolley import -e ABCCS
-        pyvolley import -e ABCCS -s 2024/2025
+        pyvolley import -e ABCCS -s 23/24
+        pyvolley import -e ABCCS -s 22/25
         pyvolley import --type ligue
         pyvolley import --pro -n 100
         pyvolley import --only scrape -e ABCCS
@@ -148,7 +156,11 @@ def import_data(
         scraper, entity=entity, entity_type=entity_type,
         all_entities=all_entities, pro=pro,
     )
-    saisons = resolve_saisons(scraper, saison)
+    try:
+        saisons = resolve_saisons(scraper, saison)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1)
 
     # Vérifier qu'on a des entités pour l'étape scrape
     if "scrape" in steps and not entities_to_process:
@@ -159,7 +171,7 @@ def import_data(
 
     # Afficher la configuration
     entities_display = format_entities_display(entities_to_process)
-    saisons_display = ", ".join(saisons)
+    saisons_display = ", ".join(format_saison_short(s) for s in saisons)
 
     console.print(Panel(
         f"[bold blue]🔄 Import FFVB[/bold blue]\n\n"
@@ -193,13 +205,13 @@ def import_data(
                 "\n[bold blue]═══ Download + Parse (streaming) ═══[/bold blue]"
             )
             _import_stream(
-                limit=limit, saison=saison, entity=entity, verbose=verbose,
+                limit=limit, saison=saisons, entity=entity, verbose=verbose,
             )
             steps = [s for s in steps if s != "parse"]
         else:
             console.print("\n[bold blue]═══ Download ═══[/bold blue]")
             _import_download(
-                limit=limit, saison=saison, concurrent=concurrent,
+                limit=limit, saison=saisons, concurrent=concurrent,
                 verbose=verbose,
             )
 
@@ -207,13 +219,13 @@ def import_data(
     if "parse" in steps:
         console.print("\n[bold blue]═══ Parse ═══[/bold blue]")
         _import_parse(
-            limit=limit, saison=saison, entity=entity,
+            limit=limit, saison=saisons, entity=entity,
             force=force, verbose=verbose,
         )
 
         # Nettoyage post-parse si --no-keep-pdfs
         if not keep_pdfs:
-            _cleanup_parsed_pdfs(saison=saison, verbose=verbose)
+            _cleanup_parsed_pdfs(saison=saisons, verbose=verbose)
 
     console.print(Panel(
         "[bold green]Pipeline terminé[/bold green]",
@@ -331,7 +343,11 @@ def _import_scrape(
 
                 # Enrichissement clubs (systématique)
                 try:
-                    poule_codes = sorted(poules.keys())
+                    poule_codes = sorted({
+                        (m.poule_code_ffvb or m.poule_code)
+                        for m in export_data
+                        if (m.poule_code_ffvb or m.poule_code)
+                    })
                     with console.status(
                         f"[bold magenta]Enrichissement clubs ({len(poule_codes)} poules)..."
                     ):
@@ -352,6 +368,11 @@ def _import_scrape(
                                 f"  Clubs : [magenta]{created} créés, "
                                 f"{enriched} enrichis[/magenta]"
                             )
+                    else:
+                        console.print(
+                            "  [yellow]Aucun club récupéré via l'adressier "
+                            f"(entité={target_entity}, saison={target_saison})[/yellow]"
+                        )
                 except Exception as e:
                     console.print(f"  [red]Erreur enrichissement clubs : {e}[/red]")
 
@@ -378,8 +399,9 @@ def _import_download(
     3. Met à jour la base de données en batch
     """
     from pyvolley.database.connection import DatabaseSession, init_db
-    from pyvolley.database.models import MatchDB, SaisonDB
+    from pyvolley.database.models import MatchDB, SaisonDB, CompetitionDB
     from sqlalchemy import select
+    from sqlalchemy.orm import joinedload
 
     init_db()
 
@@ -390,6 +412,9 @@ def _import_download(
     with DatabaseSession() as session:
         stmt = (
             select(MatchDB)
+            .options(joinedload(MatchDB.saison))
+            .options(joinedload(MatchDB.competition).joinedload(CompetitionDB.entite))
+            .options(joinedload(MatchDB.poule))
             .where(
                 MatchDB.parsing_status == "discovered",
                 MatchDB.match_joue == True,  # noqa: E712
@@ -420,15 +445,34 @@ def _import_download(
                 if match_db.saison_id else None
             )
             saison_code = saison_db.code if saison_db else "unknown"
-            dest_dir = pdf_base / saison_code
-            dest_file = dest_dir / f"{match_db.code_match}.pdf"
+
+            entite_code = getattr(
+                getattr(match_db.competition, "entite", None),
+                "code",
+                None,
+            )
+            poule_code = getattr(match_db.poule, "code", None)
+            dest_file = build_pdf_storage_path(
+                pdf_base,
+                saison_code=saison_code,
+                entite_code=entite_code,
+                poule_code=poule_code,
+                match_code=match_db.code_match,
+                journee=match_db.journee,
+                unique_hint=match_db.id,
+            )
 
             # Vérifier si déjà présent
             if dest_file.exists():
                 already_present.append((match_db.id, str(dest_file)))
                 continue
 
-            existing = pdf_index.get(match_db.code_match)
+            existing = find_pdf_for_match(
+                match_db,
+                pdf_base,
+                pdf_index,
+                saison_code=saison_code,
+            )
             if existing:
                 already_present.append((match_db.id, str(existing)))
                 continue
@@ -545,6 +589,7 @@ def _import_parse(
     from pyvolley.database.import_service import MatchImportService
     from pyvolley.database.models import MatchDB, ImportLogDB
     from sqlalchemy import select
+    from sqlalchemy.orm import joinedload
 
     init_db()
 
@@ -559,6 +604,7 @@ def _import_parse(
     with DatabaseSession() as session:
         stmt = (
             select(MatchDB)
+            .options(joinedload(MatchDB.saison))
             .where(
                 MatchDB.parsing_status.in_(statuses),
                 MatchDB.match_joue == True,  # noqa: E712
@@ -889,7 +935,7 @@ def _import_stream(
 def status(
     saison: Optional[str] = typer.Option(
         None, "--saison", "-s",
-        help="Filtrer par saison (ex: 2024-2025).",
+        help="Filtrer par saison (ex: 23/24 ou plage 22/25).",
     ),
     entity: Optional[str] = typer.Option(
         None, "--entity", "-e",
@@ -909,7 +955,7 @@ def status(
     Exemples :
 
         pyvolley status
-        pyvolley status -s 2024-2025
+        pyvolley status -s 23/24
         pyvolley status -v
     """
     from pyvolley.database.connection import DatabaseSession, init_db
@@ -926,15 +972,19 @@ def status(
         filter_label = ""
 
         if saison:
-            normalized = saison.replace("/", "-")
-            saison_db = session.scalars(
-                select(SaisonDB).where(SaisonDB.code == normalized)
-            ).first()
-            if saison_db:
-                base_filter = base_filter.where(
-                    MatchDB.saison_id == saison_db.id,
-                )
-                filter_label += f" | Saison: {saison_db.code}"
+            try:
+                normalized = saisons_to_db_codes([saison])
+            except ValueError as exc:
+                console.print(f"[red]{exc}[/red]")
+                raise typer.Exit(1)
+
+            saisons_db = session.scalars(
+                select(SaisonDB).where(SaisonDB.code.in_(normalized))
+            ).all()
+            saison_ids = [s.id for s in saisons_db]
+            if saison_ids:
+                base_filter = base_filter.where(MatchDB.saison_id.in_(saison_ids))
+                filter_label += f" | Saison: {saison}"
             else:
                 console.print(f"[yellow]Saison '{saison}' non trouvée[/yellow]")
                 raise typer.Exit(1)
@@ -1120,7 +1170,7 @@ def list_poules(
         ..., help="Code de l'entité (ex: ABCCS, LIIFDF).",
     ),
     saison: Optional[str] = typer.Option(
-        None, "--saison", "-s", help="Saison YYYY/YYYY.",
+        None, "--saison", "-s", help="Saison YY/YY (ex: 23/24).",
     ),
 ):
     """📋 Liste les poules disponibles pour une entité."""
@@ -1128,8 +1178,16 @@ def list_poules(
 
     scraper = FFVBScraper()
 
-    if saison is None:
-        saison = scraper._get_current_saison()
+    try:
+        saison_values = resolve_saisons(scraper, [saison] if saison else None)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1)
+
+    if len(saison_values) != 1:
+        console.print("[red]La commande 'list poules' accepte une seule saison.[/red]")
+        raise typer.Exit(1)
+    saison = saison_values[0]
 
     with console.status(f"[bold blue]Récupération des poules pour {entity}..."):
         poules = scraper.discover_poules(entity, saison)
@@ -1156,7 +1214,7 @@ def list_matches(
         None, "--poule", "-p", help="Filtrer par poule.",
     ),
     saison: Optional[str] = typer.Option(
-        None, "--saison", "-s", help="Saison YYYY/YYYY.",
+        None, "--saison", "-s", help="Saison YY/YY (ex: 23/24).",
     ),
     limit: int = typer.Option(
         50, "--limit", "-n", help="Nombre max à afficher.",
@@ -1166,8 +1224,16 @@ def list_matches(
     from pyvolley.scrapers.ffvb import FFVBScraper
 
     scraper = FFVBScraper()
-    if saison is None:
-        saison = scraper._get_current_saison()
+    try:
+        saison_values = resolve_saisons(scraper, [saison] if saison else None)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1)
+
+    if len(saison_values) != 1:
+        console.print("[red]La commande 'list matches' accepte une seule saison.[/red]")
+        raise typer.Exit(1)
+    saison = saison_values[0]
 
     with console.status(f"[bold blue]Récupération des matchs pour {entity}..."):
         export_matches = scraper.scrape_entity(entity, saison, poule=poule)
@@ -1354,7 +1420,7 @@ def cleanup(
         help="Cible : 'pdfs' (parsés), 'orphans' (sans match en DB), 'all'.",
     ),
     saison: Optional[List[str]] = typer.Option(
-        None, "--saison", "-s", help="Filtrer par saison.",
+        None, "--saison", "-s", help="Filtrer par saison (YY/YY ou plage 22/25).",
     ),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Afficher sans supprimer.",
@@ -1375,7 +1441,7 @@ def cleanup(
 
         pyvolley cleanup pdfs --dry-run
         pyvolley cleanup orphans --force
-        pyvolley cleanup all -s 2024-2025
+        pyvolley cleanup all -s 23/24
     """
     from pyvolley.database.connection import DatabaseSession, init_db
     from pyvolley.database.models import MatchDB
@@ -1395,7 +1461,11 @@ def cleanup(
 
     # Filtrer par saison
     if saison:
-        normalized = [s.replace("/", "-") for s in saison]
+        try:
+            normalized = saisons_to_db_codes(saison)
+        except ValueError as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(1)
         all_pdfs = [f for f in all_pdfs if any(ns in str(f) for ns in normalized)]
 
     total_size = sum(f.stat().st_size for f in all_pdfs)
@@ -1414,7 +1484,7 @@ def cleanup(
 
     for pdf_file in all_pdfs:
         stem = pdf_file.stem
-        code = stem.split("_", 1)[1] if "_" in stem else stem
+        code = extract_match_code_from_pdf_path(pdf_file)
         is_in_db = code in all_codes or stem in all_codes
         is_parsed = code in parsed_codes or stem in parsed_codes
 
@@ -1567,8 +1637,9 @@ def stats():
 
 @app.command("compute-stats")
 def compute_stats(
-    saison_id: Optional[int] = typer.Option(
-        None, "--saison-id", help="Restreindre au calcul pour une saison (ID).",
+    saison: Optional[str] = typer.Option(
+        None, "--saison", "-s",
+        help="Restreindre à une saison (23/24) ou une plage (22/25).",
     ),
     force: bool = typer.Option(
         False, "--force", help="Recalculer même si le cache est à jour.",
@@ -1607,8 +1678,19 @@ def compute_stats(
         # Construire la liste des combinaisons de filtres à précalculer
         filters_to_compute: list[StatsFilters] = [StatsFilters()]  # global (aucun filtre)
 
-        if saison_id is not None:
-            filters_to_compute.append(StatsFilters(saison_id=saison_id))
+        if saison is not None:
+            requested_codes = []
+            try:
+                requested_codes = saisons_to_db_codes([saison])
+            except ValueError as exc:
+                console.print(f"[red]{exc}[/red]")
+                raise typer.Exit(1)
+
+            saison_repo = SaisonRepository(session)
+            for code in requested_codes:
+                saison_db = saison_repo.get_by_code(code)
+                if saison_db is not None:
+                    filters_to_compute.append(StatsFilters(saison_id=saison_db.id))
         else:
             saisons = SaisonRepository(session).get_all(limit=50)
             for s in saisons:
@@ -1649,6 +1731,124 @@ def compute_stats(
             f"[green]✓ {computed} combinaison(s) calculée(s)[/green], "
             f"[dim]{skipped} déjà à jour[/dim]"
         )
+
+
+@app.command("compute-player-stats")
+def compute_player_stats(
+    saison: Optional[str] = typer.Option(
+        None, "--saison", "-s",
+        help="Restreindre aux matchs d'une saison (23/24) ou plage (22/25).",
+    ),
+    match_id: Optional[int] = typer.Option(
+        None, "--match-id", help="Recalculer un match précis (ID).",
+    ),
+    limit: Optional[int] = typer.Option(
+        None, "--limit", "-n", help="Nombre max de matchs à traiter.",
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Recalculer même si les stats sont déjà à jour.",
+    ),
+    clear: bool = typer.Option(
+        False, "--clear", help="Vider la table des stats joueurs avant calcul.",
+    ),
+):
+    """🧮 Calcule et persiste les statistiques détaillées joueur par match.
+
+    Cette commande remplit la table ``joueur_match_stats`` pour éviter les
+    recalculs coûteux à l'affichage (web/API).
+    """
+    from sqlalchemy import select
+
+    from pyvolley.database.connection import get_db, init_db
+    from pyvolley.database.models import MatchDB
+    from pyvolley.database.player_stats_service import JoueurMatchStatsService
+    from pyvolley.database.repositories import JoueurMatchStatsRepository
+
+    init_db()
+
+    with get_db() as session:
+        stats_repo = JoueurMatchStatsRepository(session)
+        if clear:
+            deleted = stats_repo.delete_all()
+            session.commit()
+            console.print(
+                f"[yellow]🗑 Stats joueurs vidées ({deleted} ligne(s) supprimée(s))[/yellow]"
+            )
+
+        stmt = select(MatchDB).where(MatchDB.has_details == True)  # noqa: E712
+        if match_id is not None:
+            stmt = stmt.where(MatchDB.id == match_id)
+        if saison is not None:
+            try:
+                requested_codes = saisons_to_db_codes([saison])
+            except ValueError as exc:
+                console.print(f"[red]{exc}[/red]")
+                raise typer.Exit(1)
+
+            from pyvolley.database.models import SaisonDB
+
+            saison_ids = [
+                s.id for s in session.scalars(
+                    select(SaisonDB).where(SaisonDB.code.in_(requested_codes))
+                ).all()
+            ]
+            if not saison_ids:
+                console.print(f"[yellow]Aucune saison trouvée pour '{saison}'[/yellow]")
+                return
+            stmt = stmt.where(MatchDB.saison_id.in_(saison_ids))
+        stmt = stmt.order_by(MatchDB.date_match.desc(), MatchDB.id.desc())
+        if limit:
+            stmt = stmt.limit(limit)
+
+        matches = list(session.scalars(stmt).all())
+        if not matches:
+            console.print("[yellow]Aucun match détaillé à traiter[/yellow]")
+            return
+
+        service = JoueurMatchStatsService(session)
+        processed = 0
+        updated_rows = 0
+        errors = 0
+
+        with make_progress(console) as progress:
+            task = progress.add_task("Calcul stats joueurs...", total=len(matches))
+
+            for m in matches:
+                try:
+                    m_full = session.get(MatchDB, m.id)
+                    if not m_full:
+                        progress.update(task, advance=1)
+                        continue
+
+                    count = service.compute_and_store_for_match(m_full, force=force)
+                    updated_rows += count
+                    processed += 1
+                    progress.update(
+                        task,
+                        advance=1,
+                        description=f"[green]✓ match #{m.id} ({count} joueur(s))[/green]",
+                    )
+
+                    if processed % 100 == 0:
+                        session.commit()
+
+                except Exception as exc:
+                    session.rollback()
+                    errors += 1
+                    progress.update(
+                        task,
+                        advance=1,
+                        description=f"[red]✗ match #{m.id}: {str(exc)[:40]}[/red]",
+                    )
+
+            session.commit()
+
+        console.print(Panel(
+            f"[green]✓ Matchs traités : {processed}[/green]\n"
+            f"[cyan]👥 Lignes stats écrites : {updated_rows}[/cyan]\n"
+            f"[red]✗ Erreurs : {errors}[/red]",
+            title="Statistiques joueurs",
+        ))
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -1924,11 +2124,11 @@ def _cleanup_parsed_pdfs(
     deleted = 0
     for pdf_file in pdf_base.glob("**/*.pdf"):
         stem = pdf_file.stem
-        code = stem.split("_", 1)[1] if "_" in stem else stem
+        code = extract_match_code_from_pdf_path(pdf_file)
         if code in parsed_codes or stem in parsed_codes:
             # Filtrer par saison si demandé
             if saison:
-                normalized = [s.replace("/", "-") for s in saison]
+                normalized = saisons_to_db_codes(saison)
                 if not any(ns in str(pdf_file) for ns in normalized):
                     continue
             try:

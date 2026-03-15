@@ -208,6 +208,7 @@
                         <th>Nom du club</th>
                         <th>Ville</th>
                         <th>Département</th>
+                        <th>Code FFVB</th>
                         <th class="text-center">Actions</th>
                     </tr>
                 </thead>
@@ -215,8 +216,23 @@
                     {% for c in clubs %}
                     <tr>
                         <td class="font-semibold">{{ c.nom }}</td>
-                        <td style="color: var(--text-secondary);">{{ c.ville or '-' }}</td>
-                        <td style="color: var(--text-muted);">{{ c.departement or '-' }}</td>
+                        <td>
+                            {% if c.ville %}
+                            <span class="badge badge-blue">{{ c.ville }}</span>
+                            {% else %}
+                            <span style="color: var(--text-muted);">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if c.departement %}
+                            <span class="badge badge-purple">{{ c.departement }}</span>
+                            {% else %}
+                            <span style="color: var(--text-muted);">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="font-mono text-xs" style="color: var(--text-muted);">{{ c.code_ffvb or '—' }}</span>
+                        </td>
                         <td class="text-center">
                             <a href="{{ path_for_entity('club', c.id) }}" class="badge badge-green">Voir club</a>
                         </td>

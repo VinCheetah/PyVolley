@@ -37,6 +37,7 @@ from .models import (
     EntiteFFVBDB,
     ParticipationMatchDB,
     OfficielMatchDB,
+    JoueurMatchStatsDB,
 )
 from .repositories import (
     JoueurRepository,
@@ -47,9 +48,11 @@ from .repositories import (
     CompetitionRepository,
     PouleRepository,
     EntiteFFVBRepository,
+    JoueurMatchStatsRepository,
 )
 from .import_service import MatchImportService, BulkImportService
 from .export_import_service import ExportImportService
+from .player_stats_service import JoueurMatchStatsService
 from .migrations import (
     create_migration,
     upgrade,
@@ -87,6 +90,7 @@ __all__ = [
     "EntiteFFVBDB",
     "ParticipationMatchDB",
     "OfficielMatchDB",
+    "JoueurMatchStatsDB",
     # Repositories
     "JoueurRepository",
     "ClubRepository",
@@ -96,10 +100,12 @@ __all__ = [
     "CompetitionRepository",
     "PouleRepository",
     "EntiteFFVBRepository",
+    "JoueurMatchStatsRepository",
     # Services
     "MatchImportService",
     "BulkImportService",
     "ExportImportService",
+    "JoueurMatchStatsService",
     # Migrations
     "create_migration",
     "upgrade",

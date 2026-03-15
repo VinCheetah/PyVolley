@@ -19,6 +19,8 @@ from rich import box
 
 from sqlalchemy import inspect, func, select, or_, text
 
+from pyvolley.cli.helpers import saisons_to_db_codes
+
 console = Console()
 
 explore_app = typer.Typer(
@@ -460,7 +462,7 @@ def count():
 @explore_app.command("matchs")
 def search_matchs(
     query: Optional[str] = typer.Argument(None, help="Recherche libre (code, équipe, lieu...)"),
-    saison: Optional[str] = typer.Option(None, "--saison", "-s", help="Filtrer par saison (ex: 2024-2025)"),
+    saison: Optional[str] = typer.Option(None, "--saison", "-s", help="Filtrer par saison (ex: 23/24 ou plage 22/25)"),
     equipe: Optional[str] = typer.Option(None, "--equipe", "-e", help="Filtrer par nom d'équipe"),
     competition: Optional[str] = typer.Option(None, "--competition", "-c", help="Filtrer par compétition"),
     date_debut: Optional[str] = typer.Option(None, "--from", help="Date min (YYYY-MM-DD)"),
@@ -475,7 +477,7 @@ def search_matchs(
     Exemples:
         pyvolley db explore matchs
         pyvolley db explore matchs "Paris"
-        pyvolley db explore matchs --saison 2024-2025 --score 3-0
+        pyvolley db explore matchs --saison 23/24 --score 3-0
         pyvolley db explore matchs -e "Nantes" --from 2025-01-01
         pyvolley db explore matchs -c PMA -n 50
     """
@@ -510,7 +512,12 @@ def search_matchs(
             )
 
         if saison:
-            conditions.append(SaisonDB.code.ilike(f"%{saison}%"))
+            try:
+                saison_codes = saisons_to_db_codes([saison])
+            except ValueError as exc:
+                console.print(f"[red]{exc}[/red]")
+                raise typer.Exit(1)
+            conditions.append(SaisonDB.code.in_(saison_codes))
 
         if equipe:
             pattern = f"%{equipe}%"
@@ -1103,7 +1110,7 @@ def search_equipes(
 @explore_app.command("competitions")
 def search_competitions(
     query: Optional[str] = typer.Argument(None, help="Recherche par nom ou code"),
-    saison: Optional[str] = typer.Option(None, "--saison", "-s", help="Filtrer par saison"),
+    saison: Optional[str] = typer.Option(None, "--saison", "-s", help="Filtrer par saison (23/24 ou 22/25)"),
     genre: Optional[str] = typer.Option(None, "--genre", "-g", help="Filtrer par genre"),
     entite: Optional[str] = typer.Option(None, "--entite", "-e", help="Filtrer par entité organisatrice"),
     limit: int = typer.Option(30, "--limit", "-n", help="Nombre max de résultats"),
@@ -1114,7 +1121,7 @@ def search_competitions(
     Exemples:
         pyvolley db explore competitions
         pyvolley db explore competitions "Nationale"
-        pyvolley db explore competitions --saison 2024-2025
+        pyvolley db explore competitions --saison 23/24
     """
     from pyvolley.database.models import CompetitionDB, SaisonDB, EntiteFFVBDB
 
@@ -1132,7 +1139,12 @@ def search_competitions(
                 )
             )
         if saison:
-            conditions.append(SaisonDB.code.ilike(f"%{saison}%"))
+            try:
+                saison_codes = saisons_to_db_codes([saison])
+            except ValueError as exc:
+                console.print(f"[red]{exc}[/red]")
+                raise typer.Exit(1)
+            conditions.append(SaisonDB.code.in_(saison_codes))
         if genre:
             conditions.append(CompetitionDB.genre.ilike(f"%{genre}%"))
         if entite:

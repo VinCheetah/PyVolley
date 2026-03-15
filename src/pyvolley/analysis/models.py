@@ -77,6 +77,9 @@ class JoueurMatchAnalysis(BaseModel):
 class ServiceSetDetail(BaseModel):
     """Détail de service pour un set."""
     set_numero: int
+    nb_services: int = 0
+    nb_series: int = 0
+    max_serie: int = 0
     nb_tours: int = 0
     points_marques: int = 0
     meilleure_serie: int = 0
@@ -104,11 +107,17 @@ class JoueurMatchDetailedStats(BaseModel):
     score_match: Optional[str] = None  # "3-1"
 
     # Points
-    points_gagnes: int = Field(0, description="Points marqués au service")
+    points_gagnes: int = Field(0, description="Points gagnés par l'équipe pendant la présence du joueur")
+    points_gagnes_service: int = Field(0, description="Points marqués au service par le joueur")
     points_perdus: int = Field(0, description="Points estimés perdus (points adverses pendant présence)")
     points_joues: int = Field(0, description="Nombre total de points joués pendant la présence")
+    ratio_points_gagnes: float = Field(0.0, description="Part des points gagnés pendant la présence")
 
     # Services
+    services: int = Field(0, description="Nombre total de services effectués")
+    serie: int = Field(0, description="Nombre de séries de service")
+    max_serie: int = Field(0, description="Longueur maximale d'une série de service")
+    moyenne_services_par_serie: float = Field(0.0, description="Nombre moyen de services par série")
     nb_services: int = Field(0, description="Nombre total de tours de service")
     meilleure_serie: int = Field(0, description="Plus longue série de services consécutifs (points au service)")
     detail_services_par_set: list[ServiceSetDetail] = Field(default_factory=list)
@@ -164,10 +173,16 @@ class JoueurStatsAggregated(BaseModel):
 
     # Points
     total_points_gagnes: int = 0
+    total_points_gagnes_service: int = 0
     total_points_perdus: int = 0
     total_points_joues: int = 0
+    ratio_points_gagnes_global: float = 0.0
 
     # Services
+    total_services: int = 0
+    total_series_service: int = 0
+    max_serie_service: int = 0
+    moyenne_services_par_serie: float = 0.0
     total_tours_service: int = 0
     meilleure_serie_service: int = 0
     moyenne_points_par_tour: float = 0.0

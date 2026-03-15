@@ -13,7 +13,7 @@ from pyvolley.database.models import (
     JoueurDB, MatchDB, SetDB, FormationDB, ChangementDB, TimeoutDB,
     OfficielMatchDB, PersonneDB, ArbitreDB, ArbitreMatchDB,
     SanctionDB, ParticipationMatchDB, SaisonDB, CompetitionDB,
-    PouleDB, ClubDB, EquipeDB,
+    PouleDB, ClubDB, EquipeDB, JoueurMatchStatsDB,
 )
 
 
@@ -225,8 +225,10 @@ class TestJoueurImport:
 
         joueurs = test_session.scalars(select(JoueurDB).order_by(JoueurDB.id)).all()
         assert len(joueurs) == 2
-        assert joueurs[0].licence.startswith("NL-")
-        assert joueurs[1].licence.startswith("NL-")
+        assert joueurs[0].licence.isdigit()
+        assert joueurs[1].licence.isdigit()
+        assert len(joueurs[0].licence) <= 10
+        assert len(joueurs[1].licence) <= 10
         assert joueurs[0].licence != joueurs[1].licence
 
     def test_joueur_deduplication_by_licence(self, test_session):
@@ -294,6 +296,19 @@ class TestJoueurImport:
 
         joueur = test_session.scalar(select(JoueurDB).where(JoueurDB.licence == "900001"))
         assert joueur.personne_id is not None
+
+    def test_joueur_match_stats_persisted_on_detailed_import(self, test_session, full_match):
+        """Un import détaillé persiste des stats joueur par match en base."""
+        service = MatchImportService(test_session)
+        result = service.import_match(full_match)
+        test_session.flush()
+
+        stats_rows = test_session.scalars(
+            select(JoueurMatchStatsDB).where(JoueurMatchStatsDB.match_id == result.id)
+        ).all()
+        assert len(stats_rows) >= 10
+        assert all("side" in r.stats_data for r in stats_rows)
+        assert all("points_gagnes" in r.stats_data for r in stats_rows)
 
 
 # ============== Tests d'officiels et arbitres ==============
@@ -473,6 +488,13 @@ class TestEnrichFromPDF:
         ).all()
         assert len(sets) == 1
         assert sets[0].score_a == 25
+
+        # Vérifier la persistance des stats détaillées joueur
+        stats_rows = test_session.scalars(
+            select(JoueurMatchStatsDB).where(JoueurMatchStatsDB.match_id == match_db.id)
+        ).all()
+        assert len(stats_rows) == 1
+        assert stats_rows[0].stats_data.get("licence") == "100099"
 
     def test_enrich_does_not_overwrite_parsed(self, test_session):
         """L'enrichissement ne re-traite pas un match déjà parsé (sans force)."""

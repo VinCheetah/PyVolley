@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Iterator
 
+from pyvolley.shared.pdf_storage import build_pdf_filename
+
 
 @dataclass
 class MatchInfo:
@@ -31,7 +33,12 @@ class MatchInfo:
     @property
     def filename(self) -> str:
         """Nom du fichier PDF."""
-        return f"{self.entite_code}_{self.code}.pdf"
+        return build_pdf_filename(
+            match_code=self.code,
+            entite_code=self.entite_code,
+            poule_code=self.poule_code,
+            journee=self.journee,
+        )
 
 
 @dataclass

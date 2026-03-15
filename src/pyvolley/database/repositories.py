@@ -6,6 +6,7 @@ et fournir des méthodes de recherche avancées.
 """
 
 from typing import Optional, List, Type, TypeVar, Generic
+from datetime import datetime
 from sqlalchemy.orm import Session, joinedload, subqueryload
 from sqlalchemy import select, func, or_, case, extract, distinct, desc, asc, and_, literal_column
 
@@ -14,7 +15,7 @@ from pyvolley.database.models import (
     SaisonDB, CompetitionDB, PouleDB, EntiteFFVBDB, SetDB,
     ParticipationMatchDB, OfficielMatchDB, ArbitreDB, ArbitreMatchDB,
     SanctionDB, FormationDB, ChangementDB, TimeoutDB, StatsCacheDB,
-    JoueurStatsCacheDB,
+    JoueurStatsCacheDB, JoueurMatchStatsDB,
 )
 from pyvolley.analysis.classement import (
     MatchData, ClassementComplet, calculer_classement_complet,
@@ -399,7 +400,20 @@ class ClubRepository(BaseRepository[ClubDB]):
 
     def search_by_name(self, query: str, limit: int = 20) -> List[ClubDB]:
         pattern = f"%{query}%"
-        stmt = select(ClubDB).where(ClubDB.nom.ilike(pattern)).limit(limit)
+        stmt = (
+            select(ClubDB)
+            .where(
+                or_(
+                    ClubDB.nom.ilike(pattern),
+                    ClubDB.nom_court.ilike(pattern),
+                    ClubDB.ville.ilike(pattern),
+                    ClubDB.departement.ilike(pattern),
+                    ClubDB.code_ffvb.ilike(pattern),
+                )
+            )
+            .order_by(ClubDB.nom)
+            .limit(limit)
+        )
         return list(self.session.scalars(stmt))
 
     def get_or_create(self, nom: str) -> tuple[ClubDB, bool]:
@@ -1240,6 +1254,125 @@ class JoueurStatsCacheRepository(BaseRepository[JoueurStatsCacheDB]):
         if entry is None:
             return True
         return entry.match_count != current_match_count
+
+
+# =====================================================================
+# JoueurMatchStatsRepository
+# =====================================================================
+
+class JoueurMatchStatsRepository(BaseRepository[JoueurMatchStatsDB]):
+    """Repository pour les statistiques détaillées joueur par match persistées."""
+
+    def __init__(self, session: Session):
+        super().__init__(session, JoueurMatchStatsDB)
+
+    def get_for_match(self, match_id: int) -> List[JoueurMatchStatsDB]:
+        return list(self.session.scalars(
+            select(JoueurMatchStatsDB)
+            .where(JoueurMatchStatsDB.match_id == match_id)
+            .order_by(JoueurMatchStatsDB.joueur_id)
+        ))
+
+    def get_for_joueur(
+        self,
+        joueur_id: int,
+        limit: int = 500,
+    ) -> List[JoueurMatchStatsDB]:
+        stmt = (
+            select(JoueurMatchStatsDB)
+            .where(JoueurMatchStatsDB.joueur_id == joueur_id)
+            .order_by(desc(JoueurMatchStatsDB.match_updated_at), desc(JoueurMatchStatsDB.computed_at))
+            .limit(limit)
+        )
+        return list(self.session.scalars(stmt))
+
+    def get_for_match_joueur(
+        self,
+        match_id: int,
+        joueur_id: int,
+    ) -> Optional[JoueurMatchStatsDB]:
+        return self.session.scalar(
+            select(JoueurMatchStatsDB)
+            .where(
+                JoueurMatchStatsDB.match_id == match_id,
+                JoueurMatchStatsDB.joueur_id == joueur_id,
+            )
+        )
+
+    def delete_for_match(self, match_id: int) -> int:
+        from sqlalchemy import delete as sa_delete
+
+        result = self.session.execute(
+            sa_delete(JoueurMatchStatsDB).where(JoueurMatchStatsDB.match_id == match_id)
+        )
+        self.session.flush()
+        return result.rowcount or 0
+
+    def delete_all(self) -> int:
+        from sqlalchemy import delete as sa_delete
+
+        result = self.session.execute(sa_delete(JoueurMatchStatsDB))
+        self.session.flush()
+        return result.rowcount or 0
+
+    def replace_for_match(
+        self,
+        match_id: int,
+        rows: list[dict],
+        match_updated_at,
+    ) -> list[JoueurMatchStatsDB]:
+        self.delete_for_match(match_id)
+
+        computed_at = datetime.now()
+        entities: list[JoueurMatchStatsDB] = []
+        for row in rows:
+            stats_data = row["stats_data"]
+            entity = JoueurMatchStatsDB(
+                match_id=match_id,
+                joueur_id=row["joueur_id"],
+                equipe_id=row.get("equipe_id"),
+                stats_data=stats_data,
+                points_gagnes=int(stats_data.get("points_gagnes") or 0),
+                points_perdus=int(stats_data.get("points_perdus") or 0),
+                points_joues=int(stats_data.get("points_joues") or 0),
+                points_gagnes_service=int(stats_data.get("points_gagnes_service") or 0),
+                services=int(stats_data.get("services") or stats_data.get("nb_services") or 0),
+                series=int(stats_data.get("serie") or 0),
+                max_serie=int(stats_data.get("max_serie") or stats_data.get("meilleure_serie") or 0),
+                moyenne_services_par_serie=float(stats_data.get("moyenne_services_par_serie") or 0.0),
+                ratio_points_gagnes=float(stats_data.get("ratio_points_gagnes") or 0.0),
+                match_updated_at=match_updated_at,
+                computed_at=computed_at,
+            )
+            entities.append(entity)
+
+        if entities:
+            self.session.add_all(entities)
+        self.session.flush()
+        return entities
+
+    def is_match_stale(
+        self,
+        match_id: int,
+        expected_joueur_ids: list[int],
+        match_updated_at,
+    ) -> bool:
+        expected_set = set(expected_joueur_ids)
+        entries = self.get_for_match(match_id)
+
+        if not expected_set:
+            return len(entries) > 0
+        if not entries:
+            return True
+
+        entry_joueur_ids = {e.joueur_id for e in entries}
+        if entry_joueur_ids != expected_set:
+            return True
+
+        for entry in entries:
+            if entry.match_updated_at != match_updated_at:
+                return True
+        return False
 
 
 # ─── Entraîneur (via OfficielMatchDB) ─────────────────────────────

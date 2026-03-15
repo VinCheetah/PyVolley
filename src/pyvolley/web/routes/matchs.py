@@ -96,20 +96,11 @@ async def match_detail(
     player_stats_a = []
     player_stats_b = []
     if match.has_details:
-        from pyvolley.database.converters import match_db_to_core
-        from pyvolley.analysis.joueur_stats import analyze_joueur_match
+        from pyvolley.database.player_stats_service import JoueurMatchStatsService
 
-        match_core = match_db_to_core(match, participants_a, participants_b)
-        for p in participants_a:
-            if p.joueur:
-                s = analyze_joueur_match(match_core, p.joueur.licence)
-                if s:
-                    player_stats_a.append({"stats": s, "joueur_id": p.joueur_id})
-        for p in participants_b:
-            if p.joueur:
-                s = analyze_joueur_match(match_core, p.joueur.licence)
-                if s:
-                    player_stats_b.append({"stats": s, "joueur_id": p.joueur_id})
+        stats_service = JoueurMatchStatsService(repo.session)
+        stats_service.compute_and_store_for_match(match)
+        player_stats_a, player_stats_b = stats_service.get_match_stats_grouped(match.id)
 
     return templates.TemplateResponse(
         "matchs/detail.html",

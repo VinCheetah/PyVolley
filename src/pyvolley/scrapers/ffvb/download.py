@@ -21,6 +21,7 @@ from pyvolley.core.exceptions import ScrapingError
 from pyvolley.scrapers.base import MatchInfo, ScrapeResult
 from pyvolley.scrapers.ffvb.models import PouleInfo, ScrapeContext
 from pyvolley.scrapers.ffvb.utils import build_pdf_url
+from pyvolley.shared.pdf_storage import build_pdf_storage_path
 
 logger = logging.getLogger(__name__)
 
@@ -75,9 +76,15 @@ def download_match_pdf(
     Returns:
         ScrapeResult avec le statut du téléchargement.
     """
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    filepath = output_dir / match.filename
+    filepath = build_pdf_storage_path(
+        Path(output_dir),
+        saison_code=match.saison,
+        entite_code=match.entite_code,
+        poule_code=match.poule_code,
+        match_code=match.code,
+        journee=match.journee,
+    )
+    filepath.parent.mkdir(parents=True, exist_ok=True)
 
     try:
         if not match.pdf_url:

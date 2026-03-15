@@ -13,6 +13,11 @@ from pyvolley.web.helpers.brackets import (
     build_bracket_tree,
     build_challenge_bracket,
 )
+from pyvolley.web.helpers.club_branding import (
+    parse_club_colors,
+    detect_club_logo_url,
+    build_club_branding,
+)
 
 __all__ = [
     "resolve_niveau_badge",
@@ -22,4 +27,7 @@ __all__ = [
     "build_challenge_bracket",
     "NIVEAU_ORDER",
     "niveau_rank",
+    "parse_club_colors",
+    "detect_club_logo_url",
+    "build_club_branding",
 ]

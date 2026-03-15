@@ -10,6 +10,8 @@ from pyvolley.api.dependencies import get_joueur_repo, get_match_repo
 from pyvolley.api.schemas import JoueurResponse, JoueurDetail, MatchResponse
 from pyvolley.api.converters import match_to_response
 from pyvolley.database.repositories import JoueurRepository, MatchRepository
+from pyvolley.analysis.joueur_stats import aggregate_joueur_stats
+from pyvolley.database.player_stats_service import JoueurMatchStatsService
 
 router = APIRouter()
 
@@ -109,6 +111,16 @@ async def get_joueur_match_detailed_stats(
     if not match_db:
         raise HTTPException(status_code=404, detail="Match non trouvé")
 
+    stats_service = JoueurMatchStatsService(match_repo.session)
+
+    # Mode standard : servir depuis les stats persistées (pas de recalcul runtime)
+    has_custom_mode = remplace_par_libero or est_mode_libero or bool(joueurs_remplaces)
+    if not has_custom_mode:
+        stats_service.compute_and_store_for_match(match_db)
+        persisted = stats_service.get_joueur_match_stats(joueur_id, match_id)
+        if persisted:
+            return persisted.model_dump(mode="json")
+
     participants_a = [
         p
         for p in (match_db.participations or [])
@@ -150,42 +162,12 @@ async def get_joueur_aggregated_stats(
     match_repo: MatchRepository = Depends(get_match_repo),
 ):
     """Statistiques agrégées d'un joueur sur tous ses matchs."""
-    from pyvolley.database.converters import match_db_to_core
-    from pyvolley.analysis.joueur_stats import (
-        analyze_joueur_match,
-        aggregate_joueur_stats,
-    )
-
     joueur = joueur_repo.get(joueur_id)
     if not joueur:
         raise HTTPException(status_code=404, detail="Joueur non trouvé")
 
-    matchs_db = match_repo.get_by_joueur(joueur_id, limit=500)
-    all_stats = []
-
-    for m_db in matchs_db:
-        if not m_db.has_details:
-            continue
-        m_full = match_repo.get_with_details(m_db.id)
-        if not m_full:
-            continue
-
-        participants_a = [
-            p
-            for p in (m_full.participations or [])
-            if p.equipe_id == m_full.equipe_a_id
-        ]
-        participants_b = [
-            p
-            for p in (m_full.participations or [])
-            if p.equipe_id == m_full.equipe_b_id
-        ]
-        match_core = match_db_to_core(m_full, participants_a, participants_b)
-
-        s = analyze_joueur_match(match_core, joueur.licence)
-        if s:
-            all_stats.append(s)
-
+    stats_service = JoueurMatchStatsService(match_repo.session)
+    all_stats = stats_service.get_joueur_all_stats(joueur_id, limit=500)
     aggregated = aggregate_joueur_stats(all_stats)
     if not aggregated:
         return {"message": "Aucune statistique disponible"}
@@ -199,38 +181,15 @@ async def get_match_all_player_stats(
     match_repo: MatchRepository = Depends(get_match_repo),
 ):
     """Statistiques détaillées de tous les joueurs d'un match."""
-    from pyvolley.database.converters import match_db_to_core
-    from pyvolley.analysis.joueur_stats import analyze_joueur_match
-
     match_db = match_repo.get_with_details(match_id)
     if not match_db:
         raise HTTPException(status_code=404, detail="Match non trouvé")
 
-    participants_a = [
-        p
-        for p in (match_db.participations or [])
-        if p.equipe_id == match_db.equipe_a_id
-    ]
-    participants_b = [
-        p
-        for p in (match_db.participations or [])
-        if p.equipe_id == match_db.equipe_b_id
-    ]
-
-    match_core = match_db_to_core(match_db, participants_a, participants_b)
-
-    stats_a = []
-    stats_b = []
-    for p in participants_a:
-        if p.joueur:
-            s = analyze_joueur_match(match_core, p.joueur.licence)
-            if s:
-                stats_a.append(s.model_dump())
-    for p in participants_b:
-        if p.joueur:
-            s = analyze_joueur_match(match_core, p.joueur.licence)
-            if s:
-                stats_b.append(s.model_dump())
+    stats_service = JoueurMatchStatsService(match_repo.session)
+    stats_service.compute_and_store_for_match(match_db)
+    stats_a_wrapped, stats_b_wrapped = stats_service.get_match_stats_grouped(match_id)
+    stats_a = [item["stats"] for item in stats_a_wrapped]
+    stats_b = [item["stats"] for item in stats_b_wrapped]
 
     return {
         "match_id": match_id,

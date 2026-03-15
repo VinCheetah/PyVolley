@@ -6,6 +6,7 @@ pour permettre l'utilisation des fonctions d'analyse.
 """
 
 import logging
+import hashlib
 from datetime import time as datetime_time
 from typing import Optional
 
@@ -34,6 +35,27 @@ def _parse_heure(heure_str: Optional[str]) -> Optional[datetime_time]:
     except (ValueError, IndexError):
         pass
     return None
+
+
+def _sanitize_joueur_licence(licence: Optional[str]) -> str:
+    """Normalise la licence pour respecter les contraintes du modèle core.
+
+    Le modèle ``core.models.Joueur`` impose ``max_length=10``.
+    Certaines anciennes licences synthétiques (ex: ``NL-xxxxxxxxxxxx``)
+    peuvent dépasser cette longueur.
+    """
+    value = (licence or "").strip()
+    if not value:
+        return "0"
+    if value.isdigit() and len(value) <= 10:
+        return value
+    if value.isdigit() and len(value) > 10:
+        return value[-10:]
+
+    # Fallback legacy pour licences synthétiques non numériques (ex: NL-...)
+    # Convertit en clé numérique stable sur 10 chiffres.
+    hash_int = int(hashlib.sha1(value.encode("utf-8")).hexdigest(), 16)
+    return f"{hash_int % 10_000_000_000:010d}"
 
 
 def match_db_to_core(
@@ -118,7 +140,7 @@ def _build_equipe(
     for p in participants:
         j = Joueur(
             id=p.joueur_id,
-            licence=p.joueur.licence if p.joueur else "0",
+            licence=_sanitize_joueur_licence(p.joueur.licence if p.joueur else None),
             nom=p.joueur.nom if p.joueur else "?",
             prenom=p.joueur.prenom if p.joueur else "",
             numero=p.numero_maillot,

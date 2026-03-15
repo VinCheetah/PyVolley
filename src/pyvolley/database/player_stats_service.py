@@ -1,0 +1,105 @@
+"""Service de persistance des statistiques détaillées joueur par match."""
+
+from __future__ import annotations
+
+from sqlalchemy.orm import Session
+
+from pyvolley.analysis.joueur_stats import analyze_joueur_match
+from pyvolley.analysis.models import JoueurMatchDetailedStats
+from pyvolley.database.converters import match_db_to_core, _sanitize_joueur_licence
+from pyvolley.database.models import MatchDB
+from pyvolley.database.repositories import JoueurMatchStatsRepository
+
+
+class JoueurMatchStatsService:
+    """Calcule et persiste les statistiques détaillées des joueurs d'un match."""
+
+    def __init__(self, session: Session):
+        self.session = session
+        self.repo = JoueurMatchStatsRepository(session)
+
+    def compute_and_store_for_match(self, match_db: MatchDB, *, force: bool = False) -> int:
+        """Calcule et stocke les stats détaillées de tous les joueurs d'un match.
+
+        Returns:
+            Nombre de lignes persistées.
+        """
+        if not match_db.has_details:
+            return 0
+
+        participants = list(match_db.participations or [])
+        if not participants:
+            return 0
+
+        valid_participants = [
+            p
+            for p in participants
+            if p.joueur and p.joueur.licence
+        ]
+        if not valid_participants:
+            return 0
+
+        expected_ids = [p.joueur_id for p in valid_participants]
+        if not force and not self.repo.is_match_stale(
+            match_db.id,
+            expected_joueur_ids=expected_ids,
+            match_updated_at=match_db.updated_at,
+        ):
+            return len(expected_ids)
+
+        participants_a = [p for p in valid_participants if p.equipe_id == match_db.equipe_a_id]
+        participants_b = [p for p in valid_participants if p.equipe_id == match_db.equipe_b_id]
+        match_core = match_db_to_core(match_db, participants_a, participants_b)
+
+        rows: list[dict] = []
+        for participation in valid_participants:
+            licence_key = _sanitize_joueur_licence(participation.joueur.licence)
+            stats = analyze_joueur_match(match_core, licence_key)
+            if not stats:
+                continue
+            rows.append(
+                {
+                    "joueur_id": participation.joueur_id,
+                    "equipe_id": participation.equipe_id,
+                    "stats_data": stats.model_dump(mode="json"),
+                }
+            )
+
+        self.repo.replace_for_match(
+            match_db.id,
+            rows,
+            match_updated_at=match_db.updated_at,
+        )
+        return len(rows)
+
+    def get_match_stats_grouped(self, match_id: int) -> tuple[list[dict], list[dict]]:
+        """Retourne les stats d'un match groupées par équipe A/B."""
+        match_db = self.session.get(MatchDB, match_id)
+        if not match_db:
+            return [], []
+
+        entries = self.repo.get_for_match(match_id)
+        stats_a: list[dict] = []
+        stats_b: list[dict] = []
+
+        for entry in entries:
+            side = entry.stats_data.get("side")
+            payload = {"joueur_id": entry.joueur_id, "stats": entry.stats_data}
+            if side == "A":
+                stats_a.append(payload)
+            elif side == "B":
+                stats_b.append(payload)
+
+        return stats_a, stats_b
+
+    def get_joueur_match_stats(self, joueur_id: int, match_id: int) -> JoueurMatchDetailedStats | None:
+        """Retourne les stats détaillées persistées d'un joueur pour un match."""
+        entry = self.repo.get_for_match_joueur(match_id, joueur_id)
+        if not entry:
+            return None
+        return JoueurMatchDetailedStats.model_validate(entry.stats_data)
+
+    def get_joueur_all_stats(self, joueur_id: int, limit: int = 500) -> list[JoueurMatchDetailedStats]:
+        """Retourne toutes les stats détaillées persistées d'un joueur."""
+        rows = self.repo.get_for_joueur(joueur_id, limit=limit)
+        return [JoueurMatchDetailedStats.model_validate(r.stats_data) for r in rows]

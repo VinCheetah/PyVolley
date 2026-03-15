@@ -25,6 +25,7 @@ from .models import (
     EntiteFFVBDB, ParticipationMatchDB, SanctionDB, OfficielMatchDB,
     PersonneDB,
 )
+from .player_stats_service import JoueurMatchStatsService
 
 logger = logging.getLogger(__name__)
 
@@ -160,6 +161,11 @@ class MatchImportService:
             self._import_officiels(match_db, match_data.equipe_a.officiels, "A")
         if match_data.equipe_b:
             self._import_officiels(match_db, match_data.equipe_b.officiels, "B")
+
+        # 11. Statistiques détaillées joueur (persistées en base)
+        if match_db.has_details:
+            stats_service = JoueurMatchStatsService(self.session)
+            stats_service.compute_and_store_for_match(match_db, force=True)
 
         return match_db
 
@@ -884,8 +890,11 @@ class MatchImportService:
 
     def _build_no_licence_key(self, nom: str, prenom: str) -> str:
         normalized = f"{nom.strip().upper()}|{prenom.strip().upper()}"
-        digest = hashlib.sha1(normalized.encode("utf-8")).hexdigest()[:12]
-        return f"NL-{digest}"
+        # Le modèle core impose une licence numérique de 10 caractères max.
+        # Licence synthétique stable : préfixe '9' + 9 chiffres dérivés du hash.
+        hash_int = int(hashlib.sha1(normalized.encode("utf-8")).hexdigest(), 16)
+        suffix = hash_int % 1_000_000_000
+        return f"9{suffix:09d}"
 
     def _get_or_create_personne(
         self,
@@ -1381,6 +1390,11 @@ class MatchImportService:
             match_db.parsed_at = parsed.parsed_at or datetime.now()
             match_db.updated_at = datetime.now()
             self.session.flush()
+
+            # Recalcule et persiste les statistiques détaillées des joueurs
+            if match_db.has_details:
+                stats_service = JoueurMatchStatsService(self.session)
+                stats_service.compute_and_store_for_match(match_db, force=True)
 
         return updated
 

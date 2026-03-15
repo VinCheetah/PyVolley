@@ -662,10 +662,10 @@
                             <th class="text-center" title="Numéro de maillot">#</th>
                             <th class="text-center" title="Sets joués">Sets</th>
                             <th class="text-center" title="Points joués estimés">Pts joués</th>
-                            <th class="text-center" title="Points gagnés au service">Pts gagnés</th>
+                            <th class="text-center" title="Points gagnés par l'équipe pendant la présence du joueur">Pts gagnés</th>
                             <th class="text-center" title="Points perdus estimés">Pts perdus</th>
-                            <th class="text-center" title="Nombre de tours de service">Services</th>
-                            <th class="text-center" title="Meilleure série de points au service">Meilleure série</th>
+                            <th class="text-center" title="Nombre total de services effectués">Services</th>
+                            <th class="text-center" title="Longueur maximale d'une série de service">Max série</th>
                             <th class="text-center" title="Temps de jeu estimé">Temps</th>
                             <th class="text-center" title="Changements (entrées/sorties)">Chg</th>
                             <th class="text-center" title="Temps morts provoqués par l'adversaire pendant un service">TM prov.</th>
@@ -676,7 +676,7 @@
                         {% for item in player_stats_a %}
                         {% set ps = item.stats %}
                         <tr class="{% if ps.est_libero %}opacity-80{% endif %} cursor-pointer hover:opacity-80 transition"
-                            @click="selectPlayer({{ ps.model_dump_json() }})">
+                            @click='selectPlayer({{ ps|tojson }})'>
                             <td class="sticky left-0 font-medium whitespace-nowrap" style="background: var(--bg-card); z-index: 1;">
                                 <a href="{{ path_for_entity('joueur', item.joueur_id) }}" class="hover:text-white transition" style="color: var(--team-a-light);">
                                     {{ ps.prenom[0] }}. {{ ps.nom }}
@@ -694,10 +694,10 @@
                             <td class="text-center font-semibold" style="color: var(--accent-cyan);">{{ ps.points_joues }}</td>
                             <td class="text-center font-semibold" style="color: var(--accent-green);">{{ ps.points_gagnes }}</td>
                             <td class="text-center font-semibold" style="color: var(--accent-red);">{{ ps.points_perdus }}</td>
-                            <td class="text-center">{{ ps.nb_services }}</td>
+                            <td class="text-center">{{ ps.services }}</td>
                             <td class="text-center">
-                                {% if ps.meilleure_serie > 0 %}
-                                <span class="font-bold" style="color: var(--accent-gold);">{{ ps.meilleure_serie }}</span>
+                                {% if ps.max_serie > 0 %}
+                                <span class="font-bold" style="color: var(--accent-gold);">{{ ps.max_serie }}</span>
                                 {% else %}—{% endif %}
                             </td>
                             <td class="text-center whitespace-nowrap">
@@ -747,10 +747,10 @@
                             <th class="text-center" title="Numéro de maillot">#</th>
                             <th class="text-center" title="Sets joués">Sets</th>
                             <th class="text-center" title="Points joués estimés">Pts joués</th>
-                            <th class="text-center" title="Points gagnés au service">Pts gagnés</th>
+                            <th class="text-center" title="Points gagnés par l'équipe pendant la présence du joueur">Pts gagnés</th>
                             <th class="text-center" title="Points perdus estimés">Pts perdus</th>
-                            <th class="text-center" title="Nombre de tours de service">Services</th>
-                            <th class="text-center" title="Meilleure série de points au service">Meilleure série</th>
+                            <th class="text-center" title="Nombre total de services effectués">Services</th>
+                            <th class="text-center" title="Longueur maximale d'une série de service">Max série</th>
                             <th class="text-center" title="Temps de jeu estimé">Temps</th>
                             <th class="text-center" title="Changements (entrées/sorties)">Chg</th>
                             <th class="text-center" title="Temps morts provoqués par l'adversaire pendant un service">TM prov.</th>
@@ -761,7 +761,7 @@
                         {% for item in player_stats_b %}
                         {% set ps = item.stats %}
                         <tr class="{% if ps.est_libero %}opacity-80{% endif %} cursor-pointer hover:opacity-80 transition"
-                            @click="selectPlayer({{ ps.model_dump_json() }})">
+                            @click='selectPlayer({{ ps|tojson }})'>
                             <td class="sticky left-0 font-medium whitespace-nowrap" style="background: var(--bg-card); z-index: 1;">
                                 <a href="{{ path_for_entity('joueur', item.joueur_id) }}" class="hover:text-white transition" style="color: var(--team-b-light);">
                                     {{ ps.prenom[0] }}. {{ ps.nom }}
@@ -779,10 +779,10 @@
                             <td class="text-center font-semibold" style="color: var(--accent-cyan);">{{ ps.points_joues }}</td>
                             <td class="text-center font-semibold" style="color: var(--accent-green);">{{ ps.points_gagnes }}</td>
                             <td class="text-center font-semibold" style="color: var(--accent-red);">{{ ps.points_perdus }}</td>
-                            <td class="text-center">{{ ps.nb_services }}</td>
+                            <td class="text-center">{{ ps.services }}</td>
                             <td class="text-center">
-                                {% if ps.meilleure_serie > 0 %}
-                                <span class="font-bold" style="color: var(--accent-gold);">{{ ps.meilleure_serie }}</span>
+                                {% if ps.max_serie > 0 %}
+                                <span class="font-bold" style="color: var(--accent-gold);">{{ ps.max_serie }}</span>
                                 {% else %}—{% endif %}
                             </td>
                             <td class="text-center whitespace-nowrap">

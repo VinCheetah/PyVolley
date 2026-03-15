@@ -78,6 +78,36 @@
         </div>
     </div>
 
+    <!-- Numéro de maillot -->
+    {% if numero_stats and numero_stats.matches_with_number > 0 %}
+    <div class="card p-4">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+                <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--accent-purple);">
+                    <i data-lucide="shirt" class="w-4 h-4 inline-block mr-1"></i>
+                    Statistiques numéro de maillot
+                </h2>
+                <div class="flex flex-wrap items-center gap-3 mt-2 text-sm" style="color: var(--text-secondary);">
+                    <span>Numéro principal :
+                        <strong style="color: var(--accent-cyan);">#{{ numero_stats.principal }}</strong>
+                    </span>
+                    <span>•</span>
+                    <span>{{ numero_stats.distinct_count }} numéro{% if numero_stats.distinct_count > 1 %}s{% endif %} utilisé{% if numero_stats.distinct_count > 1 %}s{% endif %}</span>
+                    <span>•</span>
+                    <span>{{ numero_stats.matches_with_number }} match{% if numero_stats.matches_with_number > 1 %}s{% endif %} avec numéro</span>
+                </div>
+            </div>
+            <div class="flex flex-wrap gap-2">
+                {% for n in numero_stats.distribution %}
+                <span class="badge badge-purple text-xs">
+                    #{{ n.numero }} · {{ n.count }} match{% if n.count > 1 %}s{% endif %} ({{ n.pct|round(0)|int }}%)
+                </span>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Win/Loss bar -->
     {% set total_played = (stats.victoires or 0) + (stats.defaites or 0) %}
     {% if total_played > 0 %}
@@ -127,19 +157,19 @@
                 </div>
                 <div class="stat-card">
                     <div class="stat-value" style="color: var(--accent-green);">{{ aggregated_stats.total_points_gagnes }}</div>
-                    <div class="stat-label">Pts gagnés (serv.)</div>
+                    <div class="stat-label">Pts gagnés (terrain)</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-value" style="color: var(--accent-red);">{{ aggregated_stats.total_points_perdus }}</div>
                     <div class="stat-label">Pts perdus</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value gradient-text-gold">{{ aggregated_stats.total_tours_service }}</div>
-                    <div class="stat-label">Tours de service</div>
+                    <div class="stat-value gradient-text-gold">{{ aggregated_stats.total_services }}</div>
+                    <div class="stat-label">Services</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value" style="color: var(--accent-gold);">{{ aggregated_stats.meilleure_serie_service }}</div>
-                    <div class="stat-label">Meilleure série</div>
+                    <div class="stat-value" style="color: var(--accent-gold);">{{ aggregated_stats.max_serie_service }}</div>
+                    <div class="stat-label">Max série</div>
                 </div>
                 <div class="stat-card">
                     {% if aggregated_stats.total_temps_jeu > 0 %}
@@ -163,9 +193,9 @@
                 </div>
                 <div class="p-3 rounded-lg text-center" style="background: var(--bg-card-hover);">
                     <div class="text-lg font-bold" style="color: var(--accent-green);">
-                        {{ aggregated_stats.moyenne_points_par_tour|round(2) }}
+                        {{ aggregated_stats.moyenne_services_par_serie|round(2) }}
                     </div>
-                    <div class="text-xs" style="color: var(--text-muted);">Pts/tour de service</div>
+                    <div class="text-xs" style="color: var(--text-muted);">Services/série</div>
                 </div>
                 <div class="p-3 rounded-lg text-center" style="background: var(--bg-card-hover);">
                     <div class="text-lg font-bold" style="color: var(--accent-blue);">
@@ -212,13 +242,17 @@
                         <tr>
                             <th>Date</th>
                             <th>Adversaire</th>
+                            <th class="text-center">#</th>
+                            <th>Niveau</th>
                             <th class="text-center">V/D</th>
                             <th class="text-center">Sets</th>
                             <th class="text-center">Pts joués</th>
                             <th class="text-center">Pts gagnés</th>
                             <th class="text-center">Pts perdus</th>
+                            <th class="text-center">% Pts gagnés</th>
                             <th class="text-center">Services</th>
-                            <th class="text-center">Série</th>
+                            <th class="text-center">Séries</th>
+                            <th class="text-center">Max série</th>
                             <th class="text-center">Temps</th>
                             <th class="text-center">Chg</th>
                             <th class="text-center">TM prov.</th>
@@ -237,6 +271,20 @@
                                 </a>
                             </td>
                             <td class="text-center">
+                                {% if pm.numero %}
+                                <span class="badge badge-purple text-xs">#{{ pm.numero }}</span>
+                                {% else %}
+                                <span style="color: var(--text-muted);">—</span>
+                                {% endif %}
+                            </td>
+                            <td class="whitespace-nowrap">
+                                {% if pm.niveau_principal %}
+                                <span class="badge badge-blue text-xs">{{ pm.niveau_principal }}</span>
+                                {% else %}
+                                <span style="color: var(--text-muted);">—</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
                                 {% if pms.victoire %}
                                 <span class="badge badge-green text-xs">V</span>
                                 {% else %}
@@ -247,12 +295,12 @@
                             <td class="text-center font-semibold" style="color: var(--accent-cyan);">{{ pms.points_joues }}</td>
                             <td class="text-center font-semibold" style="color: var(--accent-green);">{{ pms.points_gagnes }}</td>
                             <td class="text-center font-semibold" style="color: var(--accent-red);">{{ pms.points_perdus }}</td>
-                            <td class="text-center">{{ pms.nb_services }}</td>
                             <td class="text-center">
-                                {% if pms.meilleure_serie > 0 %}
-                                <span class="font-bold" style="color: var(--accent-gold);">{{ pms.meilleure_serie }}</span>
-                                {% else %}—{% endif %}
+                                <span class="font-semibold" style="color: var(--accent-gold);">{{ pm.ratio_points_pct|round(1) }}%</span>
                             </td>
+                            <td class="text-center">{{ pms.services }}</td>
+                            <td class="text-center">{{ pms.serie }}</td>
+                            <td class="text-center">{% if pms.max_serie > 0 %}<span class="font-bold" style="color: var(--accent-gold);">{{ pms.max_serie }}</span>{% else %}—{% endif %}</td>
                             <td class="text-center whitespace-nowrap">
                                 {% if pms.temps_jeu_estime is not none %}
                                 {{ pms.temps_jeu_estime|round(0)|int }}′
@@ -276,6 +324,35 @@
                 Aucune donnée de performance détaillée disponible.
             </div>
             {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Évolution des statistiques match par match -->
+    {% if match_evolution_stats and match_evolution_stats|length > 1 %}
+    <div class="card overflow-hidden">
+        <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
+            <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--accent-cyan);">
+                <i data-lucide="line-chart" class="w-4 h-4 inline-block mr-1"></i>
+                Évolution des statistiques par match
+            </h2>
+            <p class="text-xs mt-1" style="color: var(--text-muted);">
+                Suivi chronologique sur {{ match_evolution_stats|length }} matchs : performance terrain, service, temps de jeu et niveau.
+            </p>
+        </div>
+        <div class="p-4 grid grid-cols-1 xl:grid-cols-2 gap-6">
+            <div class="card p-4">
+                <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">Points par match</h3>
+                <div style="height: 250px;"><canvas id="matchPointsChart"></canvas></div>
+            </div>
+            <div class="card p-4">
+                <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">Service & rythme</h3>
+                <div style="height: 250px;"><canvas id="matchServiceChart"></canvas></div>
+            </div>
+            <div class="card p-4 xl:col-span-2">
+                <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">Évolution du niveau des matchs</h3>
+                <div style="height: 280px;"><canvas id="matchLevelChart"></canvas></div>
+            </div>
         </div>
     </div>
     {% endif %}
@@ -627,6 +704,241 @@ document.addEventListener('DOMContentLoaded', function() {
                 },
                 plugins: {
                     legend: { labels: { color: textColor, font: { size: 11 } } }
+                }
+            }
+        });
+    }
+    {% endif %}
+
+    // Match-by-match evolution charts
+    {% if match_evolution_stats and match_evolution_stats|length > 1 %}
+    const matchEvolutionData = {{ match_evolution_stats | tojson }};
+    const evolutionLabels = matchEvolutionData.map((m, idx) => {
+        const dateLabel = m.date ? new Date(m.date).toLocaleDateString('fr-FR') : `M${idx + 1}`;
+        return `${dateLabel}`;
+    });
+    const pointsJouesData = matchEvolutionData.map(m => m.points_joues || 0);
+    const pointsGagnesData = matchEvolutionData.map(m => m.points_gagnes || 0);
+    const pointsPerdusData = matchEvolutionData.map(m => m.points_perdus || 0);
+    const ratioData = matchEvolutionData.map(m => m.ratio_points_pct || 0);
+    const servicesData = matchEvolutionData.map(m => m.services || 0);
+    const maxSerieData = matchEvolutionData.map(m => m.max_serie || 0);
+    const tempsData = matchEvolutionData.map(m => m.temps_jeu_estime ?? null);
+    const niveauRanks = matchEvolutionData.map(m => m.niveau_rank);
+    const niveauLabels = matchEvolutionData.map(m => m.niveau_principal || 'Inconnu');
+
+    const matchPointsCtx = document.getElementById('matchPointsChart');
+    if (matchPointsCtx) {
+        new Chart(matchPointsCtx, {
+            type: 'line',
+            data: {
+                labels: evolutionLabels,
+                datasets: [
+                    {
+                        label: 'Pts joués',
+                        data: pointsJouesData,
+                        borderColor: chartColors.cyan,
+                        backgroundColor: chartColors.cyanBg,
+                        borderWidth: 2,
+                        tension: 0.3,
+                        pointRadius: 3,
+                    },
+                    {
+                        label: 'Pts gagnés',
+                        data: pointsGagnesData,
+                        borderColor: chartColors.green,
+                        backgroundColor: chartColors.greenBg,
+                        borderWidth: 2,
+                        tension: 0.3,
+                        pointRadius: 3,
+                    },
+                    {
+                        label: 'Pts perdus',
+                        data: pointsPerdusData,
+                        borderColor: chartColors.red,
+                        backgroundColor: chartColors.redBg,
+                        borderWidth: 2,
+                        tension: 0.3,
+                        pointRadius: 3,
+                    },
+                    {
+                        label: '% Pts gagnés',
+                        data: ratioData,
+                        type: 'line',
+                        borderColor: chartColors.gold,
+                        backgroundColor: chartColors.goldBg,
+                        borderWidth: 2,
+                        borderDash: [6, 4],
+                        pointRadius: 3,
+                        yAxisID: 'y1',
+                    }
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: gridColor },
+                        ticks: { color: textColor },
+                        title: { display: true, text: 'Points', color: textColor }
+                    },
+                    y1: {
+                        beginAtZero: true,
+                        max: 100,
+                        position: 'right',
+                        grid: { display: false },
+                        ticks: { color: chartColors.gold, callback: v => `${v}%` },
+                        title: { display: true, text: '% Gagnés', color: chartColors.gold }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { color: textColor, maxRotation: 45, font: { size: 10 } }
+                    }
+                },
+                plugins: {
+                    legend: { labels: { color: textColor, font: { size: 11 } } },
+                    tooltip: {
+                        callbacks: {
+                            afterBody: function(items) {
+                                const idx = items[0].dataIndex;
+                                const m = matchEvolutionData[idx];
+                                return [
+                                    `Adversaire: ${m.adversaire || '?'}`,
+                                    `Numéro: ${m.numero ? '#' + m.numero : '—'}`,
+                                    `Résultat: ${m.victoire ? 'Victoire' : 'Défaite'}`,
+                                ];
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    const matchServiceCtx = document.getElementById('matchServiceChart');
+    if (matchServiceCtx) {
+        new Chart(matchServiceCtx, {
+            type: 'bar',
+            data: {
+                labels: evolutionLabels,
+                datasets: [
+                    {
+                        label: 'Services',
+                        data: servicesData,
+                        backgroundColor: chartColors.blueBg,
+                        borderColor: chartColors.blue,
+                        borderWidth: 1,
+                        borderRadius: 4,
+                    },
+                    {
+                        label: 'Max série',
+                        data: maxSerieData,
+                        type: 'line',
+                        borderColor: chartColors.purple,
+                        backgroundColor: chartColors.purpleBg,
+                        borderWidth: 2,
+                        pointRadius: 4,
+                        tension: 0.3,
+                        yAxisID: 'y',
+                    },
+                    {
+                        label: 'Temps de jeu (min)',
+                        data: tempsData,
+                        type: 'line',
+                        borderColor: chartColors.green,
+                        backgroundColor: chartColors.greenBg,
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        borderDash: [5, 3],
+                        tension: 0.3,
+                        yAxisID: 'y1',
+                    }
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: gridColor },
+                        ticks: { color: textColor, stepSize: 1 },
+                        title: { display: true, text: 'Services / Série', color: textColor },
+                    },
+                    y1: {
+                        beginAtZero: true,
+                        position: 'right',
+                        grid: { display: false },
+                        ticks: { color: chartColors.green },
+                        title: { display: true, text: 'Temps (min)', color: chartColors.green }
+                    },
+                    x: { grid: { display: false }, ticks: { color: textColor, maxRotation: 45, font: { size: 10 } } }
+                },
+                plugins: {
+                    legend: { labels: { color: textColor, font: { size: 11 } } }
+                }
+            }
+        });
+    }
+
+    const matchLevelCtx = document.getElementById('matchLevelChart');
+    if (matchLevelCtx) {
+        const validRanks = niveauRanks.filter(v => v !== null && v !== undefined);
+        const minRank = validRanks.length ? Math.max(0, Math.min(...validRanks) - 1) : 0;
+        const maxRank = validRanks.length ? Math.min(10, Math.max(...validRanks) + 1) : 10;
+
+        new Chart(matchLevelCtx, {
+            type: 'line',
+            data: {
+                labels: evolutionLabels,
+                datasets: [{
+                    label: 'Niveau du match',
+                    data: niveauRanks,
+                    borderColor: chartColors.purple,
+                    backgroundColor: chartColors.purpleBg,
+                    borderWidth: 3,
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                    tension: 0.25,
+                    spanGaps: true,
+                    fill: true,
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        min: minRank,
+                        max: maxRank,
+                        grid: { color: gridColor },
+                        ticks: {
+                            color: textColor,
+                            stepSize: 1,
+                            callback: function(v) {
+                                const map = {
+                                    0: 'Loisir', 1: 'Départemental', 2: 'Pré-régional', 3: 'Régional',
+                                    4: 'Pré-national', 5: 'National', 6: 'N2', 7: 'N1', 8: 'Élite', 9: 'Pro B', 10: 'Pro A'
+                                };
+                                return map[v] || '';
+                            }
+                        },
+                        title: { display: true, text: 'Niveau', color: textColor }
+                    },
+                    x: { grid: { display: false }, ticks: { color: textColor, maxRotation: 45, font: { size: 10 } } }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: function(ctx) {
+                                return `Niveau: ${niveauLabels[ctx.dataIndex] || 'Inconnu'}`;
+                            },
+                            afterLabel: function(ctx) {
+                                const m = matchEvolutionData[ctx.dataIndex];
+                                return `Adversaire: ${m.adversaire || '?'}`;
+                            }
+                        }
+                    }
                 }
             }
         });
