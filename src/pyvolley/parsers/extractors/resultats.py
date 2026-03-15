@@ -22,6 +22,23 @@ from pyvolley.parsers.utils import (
 logger = logging.getLogger(__name__)
 
 
+_VAINQUEUR_MAIN_PATTERN = re.compile(
+    r'Vainqueur:\s*'
+    r'([A-Za-zÀ-ÿŒœÆæ0-9][A-Za-zÀ-ÿŒœÆæ0-9\s\-\'\.\/\(\)]+?)'
+    r'\s+(\d)/(\d)',
+)
+_VAINQUEUR_FALLBACK_PATTERN = re.compile(
+    r'Vainqueur:\s*([A-Za-zÀ-ÿŒœÆæ0-9][^\n]*)',
+)
+_VAINQUEUR_SUFFIX_CLEAN_PATTERN = re.compile(
+    r'\s+(?:Entraineur|Capitaine|SIGNATURES?)\b.*$',
+    re.IGNORECASE,
+)
+_TRAILING_SCORE_PATTERN = re.compile(r'(\d)/(\d)\s*$')
+_DUREE_H_PATTERN = re.compile(r'Durée\s*(\d+h\d+)')
+_DUREE_MIN_PATTERN = re.compile(r"Durée.*?(\d+)'")
+
+
 # =====================================================================
 # Résultat global (vainqueur, score, durée)
 # =====================================================================
@@ -38,30 +55,16 @@ def extract_resultat(lines: list[str], tidx: dict) -> dict:
     full_text = '\n'.join(lines)
 
     # Regex principale
-    if vm := re.search(
-        r'Vainqueur:\s*'
-        r'([A-Za-zÀ-ÿŒœÆæ0-9][A-Za-zÀ-ÿŒœÆæ0-9\s\-\'\.\/\(\)]+?)'
-        r'\s+(\d)/(\d)',
-        full_text,
-    ):
+    if vm := _VAINQUEUR_MAIN_PATTERN.search(full_text):
         raw_name = vm.group(1).strip()
-        raw_name = re.sub(
-            r'\s+(?:Entraineur|Capitaine|SIGNATURES?)\b.*$',
-            '', raw_name, flags=re.IGNORECASE,
-        ).strip()
+        raw_name = _VAINQUEUR_SUFFIX_CLEAN_PATTERN.sub('', raw_name).strip()
         result["vainqueur"] = normalize_name(raw_name)
         result["score_final"] = f"{vm.group(2)}/{vm.group(3)}"
     else:
-        if v2 := re.search(
-            r'Vainqueur:\s*([A-Za-zÀ-ÿŒœÆæ0-9][^\n]*)',
-            full_text,
-        ):
+        if v2 := _VAINQUEUR_FALLBACK_PATTERN.search(full_text):
             raw = v2.group(1).strip()
-            raw = re.sub(
-                r'\s+(?:Entraineur|Capitaine|SIGNATURES?)\b.*$',
-                '', raw, flags=re.IGNORECASE,
-            ).strip()
-            if sm := re.search(r'(\d)/(\d)\s*$', raw):
+            raw = _VAINQUEUR_SUFFIX_CLEAN_PATTERN.sub('', raw).strip()
+            if sm := _TRAILING_SCORE_PATTERN.search(raw):
                 result["score_final"] = f"{sm.group(1)}/{sm.group(2)}"
                 result["vainqueur"] = normalize_name(raw[:sm.start()].strip())
             elif len(raw) > 3:
@@ -75,9 +78,7 @@ def extract_resultat(lines: list[str], tidx: dict) -> dict:
                 continue
             rt = ' '.join(str(c) for c in row if c)
             if 'Vainqueur' in rt:
-                if vm := re.search(
-                    r'Vainqueur:\s*(.+?)\s+(\d)/(\d)', rt,
-                ):
+                if vm := _VAINQUEUR_MAIN_PATTERN.search(rt):
                     result["vainqueur"] = normalize_name(vm.group(1).strip())
                     result["score_final"] = f"{vm.group(2)}/{vm.group(3)}"
                 break
@@ -87,9 +88,9 @@ def extract_resultat(lines: list[str], tidx: dict) -> dict:
         result["vainqueur"] = clean_team_name(result["vainqueur"])
 
     # Durée
-    if dm := re.search(r'Durée\s*(\d+h\d+)', full_text):
+    if dm := _DUREE_H_PATTERN.search(full_text):
         result["duree_totale"] = dm.group(1)
-    elif dm := re.search(r"Durée.*?(\d+)'", full_text):
+    elif dm := _DUREE_MIN_PATTERN.search(full_text):
         result["duree_totale"] = dm.group(1) + "'"
 
     return result

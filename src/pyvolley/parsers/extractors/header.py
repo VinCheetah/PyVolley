@@ -20,6 +20,19 @@ from pyvolley.parsers.constants import MOIS_MAP, JOURS_SEMAINE
 from pyvolley.parsers.utils import detect_niveau, extract_organisateur
 
 
+_JOURS_ALT = '|'.join(JOURS_SEMAINE)
+_MATCH_CODE_PATTERN = re.compile(r'Match:\s*(\w+)')
+_JOURNEE_PATTERN = re.compile(r'Jour:\s*(\d+)')
+_LIGUE_FALLBACK_PATTERN = re.compile(r'Ligue\s+(\w[\w\s-]*?)(?:\s+Match:|\s*$)')
+_VILLE_PATTERN = re.compile(r'Ville:\s*(.+?)\s+(?:' + _JOURS_ALT + r')\s')
+_DATE_PATTERN = re.compile(r'(' + _JOURS_ALT + r')\s+(\d{1,2})\s+(\w+)\s+(\d{4})')
+_HEURE_PATTERN = re.compile(r'à\s+(\d{1,2})h(\d{2})')
+_SALLE_PATTERN = re.compile(
+    r'Salle:\s*(.+?)(?:\s+(?:SENIOR|MASCULIN|FÉMININ|FEMININ|MIXTE|M\d{2}|U\d{2})|\s*$)',
+)
+_CATEGORIE_PATTERN = re.compile(r'\b(M\d{2}|U\d{2})\b')
+
+
 def extract_header(lines: list[str]) -> dict:
     """Parse le header depuis les premières lignes du texte.
 
@@ -43,9 +56,9 @@ def extract_header(lines: list[str]) -> dict:
 
         # ── Code match & journée ──
         if 'Match:' in line:
-            if m := re.search(r'Match:\s*(\w+)', line):
+            if m := _MATCH_CODE_PATTERN.search(line):
                 header["code_match"] = m.group(1)
-            if m := re.search(r'Jour:\s*(\d+)', line):
+            if m := _JOURNEE_PATTERN.search(line):
                 header["journee"] = m.group(1)
             comp_part = line.split('Match:')[0].strip().rstrip('-').strip()
             if comp_part:
@@ -84,7 +97,7 @@ def extract_header(lines: list[str]) -> dict:
                 header["ligue"] = org
                 header["organisation"] = org
                 header["organisateur"] = org
-            elif m := re.search(r'Ligue\s+(\w[\w\s-]*?)(?:\s+Match:|\s*$)', line):
+            elif m := _LIGUE_FALLBACK_PATTERN.search(line):
                 ligue_name = m.group(1).strip()
                 if len(ligue_name) > 1:
                     header["ligue"] = f"Ligue {ligue_name}"
@@ -171,18 +184,12 @@ def _parse_ville_date_line(line: str) -> dict:
     """Parse ``'Ville: SAINT MARTIN D'HÈRES Samedi 20 Septembre 2025 à 20h30'``."""
     info: dict = {}
 
-    if m := re.search(
-        r'Ville:\s*(.+?)\s+(?:' + '|'.join(JOURS_SEMAINE) + r')\s',
-        line,
-    ):
+    if m := _VILLE_PATTERN.search(line):
         lieu = m.group(1).strip()
         if lieu and lieu not in JOURS_SEMAINE:
             info["lieu"] = lieu
 
-    if dm := re.search(
-        r'(' + '|'.join(JOURS_SEMAINE) + r')\s+(\d{1,2})\s+(\w+)\s+(\d{4})',
-        line,
-    ):
+    if dm := _DATE_PATTERN.search(line):
         jour_sem, jour_s, mois_s, annee_s = dm.groups()
         jour = int(jour_s)
         annee = int(annee_s)
@@ -193,7 +200,7 @@ def _parse_ville_date_line(line: str) -> dict:
         except ValueError:
             pass
 
-    if hm := re.search(r'à\s+(\d{1,2})h(\d{2})', line):
+    if hm := _HEURE_PATTERN.search(line):
         h, mn = int(hm.group(1)), int(hm.group(2))
         info["heure"] = f"{h}h{mn:02d}"
         try:
@@ -208,10 +215,7 @@ def _parse_salle_line(line: str) -> dict:
     """Parse ``'Salle: CSU - GRAND GYMNASE SENIOR | MASCULIN'``."""
     info: dict = {}
 
-    if m := re.search(
-        r'Salle:\s*(.+?)(?:\s+(?:SENIOR|MASCULIN|FÉMININ|FEMININ|MIXTE|M\d{2}|U\d{2})|\s*$)',
-        line,
-    ):
+    if m := _SALLE_PATTERN.search(line):
         info["salle"] = m.group(1).strip()
 
     upper = line.upper()
@@ -224,7 +228,7 @@ def _parse_salle_line(line: str) -> dict:
 
     if 'SENIOR' in upper:
         info["categorie"] = "SENIOR"
-    elif cm := re.search(r'\b(M\d{2}|U\d{2})\b', upper):
+    elif cm := _CATEGORIE_PATTERN.search(upper):
         info["categorie"] = cm.group(1)
 
     return info

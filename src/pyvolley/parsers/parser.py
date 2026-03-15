@@ -19,7 +19,7 @@ Architecture du PDF FFVB (page unique) :
 from __future__ import annotations
 
 import logging
-import time
+from time import perf_counter
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -58,6 +58,15 @@ from pyvolley.parsers.validation import validate_match
 logger = logging.getLogger(__name__)
 
 
+_FAST_TABLE_SETTINGS = {
+    "vertical_strategy": "lines_strict",
+    "horizontal_strategy": "lines_strict",
+    "snap_tolerance": 2,
+    "join_tolerance": 2,
+    "intersection_tolerance": 2,
+}
+
+
 class MatchSheetParser(BaseParser):
     """Parser de feuilles de match FFVB — extraction exhaustive et robuste.
 
@@ -73,7 +82,7 @@ class MatchSheetParser(BaseParser):
 
     @property
     def version(self) -> str:
-        return "6.0.0"
+        return "6.0.1"
 
     # ================================================================
     # Point d'entrée
@@ -95,7 +104,7 @@ class MatchSheetParser(BaseParser):
 
     def parse(self, pdf_path: Path) -> ParseResult:
         pdf_path = Path(pdf_path)
-        start = time.time()
+        start = perf_counter()
         result = ParseResult(success=False)
         diag = DiagnosticCollector()
 
@@ -112,15 +121,15 @@ class MatchSheetParser(BaseParser):
                 page = pdf.pages[0]
                 full_text = page.extract_text() or ""
                 words = page.extract_words()
-                tables = page.extract_tables()
-                images = page.images
-                chars = page.chars
+                tables = page.extract_tables(table_settings=_FAST_TABLE_SETTINGS)
+                if len(tables) < 3:
+                    tables = page.extract_tables()
 
                 if not full_text.strip():
                     result.add_error("Aucun texte extrait du PDF")
                     return result
 
-                lines = full_text.split('\n')
+                lines = full_text.splitlines()
                 tidx = _identify_tables(tables)
                 fields_count = 0
 
@@ -143,7 +152,9 @@ class MatchSheetParser(BaseParser):
 
                 off_a, off_b = extract_officiels(words)
 
-                cap_a, cap_b = detect_capitaines(images, chars, words, tidx)
+                cap_a, cap_b = detect_capitaines(
+                    None, None, words, tidx, page=page,
+                )
                 mark_capitaine(joueurs_a, cap_a)
                 mark_capitaine(joueurs_b, cap_b)
 
@@ -288,7 +299,7 @@ class MatchSheetParser(BaseParser):
             import traceback
             result.add_error(traceback.format_exc())
         finally:
-            result.parse_time_ms = (time.time() - start) * 1000
+            result.parse_time_ms = (perf_counter() - start) * 1000
             self._record_result(result)
 
         return result

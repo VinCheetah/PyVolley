@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 import logging
 from collections import defaultdict
-from typing import Optional
+from typing import Optional, Any
 
 from pyvolley.core.models import Joueur, Officiel, Set
 from pyvolley.parsers.constants import (
@@ -21,6 +21,39 @@ from pyvolley.parsers.utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+_TEAM_NAME_DOUBLE_LETTER_PATTERN = re.compile(
+    r'^([A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ])\s+([A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ])',
+)
+_TEAM_NAME_PREFIX_PATTERN = re.compile(
+    r'^((?:[A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ]\s+)+)([A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ]{2,})',
+)
+_TEAM_NAME_SINGLE_LETTER_PATTERN = re.compile(
+    r'^[A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ]\s+(?=[A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ]{2,})',
+)
+
+_LIBEROS_ROW_PATTERN = re.compile(
+    r'L\s*I\s*B\s*E\s*R\s*O\s*S|L\d*I\d*B\d*E?\d*R\d*O\d*S',
+    re.IGNORECASE,
+)
+_LIBEROS_CLEAN_SPLIT_PATTERN = re.compile(
+    r'L\s*I\s*B\s*E\s*R\s*O\s*S',
+    re.IGNORECASE,
+)
+_LIBEROS_GARBLED_PATTERN = re.compile(
+    r'(\d*)L\d*I\d*B\d*E?\d*R\d*O\d*S',
+    re.IGNORECASE,
+)
+_LIBEROS_TRAILING_GARBLED_PATTERN = re.compile(
+    r'\d{3,}L\d*I\d*B\d*E?\d*R\d*O\d*S$',
+)
+_LIBEROS_HEADER_GARBLED_PATTERN = re.compile(r'^LIBER\d*O?\d*S$')
+_LIBEROS_HEADER_INLINE_PATTERN = re.compile(
+    r'^LIBER\d*O?\d*S$',
+    re.IGNORECASE,
+)
+_DIGITS_LEADING_ALPHA_PATTERN = re.compile(r'^\d{4,}[A-Z]')
 
 
 # =====================================================================
@@ -57,23 +90,14 @@ def extract_equipes(
             continue
         val = eq[key]
         assert val is not None  # for type checker
-        first_match = re.match(
-            r'^([A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ])\s+([A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ])',
-            val,
-        )
+        first_match = _TEAM_NAME_DOUBLE_LETTER_PATTERN.match(val)
         if first_match:
-            m = re.match(
-                r'^((?:[A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ]\s+)+)([A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ]{2,})',
-                val,
-            )
+            m = _TEAM_NAME_PREFIX_PATTERN.match(val)
             if m:
                 prefix = m.group(1).replace(' ', '')
                 val = prefix + ' ' + val[m.end(1):].strip()
         else:
-            single = re.match(
-                r'^[A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ]\s+(?=[A-ZÀÂÄÉÈÊËÏÎÔÙÛÜÇÑŒÆ]{2,})',
-                val,
-            )
+            single = _TEAM_NAME_SINGLE_LETTER_PATTERN.match(val)
             if single:
                 val = val[single.end():]
         eq[key] = clean_team_name(val)
@@ -140,12 +164,7 @@ def extract_joueurs(
             continue
 
         # Détection de la ligne LIBEROS : propre ou garbled
-        is_liberos_row = bool(
-            re.search(
-                r'L\s*I\s*B\s*E\s*R\s*O\s*S|L\d*I\d*B\d*E?\d*R\d*O\d*S',
-                row_text, re.IGNORECASE,
-            )
-        )
+        is_liberos_row = bool(_LIBEROS_ROW_PATTERN.search(row_text))
         mid = len(row) // 2
 
         for cell_idx, cell in enumerate(row):
@@ -195,10 +214,7 @@ def _parse_liberos_merged_cell(
 
     # ── Détection du marqueur LIBEROS (propre ou garbled) ──
     # Pattern propre : L I B E R O S éventuellement espacé
-    clean_split = re.split(
-        r'L\s*I\s*B\s*E\s*R\s*O\s*S',
-        cs, flags=re.IGNORECASE,
-    )
+    clean_split = _LIBEROS_CLEAN_SPLIT_PATTERN.split(cs)
     if len(clean_split) > 1:
         # Cas propre : traiter les parties avant/après LIBEROS
         for part in clean_split:
@@ -215,10 +231,7 @@ def _parse_liberos_merged_cell(
     # Ex: "LIBER2O9S CARMONA LUBIN 2777789"
     # Ex: "23128L3I1BER1O2S DEBEAUMOREL CLAIRE 1796348"
     # Ex: "10 ROCHET JULIEN 22425L4I5BER0O9S CHAREYRON LUCAS 1837707"
-    garbled_match = re.search(
-        r'(\d*)L\d*I\d*B\d*E?\d*R\d*O\d*S',
-        cs, flags=re.IGNORECASE,
-    )
+    garbled_match = _LIBEROS_GARBLED_PATTERN.search(cs)
     if garbled_match:
         leading_digits = garbled_match.group(1)
         before = cs[:garbled_match.start()].strip()
@@ -524,7 +537,7 @@ def _is_garbled_word(text: str) -> bool:
     if text.isdigit() and len(text) > 9:
         return True
     # Texte alphanumérique mixte suspect (début ou fin avec des chiffres intercalés)
-    if re.match(r'^\d{4,}[A-Z]', text) and len(text) > 10:
+    if _DIGITS_LEADING_ALPHA_PATTERN.match(text) and len(text) > 10:
         return True
     # Noms garbled : ratio voyelles/consonnes anormal, alternance inhabituelles
     alpha = re.sub(r'[^A-Za-z]', '', text)
@@ -598,12 +611,12 @@ def extract_liberos(
             lib_header = w
             break
         # Garbled : commence par LIBER et finit par S, avec chiffres intercalés
-        if re.match(r'^LIBER\d*O?\d*S$', text_up):
+        if _LIBEROS_HEADER_GARBLED_PATTERN.match(text_up):
             lib_header = w
             garbled = True
             break
         # Garbled type 2 : chiffres de licence + LIBEROS intercalé
-        if re.search(r'\d{3,}L\d*I\d*B\d*E?\d*R\d*O\d*S$', text_up):
+        if _LIBEROS_TRAILING_GARBLED_PATTERN.search(text_up):
             lib_header = w
             garbled = True
             break
@@ -670,9 +683,7 @@ def extract_liberos(
 
         # Déterminer le type de garble
         garble_text = lib_header['text'].upper()
-        garble_m = re.search(
-            r'(\d*)L\d*I\d*B\d*E?\d*R\d*O\d*S', garble_text,
-        )
+        garble_m = _LIBEROS_GARBLED_PATTERN.search(garble_text)
         leading_digits = garble_m.group(1) if garble_m else ''
         is_type2 = len(leading_digits) >= 5
 
@@ -743,9 +754,7 @@ def _build_libero(line_words: list) -> Optional[Joueur]:
             numero = t
         elif t.isdigit() and len(t) >= 6:
             licence = t
-        elif t.upper() not in ('LIBEROS',) and not re.match(
-            r'^LIBER\d*O?\d*S$', t, re.IGNORECASE,
-        ):
+        elif t.upper() not in ('LIBEROS',) and not _LIBEROS_HEADER_INLINE_PATTERN.match(t):
             name_parts.append(t)
     if not numero or not licence or not name_parts:
         return None
@@ -884,22 +893,40 @@ def extract_officiels(words: list) -> tuple[list[Officiel], list[Officiel]]:
 
 
 def detect_capitaines(
-    images: list, chars: list, words: list,
+    images: Optional[list],
+    chars: Optional[list],
+    words: list,
     tidx: dict,
+    page: Optional[Any] = None,
 ) -> tuple[Optional[str], Optional[str]]:
     """Détecte les capitaines (3 méthodes en cascade).
 
-    1. Cercles-images dans le roster
-    2. Table SIGNATURES
+    1. Table SIGNATURES
+    2. Cercles-images dans le roster
     3. Marqueurs caractères (C, ©)
+
+    Si ``images`` / ``chars`` sont ``None``, ils sont chargés à la demande
+    depuis ``page`` uniquement si nécessaire.
     """
-    cap_a, cap_b = _capitaines_from_images(images, chars, words)
-    if not cap_a or not cap_b:
-        ca2, cb2 = _capitaines_from_signatures(tidx)
+    cap_a, cap_b = _capitaines_from_signatures(tidx)
+    if cap_a and cap_b:
+        return cap_a, cap_b
+
+    if images is None and page is not None:
+        images = page.images
+    if chars is None and page is not None:
+        chars = page.chars
+
+    safe_images = images or []
+    safe_chars = chars or []
+
+    if safe_images and safe_chars:
+        ca2, cb2 = _capitaines_from_images(safe_images, safe_chars, words)
         cap_a = cap_a or ca2
         cap_b = cap_b or cb2
+
     if not cap_a or not cap_b:
-        ca3, cb3 = _capitaines_from_chars(chars, words)
+        ca3, cb3 = _capitaines_from_chars(safe_chars, words)
         cap_a = cap_a or ca3
         cap_b = cap_b or cb3
     return cap_a, cap_b

@@ -22,6 +22,14 @@ from pyvolley.parsers.utils import (
 logger = logging.getLogger(__name__)
 
 
+_SET_SECTION_PATTERN = re.compile(r'S\s*E\s*T\s*(\d)')
+_SET_HEADER_TIME_PATTERN = re.compile(r'(Début|Fin):\s*(\d{1,2}:\d{2})')
+_SET_HEADER_TIME_PARTIAL_PATTERN = re.compile(r'(Début|Fin):\s*(\d{1,2}):?')
+_SET_HEADER_NEXT_HOUR_PATTERN = re.compile(r'^(\d{1,2})\b')
+_SET_SUB_SCORE_PATTERN = re.compile(r'^(\d{1,2}):(\d{1,2})$')
+_ROMAN_MAP = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6}
+
+
 # =====================================================================
 # Parse toutes les sections SET
 # =====================================================================
@@ -64,7 +72,6 @@ def extract_all_sets(tidx: dict) -> list[dict]:
 
 
 def _find_set_sections(table: list) -> list[tuple[int, int]]:
-    pat = re.compile(r'S\s*E\s*T\s*(\d)')
     sections: list[tuple[int, int]] = []
     for i, row in enumerate(table):
         if not row:
@@ -73,7 +80,7 @@ def _find_set_sections(table: list) -> list[tuple[int, int]]:
             if not cell:
                 continue
             cs = str(cell).replace('\n', ' ').strip()
-            if m := pat.search(cs):
+            if m := _SET_SECTION_PATTERN.search(cs):
                 sections.append((int(m.group(1)), i))
                 break
     return sections
@@ -140,9 +147,6 @@ def _parse_set_header(row: list, sd: dict, n_cols: int) -> None:
     if not row:
         return
 
-    time_pat = re.compile(r'(Début|Fin):\s*(\d{1,2}:\d{2})')
-    time_partial = re.compile(r'(Début|Fin):\s*(\d{1,2}):?')
-
     team_cells: list[tuple[int, str]] = []
     for i, cell in enumerate(row):
         if not cell:
@@ -170,12 +174,12 @@ def _parse_set_header(row: list, sd: dict, n_cols: int) -> None:
             else:
                 sd['right_team_name'] = name
 
-        if tm := time_pat.search(cs):
+        if tm := _SET_HEADER_TIME_PATTERN.search(cs):
             if tm.group(1) == 'Début':
                 sd['heure_debut'] = tm.group(2)
             else:
                 sd['heure_fin'] = tm.group(2)
-        elif tp := time_partial.search(cs):
+        elif tp := _SET_HEADER_TIME_PARTIAL_PATTERN.search(cs):
             partial = tp.group(2).rstrip(':')
             completed = _complete_time(row, i, partial)
             if completed:
@@ -196,7 +200,7 @@ def _complete_time(row: list, col_i: int, partial: str) -> Optional[str]:
         j = col_i + off
         if j < len(row) and row[j]:
             cs = str(row[j]).strip()
-            if m := re.match(r'^(\d{1,2})\b', cs):
+            if m := _SET_HEADER_NEXT_HOUR_PATTERN.match(cs):
                 return f"{partial}:{m.group(1).zfill(2)}"
     return None
 
@@ -220,11 +224,13 @@ def _find_position_columns(
     if not header_row:
         return [], [], []
 
-    roman_map = {'I': 1, 'II': 2, 'III': 3, 'IV': 4, 'V': 5, 'VI': 6}
     hits: list[tuple[int, int]] = []
     for i, cell in enumerate(header_row):
-        if cell and str(cell).strip() in roman_map:
-            hits.append((i, roman_map[str(cell).strip()]))
+        if not cell:
+            continue
+        cell_text = str(cell).strip()
+        if cell_text in _ROMAN_MAP:
+            hits.append((i, _ROMAN_MAP[cell_text]))
 
     if len(hits) >= 18:
         # ── 3 blocs de I-VI : structure SET 5 ──
@@ -331,7 +337,6 @@ def _parse_substitutions(
     sub_row = table[start + 3] if start + 3 < n else None
     score_row_aller = table[start + 4] if start + 4 < n else None
     score_row_retour = table[start + 5] if start + 5 < n else None
-    score_pat = re.compile(r'^(\d{1,2}):(\d{1,2})$')
 
     if not sub_row:
         return
@@ -356,7 +361,7 @@ def _parse_substitutions(
             # Changement ALLER
             sa_aller, sb_aller = None, None
             if score_row_aller and col < len(score_row_aller) and score_row_aller[col]:
-                sm = score_pat.match(str(score_row_aller[col]).strip())
+                sm = _SET_SUB_SCORE_PATTERN.match(str(score_row_aller[col]).strip())
                 if sm:
                     sa_aller, sb_aller = int(sm.group(1)), int(sm.group(2))
                     if is_right:
@@ -372,7 +377,7 @@ def _parse_substitutions(
 
             # Changement RETOUR
             if score_row_retour and col < len(score_row_retour) and score_row_retour[col]:
-                sm = score_pat.match(str(score_row_retour[col]).strip())
+                sm = _SET_SUB_SCORE_PATTERN.match(str(score_row_retour[col]).strip())
                 if sm:
                     sa_ret, sb_ret = int(sm.group(1)), int(sm.group(2))
                     if is_right:
@@ -398,7 +403,6 @@ def _parse_service_timeouts(
 ) -> None:
     """Parse les tours au service, scores de service et timeouts."""
     n = len(table)
-    timeout_pat = re.compile(r'^(\d{1,2}):(\d{1,2})$')
 
     if pos_right:
         mid_col = pos_right[0]
@@ -445,7 +449,7 @@ def _parse_service_timeouts(
                     nr = table[nxt]
                     if not nr or i >= len(nr) or not nr[i]:
                         continue
-                    sm = timeout_pat.match(str(nr[i]).strip())
+                    sm = _SET_SUB_SCORE_PATTERN.match(str(nr[i]).strip())
                     if sm:
                         sa, sb = int(sm.group(1)), int(sm.group(2))
                         if side == 'right':
