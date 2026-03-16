@@ -79,7 +79,7 @@
         <option value="salle">Salles</option>
         <option value="match">Matchs</option>
       </select>
-      <span class="pyvolley-map-counter" x-text="markerCount + ' lieu(x)'"></span>
+      <span class="pyvolley-map-counter" x-text="markerCount + ' lieu' + (markerCount > 1 ? 'x' : '')"></span>
     </div>
     {% endif %}
 
@@ -116,7 +116,7 @@
            style="background: var(--bg-card); border: 1px solid var(--border-color);
                   border-radius: 0.5rem; padding: 0.25rem 0.6rem; font-size: 0.7rem;
                   color: var(--text-muted);">
-        <span x-text="markerCount + ' lieu(x)'"></span>
+        <span x-text="markerCount + ' lieu' + (markerCount > 1 ? 'x' : '')"></span>
       </div>
       {% endif %}
 
