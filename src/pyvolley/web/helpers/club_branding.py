@@ -2,14 +2,9 @@
 
 from __future__ import annotations
 
-from functools import lru_cache
 from typing import Optional
-from urllib.parse import urljoin
 import re
 import unicodedata
-
-import requests
-from bs4 import BeautifulSoup
 
 
 COLOR_MAP: dict[str, str] = {
@@ -38,28 +33,6 @@ COLOR_MAP: dict[str, str] = {
 }
 
 _SEPARATORS_RE = re.compile(r"\s*(?:,|/|;|\+|\bet\b|\bET\b|\bavec\b|-|\|)\s*")
-
-_LOGO_POSITIVE_HINTS = (
-    "logo",
-    "logos",
-    "blason",
-    "ecusson",
-    "emblem",
-    "club",
-)
-_LOGO_NEGATIVE_HINTS = (
-    "facebook",
-    "instagram",
-    "twitter",
-    "youtube",
-    "sponsor",
-    "banner",
-    "banniere",
-    "ico",
-    "icon",
-    "sprite",
-    "favicon",
-)
 
 
 def _normalize(value: str) -> str:
@@ -135,97 +108,12 @@ def parse_club_colors(raw_colors: Optional[str]) -> dict:
     }
 
 
-def _score_logo_candidate(url: str, attrs_blob: str, code_ffvb: str | None) -> int:
-    score = 0
-    url_lower = url.lower()
-    blob_lower = attrs_blob.lower()
-
-    for hint in _LOGO_POSITIVE_HINTS:
-        if hint in url_lower or hint in blob_lower:
-            score += 3
-
-    for hint in _LOGO_NEGATIVE_HINTS:
-        if hint in url_lower or hint in blob_lower:
-            score -= 4
-
-    if code_ffvb and code_ffvb in url_lower:
-        score += 4
-
-    if url_lower.endswith((".svg", ".png", ".jpg", ".jpeg", ".webp")):
-        score += 2
-
-    if "club" in blob_lower:
-        score += 1
-
-    return score
-
-
-@lru_cache(maxsize=512)
-def detect_club_logo_url(
-    url_planning: str | None,
-    url_classement: str | None,
-    code_ffvb: str | None,
-) -> str | None:
-    """Tente de trouver le logo d'un club depuis les pages FFVB connues."""
-    page_urls = [u for u in [url_planning, url_classement] if u]
-    if not page_urls:
-        return None
-
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (X11; Linux x86_64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0 Safari/537.36"
-        )
-    }
-
-    candidates: list[tuple[int, str]] = []
-    code_norm = (code_ffvb or "").strip().lower() or None
-
-    for page_url in page_urls:
-        try:
-            response = requests.get(page_url, headers=headers, timeout=(1.8, 2.4))
-            if response.status_code != 200 or "text/html" not in response.headers.get("content-type", ""):
-                continue
-        except Exception:
-            continue
-
-        soup = BeautifulSoup(response.text, "html.parser")
-        for img in soup.find_all("img"):
-            src = (img.get("src") or "").strip()
-            if not src or src.startswith("data:"):
-                continue
-
-            abs_url = urljoin(page_url, src)
-            attrs_blob = " ".join(
-                str(v)
-                for v in [
-                    img.get("alt", ""),
-                    img.get("title", ""),
-                    " ".join(img.get("class", [])) if img.get("class") else "",
-                    img.get("id", ""),
-                ]
-            )
-            score = _score_logo_candidate(abs_url, attrs_blob, code_norm)
-            if score > 0:
-                candidates.append((score, abs_url))
-
-    if not candidates:
-        return None
-
-    candidates.sort(key=lambda item: item[0], reverse=True)
-    return candidates[0][1]
-
-
 def build_club_branding(
     couleurs: str | None,
-    url_planning: str | None,
-    url_classement: str | None,
-    code_ffvb: str | None,
+    logo_url: str | None,
 ) -> dict:
     """Construit un objet branding pour la vue club."""
     palette = parse_club_colors(couleurs)
-    logo_url = detect_club_logo_url(url_planning, url_classement, code_ffvb)
     return {
         **palette,
         "logo_url": logo_url,

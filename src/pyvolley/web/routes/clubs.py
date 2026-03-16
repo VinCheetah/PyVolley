@@ -13,6 +13,12 @@ from pyvolley.api.dependencies import get_club_repo, get_equipe_repo
 from pyvolley.database.repositories import ClubRepository, EquipeRepository
 from pyvolley.web.helpers.niveau import resolve_niveau_badge
 from pyvolley.web.helpers.club_branding import build_club_branding
+from pyvolley.core.config import settings
+from pyvolley.scrapers.ffvb.adressier_scraper import (
+    build_adressier_url,
+    build_club_classement_url,
+    build_club_planning_url,
+)
 
 router = APIRouter()
 
@@ -56,6 +62,55 @@ def _level_score_from_label(level_label: str | None) -> float | None:
         "LOISIR": 0.5,
     }
     return mapping.get(normalized)
+
+
+def _to_ffvb_season(saison_code: str | None) -> str | None:
+    if not saison_code:
+        return None
+    return saison_code.replace("-", "/")
+
+
+def _build_ffvb_links(club, equipes: list) -> dict[str, str | None]:
+    if not club.code_ffvb:
+        return {"planning": None, "classement": None, "adressier": None}
+
+    entite_code = None
+    season_codes: list[str] = []
+
+    for equipe in equipes:
+        if equipe.saison and equipe.saison.code:
+            season_codes.append(equipe.saison.code)
+        if (
+            not entite_code
+            and equipe.competition
+            and equipe.competition.entite
+            and equipe.competition.entite.code
+        ):
+            entite_code = equipe.competition.entite.code
+
+    latest_season = max(season_codes, key=_season_sort_key) if season_codes else None
+    ffvb_saison = _to_ffvb_season(latest_season)
+
+    planning_url = None
+    classement_url = None
+    adressier_url = None
+
+    if entite_code:
+        planning_url = build_club_planning_url(settings.ffvb_base_url, entite_code, club.code_ffvb)
+        adressier_url = build_adressier_url(settings.ffvb_base_url)
+        if ffvb_saison:
+            classement_url = build_club_classement_url(
+                settings.ffvb_base_url,
+                entite_code,
+                ffvb_saison,
+                club.code_ffvb,
+            )
+
+    return {
+        "planning": planning_url,
+        "classement": classement_url,
+        "adressier": adressier_url,
+    }
 
 
 def _build_level_evolution_chart(team_rows: list[dict]) -> dict:
@@ -133,11 +188,11 @@ async def club_detail(
         )
     equipes = equipe_repo.get_by_club(club_id)
 
+    ffvb_links = _build_ffvb_links(club, equipes)
+
     branding = build_club_branding(
         club.couleurs,
-        club.url_planning,
-        club.url_classement,
-        club.code_ffvb,
+        club.logo_url,
     )
 
     team_rows: list[dict] = []
@@ -189,6 +244,7 @@ async def club_detail(
             "club": club,
             "equipes": equipes,
             "club_branding": branding,
+            "ffvb_links": ffvb_links,
             "team_rows": team_rows,
             "team_filters": team_filters,
             "level_chart": level_chart,

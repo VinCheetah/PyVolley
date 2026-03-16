@@ -34,6 +34,72 @@ from pyvolley.database.models import (
 logger = logging.getLogger(__name__)
 
 
+_POSTAL_CITY_RE = re.compile(r"^\s*(\d{5})\s+(.+?)\s*$")
+_TEAM_SUFFIX_RE = re.compile(
+    r"\s+(?:M|F|MASCULIN(?:E)?|FEMININ(?:E)?|LOISIR|SENIOR(?:E)?|U\d{1,2}|\d+)$",
+    re.IGNORECASE,
+)
+
+
+def _split_postal_city(raw_value: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    if not raw_value:
+        return None, None
+    cleaned = raw_value.strip()
+    if not cleaned:
+        return None, None
+
+    match = _POSTAL_CITY_RE.match(cleaned)
+    if not match:
+        return None, cleaned
+
+    postal_code = match.group(1)
+    city = match.group(2).strip() or None
+    return postal_code, city
+
+
+def _department_from_postal(postal_code: Optional[str]) -> Optional[str]:
+    if not postal_code or len(postal_code) != 5 or not postal_code.isdigit():
+        return None
+
+    if postal_code.startswith(("97", "98")):
+        return postal_code[:3]
+
+    if postal_code.startswith("20"):
+        return "2A" if postal_code[2] in {"0", "1"} else "2B"
+
+    return postal_code[:2]
+
+
+def _infer_nom_court_from_teams(team_names: list[str], fallback_name: str) -> Optional[str]:
+    if not team_names:
+        return None
+
+    cleaned_names: list[str] = []
+    for name in team_names:
+        if not name:
+            continue
+        normalized = _TEAM_SUFFIX_RE.sub("", name).strip(" -")
+        if normalized:
+            cleaned_names.append(normalized)
+
+    if not cleaned_names:
+        return None
+
+    frequencies: dict[str, int] = {}
+    for name in cleaned_names:
+        frequencies[name] = frequencies.get(name, 0) + 1
+
+    fallback_norm = normalize_club_name(fallback_name)
+    best_name = max(
+        frequencies.items(),
+        key=lambda item: (item[1], item[0] == fallback_name, len(item[0])),
+    )[0]
+
+    if normalize_club_name(best_name) == fallback_norm:
+        return None
+    return best_name
+
+
 class ExportImportService:
     """Service d'import basé sur l'export CSV FFVB (Phase 1).
 
@@ -766,7 +832,7 @@ class ExportImportService:
         """Enrichit les clubs en base avec les données de l'adressier FFVB.
 
         Met à jour les champs du club (adresse, correspondant, couleurs,
-        dirigeants, salles, URLs) à partir des données de l'adressier.
+        dirigeants, salles) à partir des données de l'adressier.
 
         Args:
             clubs_info: Liste d'``AdressierClubInfo``.
@@ -777,11 +843,6 @@ class ExportImportService:
         Returns:
             Dict ``{"enriched": N, "created": N, "skipped": N}``.
         """
-        from pyvolley.scrapers.ffvb.adressier_scraper import (
-            build_club_planning_url,
-            build_club_classement_url,
-        )
-
         stats = {"enriched": 0, "created": 0, "skipped": 0}
 
         for club_info in clubs_info:
@@ -807,6 +868,13 @@ class ExportImportService:
 
             # Mettre à jour les champs
             club.nom = club_info.nom
+            if not club.nom_court:
+                inferred_nom_court = _infer_nom_court_from_teams(
+                    [equipe.nom for equipe in club.equipes if equipe.nom],
+                    club_info.nom,
+                )
+                if inferred_nom_court:
+                    club.nom_court = inferred_nom_court
             if club_info.ligue:
                 club.ligue = club_info.ligue
             if club_info.couleurs:
@@ -823,9 +891,12 @@ class ExportImportService:
                 club.correspondant_adresse = club_info.correspondant_adresse
             if club_info.correspondant_ville:
                 club.correspondant_ville = club_info.correspondant_ville
-                # Extraire la ville pour le champ principal
-                if not club.ville:
-                    club.ville = club_info.correspondant_ville
+                postal_code, city_name = _split_postal_city(club_info.correspondant_ville)
+                if city_name:
+                    club.ville = city_name
+                departement = _department_from_postal(postal_code)
+                if departement:
+                    club.departement = departement
             if club_info.correspondant_telephone:
                 club.correspondant_telephone = club_info.correspondant_telephone
             if club_info.correspondant_portable:
@@ -833,13 +904,9 @@ class ExportImportService:
             if club_info.correspondant_email:
                 club.correspondant_email = club_info.correspondant_email
 
-            # URLs
-            club.url_planning = build_club_planning_url(
-                base_url, entite_code, club_info.code_ffvb,
-            )
-            club.url_classement = build_club_classement_url(
-                base_url, entite_code, saison, club_info.code_ffvb,
-            )
+            # URLs reconstruites côté interface à partir du code FFVB
+            club.url_planning = None
+            club.url_classement = None
 
             # Salles — supprimer les existantes et recréer
             for existing_salle in club.salles:

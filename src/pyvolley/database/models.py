@@ -144,6 +144,7 @@ class ClubDB(Base):
     # URLs (construites à partir du code FFVB)
     url_planning: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     url_classement: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    logo_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
     # Relations
     equipes: Mapped[List["EquipeDB"]] = relationship(back_populates="club")

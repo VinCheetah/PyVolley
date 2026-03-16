@@ -15,7 +15,6 @@ from pyvolley.web.helpers.brackets import (
 )
 from pyvolley.web.helpers.club_branding import (
     parse_club_colors,
-    detect_club_logo_url,
     build_club_branding,
 )
 
@@ -28,6 +27,5 @@ __all__ = [
     "NIVEAU_ORDER",
     "niveau_rank",
     "parse_club_colors",
-    "detect_club_logo_url",
     "build_club_branding",
 ]

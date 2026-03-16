@@ -7,6 +7,8 @@
     :root {
         --club-primary: {{ club_branding.primary if club_branding else '#f59e0b' }};
         --club-secondary: {{ club_branding.secondary if club_branding else '#3b82f6' }};
+        --club-tertiary: {{ club_branding.hexes[2] if club_branding and club_branding.hexes|length > 2 else (club_branding.secondary if club_branding else '#3b82f6') }};
+        --club-quaternary: {{ club_branding.hexes[3] if club_branding and club_branding.hexes|length > 3 else (club_branding.primary if club_branding else '#f59e0b') }};
         --club-on-primary: {{ club_branding.text_on_primary if club_branding else '#0b0e17' }};
     }
 </style>
@@ -21,11 +23,15 @@
     <div class="card p-6 md:p-8">
         <div class="flex flex-col md:flex-row md:items-center gap-6">
             <div class="w-16 h-16 rounded-2xl flex items-center justify-center flex-shrink-0"
-                 style="background: linear-gradient(135deg, var(--club-primary), var(--club-secondary));">
+                 style="background: linear-gradient(135deg, var(--club-primary), var(--club-secondary), var(--club-tertiary));">
                 {% if club_branding and club_branding.logo_url %}
                 <img src="{{ club_branding.logo_url }}" alt="Logo {{ club.nom }}"
                      class="w-14 h-14 rounded-xl object-contain bg-white/90 p-1"
+                     onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';"
                      loading="lazy" referrerpolicy="no-referrer">
+                <div class="w-14 h-14 rounded-xl items-center justify-center" style="display: none; background: rgba(255,255,255,0.9);">
+                    <i data-lucide="building-2" class="w-7 h-7" style="color: var(--club-primary);"></i>
+                </div>
                 {% else %}
                 <i data-lucide="building-2" class="w-8 h-8" style="color: var(--club-on-primary);"></i>
                 {% endif %}
@@ -70,21 +76,40 @@
                     </span>
                     {% endif %}
                 </div>
-                {% if club.url_planning or club.url_classement %}
+                {% if club_branding and club_branding.hexes %}
                 <div class="flex flex-wrap gap-2 mt-3">
-                    {% if club.url_planning %}
-                    <a href="{{ club.url_planning }}" target="_blank" rel="noopener noreferrer"
+                    {% for hex_color in club_branding.hexes %}
+                    <span class="badge" style="border-color: {{ hex_color }}; color: {{ hex_color }};">
+                        <span class="inline-block w-2.5 h-2.5 rounded-full mr-1" style="background: {{ hex_color }};"></span>
+                        {{ hex_color }}
+                    </span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if ffvb_links and (ffvb_links.planning or ffvb_links.classement or ffvb_links.adressier) %}
+                <div class="flex flex-wrap gap-2 mt-3">
+                    {% if ffvb_links.planning %}
+                    <a href="{{ ffvb_links.planning }}" target="_blank" rel="noopener noreferrer"
                        class="badge badge-blue hover:opacity-80 transition">
                         <i data-lucide="calendar-days" class="w-3 h-3 mr-1"></i>
                         Planning FFVB
                         <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
                     </a>
                     {% endif %}
-                    {% if club.url_classement %}
-                    <a href="{{ club.url_classement }}" target="_blank" rel="noopener noreferrer"
+                    {% if ffvb_links.classement %}
+                    <a href="{{ ffvb_links.classement }}" target="_blank" rel="noopener noreferrer"
                        class="badge badge-green hover:opacity-80 transition">
                         <i data-lucide="list-ordered" class="w-3 h-3 mr-1"></i>
                         Classement FFVB
+                        <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
+                    </a>
+                    {% endif %}
+                    {% if ffvb_links.adressier %}
+                    <a href="{{ ffvb_links.adressier }}" target="_blank" rel="noopener noreferrer"
+                       class="badge hover:opacity-80 transition"
+                       style="border-color: var(--club-tertiary); color: var(--club-tertiary);">
+                        <i data-lucide="book-open" class="w-3 h-3 mr-1"></i>
+                        Adressier FFVB
                         <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
                     </a>
                     {% endif %}

@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from pyvolley.database.models import Base, ClubDB, SalleClubDB, SetDB
+from pyvolley.database.models import Base, ClubDB, SalleClubDB, SetDB, EquipeDB
 from pyvolley.database.export_import_service import ExportImportService
 from pyvolley.scrapers.ffvb.adressier_scraper import (
     AdressierClubInfo,
@@ -413,9 +413,10 @@ class TestEnrichClubs:
         assert club.couleurs == "ROUGE ET NOIR"
         assert club.president == "M. BECQUERIAUX ARNAUD"
         assert club.correspondant_email == "contact@harnes-volleyball.fr"
-        assert club.ville == "62790 LEFOREST"
-        assert "planning_club.php" in club.url_planning
-        assert "planning_club_class.php" in club.url_classement
+        assert club.ville == "LEFOREST"
+        assert club.departement == "62"
+        assert club.url_planning is None
+        assert club.url_classement is None
 
         # Vérifier les salles
         salles = adressier_session.execute(
@@ -451,7 +452,41 @@ class TestEnrichClubs:
         ).scalar_one()
         assert club.nom == "NOUVEAU CLUB VB"
         assert club.couleurs == "VERT"
-        assert club.url_planning is not None
+        assert club.url_planning is None
+
+    def test_enrich_infers_nom_court_from_teams(self, adressier_session):
+        """Infère nom_court depuis les équipes associées au club."""
+        club = ClubDB(nom="ASSOCIATION SPORTIVE VOLLEY TEST", code_ffvb="0123000")
+        adressier_session.add(club)
+        adressier_session.flush()
+
+        adressier_session.add_all(
+            [
+                EquipeDB(nom="VOLLEY TEST M", club_id=club.id),
+                EquipeDB(nom="VOLLEY TEST F", club_id=club.id),
+            ]
+        )
+        adressier_session.flush()
+
+        service = ExportImportService(adressier_session)
+        clubs_info = [
+            AdressierClubInfo(
+                code_ffvb="0123000",
+                nom="ASSOCIATION SPORTIVE VOLLEY TEST",
+            )
+        ]
+
+        service.enrich_clubs(
+            clubs_info,
+            "ABCCS",
+            "2025/2026",
+            "https://www.ffvbbeach.org/ffvbapp/resu/",
+        )
+
+        loaded = adressier_session.execute(
+            select(ClubDB).where(ClubDB.code_ffvb == "0123000")
+        ).scalar_one()
+        assert loaded.nom_court == "VOLLEY TEST"
 
     def test_enrich_updates_salles(self, adressier_session):
         """Remplace les salles existantes lors de la mise à jour."""

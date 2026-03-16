@@ -1635,6 +1635,67 @@ def stats():
         console.print(table)
 
 
+@app.command("sync-logos")
+def sync_logos(
+    limit: int = typer.Option(0, "--limit", "-n", help="Nombre max de clubs (0 = tous)."),
+    min_score: float = typer.Option(
+        0.35,
+        "--min-score",
+        help="Score minimal de matching pour accepter un logo Volleybox.",
+    ),
+    only_missing: bool = typer.Option(
+        True,
+        "--only-missing/--all",
+        help="Ne traiter que les clubs sans logo_url.",
+    ),
+):
+    """🖼 Synchronise les logos clubs depuis Volleybox."""
+    from sqlalchemy import select
+
+    from pyvolley.database.connection import DatabaseSession, init_db
+    from pyvolley.database.models import ClubDB
+    from pyvolley.scrapers.volleybox import VolleyboxLogoScraper
+
+    init_db()
+    scraper = VolleyboxLogoScraper()
+
+    with DatabaseSession() as session:
+        stmt = select(ClubDB).where(ClubDB.code_ffvb.is_not(None)).order_by(ClubDB.nom.asc())
+        if only_missing:
+            stmt = stmt.where(ClubDB.logo_url.is_(None))
+
+        clubs = session.execute(stmt).scalars().all()
+        if limit > 0:
+            clubs = clubs[:limit]
+
+        updated = 0
+        skipped = 0
+
+        for club in clubs:
+            names = [club.nom]
+            if club.nom_court:
+                names.append(club.nom_court)
+            names.extend(alias.alias for alias in (club.aliases or []) if alias.alias)
+
+            candidate = scraper.find_logo_for_club(names)
+            if not candidate or candidate.score < min_score:
+                skipped += 1
+                continue
+
+            club.logo_url = candidate.logo_url
+            updated += 1
+
+        session.commit()
+
+    console.print(
+        Panel(
+            f"[green]{updated} logo(s) mis à jour[/green]\n"
+            f"[yellow]{skipped} club(s) ignoré(s)[/yellow]",
+            title="Sync Volleybox",
+        )
+    )
+
+
 @app.command("compute-stats")
 def compute_stats(
     saison: Optional[str] = typer.Option(
