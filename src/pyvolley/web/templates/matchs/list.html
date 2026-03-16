@@ -1,6 +1,7 @@
 {% extends "base.html" %}
+{% from "macros/map.html" import map_head, map_card %}
 {% block title %}Matchs - PyVolley{% endblock %}
-{% block extra_head %}<link rel="stylesheet" href="/static/css/geo-filter.css">{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/geo-filter.css">{{ map_head() }}{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
@@ -303,6 +304,10 @@
         </a>
     </div>
     {% endif %}
+
+    <!-- Carte interactive — Localisation des matchs -->
+    {{ map_card(entity_type="match", title="Carte des matchs", height="400px", show_filter=True) }}
+
 </div>
 {% endblock %}
 

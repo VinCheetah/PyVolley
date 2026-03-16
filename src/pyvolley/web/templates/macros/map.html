@@ -1,0 +1,133 @@
+{#
+  PyVolley — Interactive Map Macros
+
+  Reusable Jinja2 macros for embedding interactive Leaflet maps.
+
+  Usage:
+    {% from "macros/map.html" import map_card, map_head %}
+
+    {% block extra_head %}
+      {{ map_head() }}
+    {% endblock %}
+
+    {% block content %}
+      {{ map_card(entity_type="club", club_id=club.id, title="Localisation") }}
+    {% endblock %}
+#}
+
+
+{# ── CDN dependencies (include once in extra_head block) ──── #}
+{% macro map_head() %}
+<!-- Leaflet CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin="anonymous">
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin="anonymous"></script>
+<!-- MarkerCluster CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+<!-- MarkerCluster JS -->
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<!-- PyVolley Map CSS & JS -->
+<link rel="stylesheet" href="/static/css/interactive-map.css">
+<script src="/static/js/interactive-map.js"></script>
+{% endmacro %}
+
+
+{# ── Map Card (full-featured card with toolbar) ──────────── #}
+{% macro map_card(
+    entity_type=None,
+    club_id=None,
+    competition_id=None,
+    equipe_id=None,
+    joueur_id=None,
+    saison_id=None,
+    departement=None,
+    title="Carte",
+    height="420px",
+    show_filter=False
+) %}
+<div class="card overflow-hidden">
+  <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
+    <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+      <i data-lucide="map" class="w-4 h-4 inline-block mr-1"></i>
+      {{ title }}
+    </h2>
+  </div>
+
+  <div x-data="interactiveMap({
+         entityType:    '{{ entity_type or '' }}',
+         clubId:        {{ club_id or 'null' }},
+         competitionId: {{ competition_id or 'null' }},
+         equipeId:      {{ equipe_id or 'null' }},
+         joueurId:      {{ joueur_id or 'null' }},
+         saisonId:      {{ saison_id or 'null' }},
+         departement:   '{{ departement or '' }}',
+         height:        '{{ height }}'
+       })">
+
+    {% if show_filter %}
+    <!-- Filter toolbar -->
+    <div class="pyvolley-map-toolbar">
+      <label class="text-xs font-medium" style="color: var(--text-muted);">Afficher :</label>
+      <select x-model="filterEntityType" @change="applyFilter()">
+        <option value="">Tout</option>
+        <option value="club">Clubs</option>
+        <option value="salle">Salles</option>
+        <option value="match">Matchs</option>
+      </select>
+      <span class="pyvolley-map-counter" x-text="markerCount + ' lieu(x)'"></span>
+    </div>
+    {% endif %}
+
+    <!-- Map container -->
+    <div class="pyvolley-map-wrapper" style="position: relative;">
+      <div x-ref="mapContainer" :style="'height:' + height + '; width: 100%;'"></div>
+
+      <!-- Loading overlay -->
+      <div class="pyvolley-map-overlay" x-show="loading" x-transition.opacity>
+        <span>
+          <svg class="animate-spin inline w-4 h-4 mr-2" xmlns="http://www.w3.org/2000/svg"
+               fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10"
+                    stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+          </svg>
+          Chargement de la carte…
+        </span>
+      </div>
+
+      <!-- Error overlay -->
+      <div class="pyvolley-map-overlay" x-show="error && !loading" x-transition.opacity>
+        <span style="color: var(--accent-red, #ef4444);">
+          <i data-lucide="alert-triangle" class="w-4 h-4 inline mr-1"></i>
+          Impossible de charger les données de la carte.
+        </span>
+      </div>
+
+      {% if not show_filter %}
+      <!-- Marker count badge -->
+      <div x-show="!loading && !error && markerCount > 0"
+           class="absolute top-3 right-3 z-[1000]"
+           style="background: var(--bg-card); border: 1px solid var(--border-color);
+                  border-radius: 0.5rem; padding: 0.25rem 0.6rem; font-size: 0.7rem;
+                  color: var(--text-muted);">
+        <span x-text="markerCount + ' lieu(x)'"></span>
+      </div>
+      {% endif %}
+
+      <!-- Empty state -->
+      <div class="pyvolley-map-overlay" x-show="!loading && !error && markerCount === 0" x-transition.opacity>
+        <span>
+          <i data-lucide="map-pin-off" class="w-4 h-4 inline mr-1"></i>
+          Aucune localisation disponible.
+        </span>
+      </div>
+    </div>
+  </div>
+</div>
+{% endmacro %}

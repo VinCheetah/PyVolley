@@ -1,7 +1,9 @@
 {% extends "base.html" %}
 {% from "macros/ui.html" import breadcrumb %}
 {% from "macros/data.html" import classement_table %}
+{% from "macros/map.html" import map_head, map_card %}
 {% block title %}{{ competition.nom }} - Classement - PyVolley{% endblock %}
+{% block extra_head %}{{ map_head() }}{% endblock %}
 {% block content %}
 <div class="space-y-6">
 
@@ -584,6 +586,9 @@
         </div>
 
     </div>
+
+    <!-- Carte interactive — Localisation des matchs de la compétition -->
+    {{ map_card(competition_id=competition.id, title="Carte de la compétition", height="400px", show_filter=True) }}
 
 </div>
 {% endblock %}
