@@ -10,11 +10,13 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import select
 
 from pyvolley.web.templateconfig import templates
-from pyvolley.api.dependencies import get_joueur_repo, get_equipe_repo, get_match_repo, get_session
+from pyvolley.web.helpers.time_filter import build_time_filter
+from pyvolley.api.dependencies import get_joueur_repo, get_equipe_repo, get_match_repo, get_session, get_saison_repo
 from pyvolley.database.repositories import (
     JoueurRepository,
     EquipeRepository,
     MatchRepository,
+    SaisonRepository,
 )
 from sqlalchemy.orm import Session
 from pyvolley.analysis.joueur_stats import aggregate_joueur_stats
@@ -100,8 +102,15 @@ async def joueurs_list(
 async def joueur_detail(
     request: Request,
     joueur_id: int,
+    saison_id: Optional[int] = Query(None),
+    saison_ids: Optional[list[int]] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    after_date: Optional[str] = Query(None),
+    before_date: Optional[str] = Query(None),
     joueur_repo: JoueurRepository = Depends(get_joueur_repo),
     match_repo: MatchRepository = Depends(get_match_repo),
+    saison_repo: SaisonRepository = Depends(get_saison_repo),
     session: Session = Depends(get_session),
 ):
     joueur = joueur_repo.get(joueur_id)
@@ -111,9 +120,23 @@ async def joueur_detail(
             {"request": request, "message": "Joueur non trouvé"},
             status_code=404,
         )
-    matchs = match_repo.get_by_joueur(joueur_id, limit=200)
+    time_filter = build_time_filter(
+        season_ids=saison_ids,
+        season_id=saison_id,
+        date_from=date_from,
+        date_to=date_to,
+        after_date=after_date,
+        before_date=before_date,
+    )
+
+    matchs = match_repo.get_by_joueur(joueur_id, limit=500)
+    if time_filter.is_active:
+        matchs = [m for m in matchs if time_filter.match_passes(m)]
+    matchs = matchs[:200]
+
     stats = joueur_repo.get_stats(joueur_id)
     detailed_stats = joueur_repo.get_detailed_stats(joueur_id)
+    saisons = saison_repo.get_all(limit=40)
     participations = list(
         session.scalars(
             select(ParticipationMatchDB)
@@ -164,7 +187,10 @@ async def joueur_detail(
             aggregated_stats = aggregated.model_dump(mode="json")
 
         matchs_by_id = {m.id: m for m in matchs}
+        filtered_match_ids = {m.id for m in matchs}
         for row in stats_rows:
+            if row.match_id not in filtered_match_ids:
+                continue
             match = matchs_by_id.get(row.match_id)
             side = row.stats_data.get("side")
             adversaire = "?"
@@ -249,5 +275,7 @@ async def joueur_detail(
             "aggregated_stats": aggregated_stats,
             "per_match_stats": per_match_stats,
             "match_evolution_stats": match_evolution_stats,
+            "analysis_saisons": saisons,
+            "analysis_time_filter": time_filter.to_context(),
         },
     )

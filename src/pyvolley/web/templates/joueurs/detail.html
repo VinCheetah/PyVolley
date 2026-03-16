@@ -3,6 +3,8 @@
 {% block title %}{{ joueur.nom }} {{ joueur.prenom }} - PyVolley{% endblock %}
 
 {% block content %}
+{% set analysis_time_filter = analysis_time_filter|default({'season_ids': [], 'date_from': '', 'date_to': ''}, true) %}
+{% set analysis_saisons = analysis_saisons|default([], true) %}
 <div class="space-y-6">
 
     {{ breadcrumb([('Accueil', '/'), ('Joueurs', '/joueurs'), (joueur.nom ~ ' ' ~ joueur.prenom, '')]) }}
@@ -129,6 +131,46 @@
         </div>
     </div>
     {% endif %}
+
+    <!-- Espace d'analyse avancée -->
+    <div class="card p-4">
+        <div class="flex items-start justify-between gap-4 mb-3">
+            <div>
+                <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--accent-cyan);">
+                    <i data-lucide="microscope" class="w-4 h-4 inline-block mr-1"></i>
+                    Espace d'analyse avancée
+                </h2>
+                <p class="text-xs mt-1" style="color: var(--text-muted);">
+                    Filtre les statistiques détaillées du joueur par saisons et période précise (avant/après).
+                </p>
+            </div>
+            {% if analysis_time_filter.season_ids or analysis_time_filter.date_from or analysis_time_filter.date_to %}
+            <a href="/joueurs/{{ joueur.id }}" class="badge badge-red text-xs">Réinitialiser analyse</a>
+            {% endif %}
+        </div>
+        <form method="get" action="/joueurs/{{ joueur.id }}" class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+            <div>
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Saisons</label>
+                <select name="saison_ids" class="filter-select" multiple size="4">
+                    {% for s in analysis_saisons %}
+                    <option value="{{ s.id }}" {% if analysis_time_filter.season_ids and s.id in analysis_time_filter.season_ids %}selected{% endif %}>{{ s.code }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Après le</label>
+                <input type="date" name="after_date" value="{{ analysis_time_filter.date_from }}" class="filter-select">
+            </div>
+            <div>
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Avant le</label>
+                <input type="date" name="before_date" value="{{ analysis_time_filter.date_to }}" class="filter-select">
+            </div>
+            <div class="flex gap-2">
+                <button type="submit" class="pagination-btn" style="background: var(--accent-blue); color: white; border-color: var(--accent-blue);">Analyser</button>
+                <a href="/joueurs/{{ joueur.id }}" class="pagination-btn">Reset</a>
+            </div>
+        </form>
+    </div>
 
     <!-- ═══════════════ Performance Stats ═══════════════ -->
     {% if aggregated_stats and aggregated_stats.matchs_joues > 0 %}

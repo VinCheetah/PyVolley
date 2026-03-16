@@ -13,6 +13,31 @@
         <p style="color: var(--text-muted);">Vue d'ensemble des données PyVolley</p>
     </div>
 
+    <div class="card p-4">
+        <form method="get" action="/statistiques" class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+            <div>
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Saisons</label>
+                <select name="saison_ids" class="filter-select" multiple size="4">
+                    {% for s in saisons %}
+                    <option value="{{ s.id }}" {% if time_filter.season_ids and s.id in time_filter.season_ids %}selected{% endif %}>{{ s.code }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Après le</label>
+                <input type="date" name="after_date" value="{{ time_filter.date_from }}" class="filter-select">
+            </div>
+            <div>
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Avant le</label>
+                <input type="date" name="before_date" value="{{ time_filter.date_to }}" class="filter-select">
+            </div>
+            <div class="flex gap-2">
+                <button type="submit" class="pagination-btn" style="background: var(--accent-blue); color: white; border-color: var(--accent-blue);">Filtrer</button>
+                <a href="/statistiques" class="pagination-btn">Reset</a>
+            </div>
+        </form>
+    </div>
+
     <!-- Global Stats Grid -->
     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <div class="stat-card">

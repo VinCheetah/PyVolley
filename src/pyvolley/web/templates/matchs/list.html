@@ -12,20 +12,34 @@
             Matchs
             <span class="badge">{{ total }}</span>
         </h1>
-        <div class="flex items-center gap-3 flex-wrap">
-            {% if saisons %}
-            <div class="flex items-center gap-2">
-                <span class="text-sm" style="color: var(--text-muted);">Saison :</span>
-                <select onchange="updateFilter('saison_id', this.value)" class="filter-select">
-                    <option value="">Toutes</option>
-                    {% for s in saisons %}
-                    <option value="{{ s.id }}" {% if current_saison_id == s.id %}selected{% endif %}>
-                        {{ s.code }}
-                    </option>
-                    {% endfor %}
-                </select>
-            </div>
-            {% endif %}
+        <div class="w-full sm:w-auto">
+            <form method="get" action="/matchs" class="grid grid-cols-1 sm:grid-cols-4 gap-2 items-end">
+                {% if saisons %}
+                <div>
+                    <span class="text-xs" style="color: var(--text-muted);">Saisons</span>
+                    <select name="saison_ids" class="filter-select" multiple size="4">
+                        {% for s in saisons %}
+                        <option value="{{ s.id }}" {% if current_saison_ids and s.id in current_saison_ids %}selected{% endif %}>{{ s.code }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
+                <div>
+                    <span class="text-xs" style="color: var(--text-muted);">Après le</span>
+                    <input type="date" name="after_date" value="{{ time_filter.date_from }}" class="filter-select">
+                </div>
+                <div>
+                    <span class="text-xs" style="color: var(--text-muted);">Avant le</span>
+                    <input type="date" name="before_date" value="{{ time_filter.date_to }}" class="filter-select">
+                </div>
+                <div class="flex gap-2">
+                    <button type="submit" class="pagination-btn" style="background: var(--accent-blue); color: white; border-color: var(--accent-blue);">Filtrer</button>
+                    <a href="/matchs" class="pagination-btn">Reset</a>
+                </div>
+                {% if selected_departements and selected_departements|length > 0 %}
+                <input type="hidden" name="departements" value="{{ selected_departements|join(',') }}">
+                {% endif %}
+            </form>
         </div>
     </div>
 
@@ -278,13 +292,13 @@
     <!-- ═══ Pagination ═══ -->
     {% if has_prev or has_next %}
     <div class="flex justify-center gap-2">
-        <a onclick="goToPage({{ page - 1 }})" style="cursor:pointer;"
-           class="pagination-btn {% if not has_prev %}disabled{% endif %}">
+          <a href="{{ page_prev_url if page_prev_url else '#' }}"
+              class="pagination-btn {% if not has_prev %}disabled{% endif %}">
             <i data-lucide="chevron-left" class="w-4 h-4"></i>
         </a>
         <span class="pagination-btn active">{{ page }}</span>
-        <a onclick="goToPage({{ page + 1 }})" style="cursor:pointer;"
-           class="pagination-btn {% if not has_next %}disabled{% endif %}">
+          <a href="{{ page_next_url if page_next_url else '#' }}"
+              class="pagination-btn {% if not has_next %}disabled{% endif %}">
             <i data-lucide="chevron-right" class="w-4 h-4"></i>
         </a>
     </div>

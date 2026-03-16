@@ -20,7 +20,7 @@
             </div>
 
             <!-- Filters -->
-            <div x-data="{ showFilters: {{ 'true' if (genre or niveau or saison_id or ligue) else 'false' }} }" class="max-w-2xl">
+            <div x-data="{ showFilters: {{ 'true' if (genre or niveau or ligue or (season_ids and season_ids|length > 0) or date_from or date_to) else 'false' }} }" class="max-w-2xl">
                 <button type="button" @click="showFilters = !showFilters"
                         class="flex items-center gap-2 text-sm font-medium transition"
                         style="color: var(--text-secondary);">
@@ -28,7 +28,7 @@
                     Filtres avancés
                     <i data-lucide="chevron-down" class="w-3 h-3 transition-transform"
                        :class="showFilters && 'rotate-180'"></i>
-                    {% if genre or niveau or saison_id or ligue %}
+                    {% if genre or niveau or ligue or (season_ids and season_ids|length > 0) or date_from or date_to %}
                     <span class="badge badge-blue text-xs">Actifs</span>
                     {% endif %}
                 </button>
@@ -60,14 +60,13 @@
                         </select>
                     </div>
 
-                    <!-- Saison -->
+                    <!-- Saisons -->
                     <div>
                         <label class="text-xs font-semibold uppercase tracking-wider block mb-1"
-                               style="color: var(--text-muted);">Saison</label>
-                        <select name="saison_id" class="filter-select">
-                            <option value="">Toutes</option>
+                               style="color: var(--text-muted);">Saisons</label>
+                        <select name="saison_ids" class="filter-select" multiple size="4">
                             {% for s in saisons %}
-                            <option value="{{ s.id }}" {% if saison_id == s.id %}selected{% endif %}>{{ s.code }}</option>
+                            <option value="{{ s.id }}" {% if season_ids and s.id in season_ids %}selected{% endif %}>{{ s.code }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -84,12 +83,24 @@
                         </select>
                     </div>
 
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider block mb-1"
+                               style="color: var(--text-muted);">Après le</label>
+                        <input type="date" name="after_date" value="{{ date_from }}" class="filter-select">
+                    </div>
+
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider block mb-1"
+                               style="color: var(--text-muted);">Avant le</label>
+                        <input type="date" name="before_date" value="{{ date_to }}" class="filter-select">
+                    </div>
+
                     <div class="sm:col-span-2 lg:col-span-4 flex gap-2 pt-2">
                         <button type="submit" class="pagination-btn"
                                 style="background: var(--accent-blue); color: white; border-color: var(--accent-blue);">
                             <i data-lucide="search" class="w-4 h-4 mr-1"></i> Rechercher
                         </button>
-                        {% if genre or niveau or saison_id or ligue %}
+                        {% if genre or niveau or ligue or (season_ids and season_ids|length > 0) or date_from or date_to %}
                         <a href="/search{% if query %}?q={{ query }}{% endif %}" class="pagination-btn">
                             <i data-lucide="x" class="w-4 h-4 mr-1"></i> Réinitialiser filtres
                         </a>
@@ -102,7 +113,7 @@
 
     {% if query %}
     <!-- Active filters display -->
-    {% if genre or niveau or saison_id or ligue %}
+    {% if genre or niveau or ligue or (season_ids and season_ids|length > 0) or date_from or date_to %}
     <div class="flex flex-wrap gap-2 items-center">
         {% set niveau_filter_badge = resolve_niveau_badge(niveau) %}
         <span class="text-xs font-semibold uppercase" style="color: var(--text-muted);">Filtres :</span>
@@ -112,15 +123,19 @@
         {% if niveau_filter_badge %}
         <span class="badge {{ niveau_filter_badge.css_class }}">Niveau : {{ niveau_filter_badge.label }}</span>
         {% endif %}
-        {% if saison_id %}
-        {% for s in saisons %}
-        {% if s.id == saison_id %}
+        {% if season_ids and season_ids|length > 0 %}
+        {% for s in saisons if s.id in season_ids %}
         <span class="badge badge-purple">Saison : {{ s.code }}</span>
-        {% endif %}
         {% endfor %}
         {% endif %}
         {% if ligue %}
         <span class="badge badge-gold">Ligue : {{ ligue }}</span>
+        {% endif %}
+        {% if date_from %}
+        <span class="badge badge-blue">Après : {{ date_from|format_date }}</span>
+        {% endif %}
+        {% if date_to %}
+        <span class="badge badge-blue">Avant : {{ date_to|format_date }}</span>
         {% endif %}
     </div>
     {% endif %}

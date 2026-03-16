@@ -4,11 +4,13 @@ Routes web — Matchs (liste et détail).
 
 import json
 from typing import Optional
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Request, Depends, Query
 from fastapi.responses import HTMLResponse
 
 from pyvolley.web.templateconfig import templates
+from pyvolley.web.helpers.time_filter import build_time_filter
 from pyvolley.web.helpers.match_utils import build_simulation_data
 from pyvolley.shared.helpers import parse_optional_int
 from pyvolley.api.dependencies import get_match_repo, get_saison_repo
@@ -22,12 +24,25 @@ async def matchs_list(
     request: Request,
     page: int = Query(1, ge=1),
     saison_id: Optional[str] = Query(None),
+    saison_ids: Optional[list[int]] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    after_date: Optional[str] = Query(None),
+    before_date: Optional[str] = Query(None),
     competition_id: Optional[int] = None,
     departements: Optional[str] = None,
     repo: MatchRepository = Depends(get_match_repo),
     saison_repo: SaisonRepository = Depends(get_saison_repo),
 ):
     saison_id_int = parse_optional_int(saison_id)
+    time_filter = build_time_filter(
+        season_ids=saison_ids,
+        season_id=saison_id_int,
+        date_from=date_from,
+        date_to=date_to,
+        after_date=after_date,
+        before_date=before_date,
+    )
 
     dept_list = (
         [d.strip() for d in departements.split(",") if d.strip()]
@@ -38,13 +53,31 @@ async def matchs_list(
     limit = 50
     offset = (page - 1) * limit
     matchs = repo.search(
-        saison_id=saison_id_int,
+        saison_ids=time_filter.season_ids,
+        date_from=time_filter.date_from,
+        date_to=time_filter.date_to,
         competition_id=competition_id,
         departements=dept_list,
         limit=limit,
     )
     total = repo.count()
     saisons = saison_repo.get_all(limit=20)
+
+    def page_url(target_page: int) -> str:
+        params = []
+        for sid in time_filter.season_ids:
+            params.append(("saison_ids", str(sid)))
+        if competition_id is not None:
+            params.append(("competition_id", str(competition_id)))
+        if departements:
+            params.append(("departements", departements))
+        if time_filter.date_from:
+            params.append(("date_from", time_filter.date_from.isoformat()))
+        if time_filter.date_to:
+            params.append(("date_to", time_filter.date_to.isoformat()))
+        params.append(("page", str(target_page)))
+        return f"/matchs?{urlencode(params)}"
+
     return templates.TemplateResponse(
         "matchs/list.html",
         {
@@ -56,7 +89,11 @@ async def matchs_list(
             "has_prev": page > 1,
             "saisons": saisons,
             "current_saison_id": saison_id_int,
+            "current_saison_ids": time_filter.season_ids,
             "selected_departements": dept_list or [],
+            "time_filter": time_filter.to_context(),
+            "page_prev_url": page_url(page - 1) if page > 1 else None,
+            "page_next_url": page_url(page + 1) if offset + limit < total else None,
         },
     )
 

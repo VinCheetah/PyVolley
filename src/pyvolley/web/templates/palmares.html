@@ -99,7 +99,16 @@
                 :style="showFilters ? 'background: var(--accent-blue); color: white;' : 'background: var(--bg-card); color: var(--text-secondary); border: 1px solid var(--border-color);'">
             <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
             Filtres
-            {% set active_count = [current_filters.saison_id, current_filters.genre, current_filters.categorie, current_filters.niveau_min, current_filters.niveau_max, current_filters.departement] | select | list | length %}
+            {% set active_count = [
+                current_filters.saison_id,
+                current_filters.genre,
+                current_filters.categorie,
+                current_filters.niveau_min,
+                current_filters.niveau_max,
+                current_filters.departement,
+                current_filters.date_from,
+                current_filters.date_to,
+            ] | select | list | length + (current_filters.saison_ids|length if current_filters.saison_ids else 0) %}
             {% if active_count > 0 %}
             <span class="badge badge-gold text-xs">{{ active_count }}</span>
             {% endif %}
@@ -109,19 +118,34 @@
     <!-- Filters Panel -->
     <div x-show="showFilters" x-cloak x-transition class="card p-6">
         <form method="get" action="/palmares" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <!-- Saison -->
+            <!-- Saisons -->
             <div>
                 <label class="block text-xs font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">
-                    <i data-lucide="calendar" class="w-3 h-3 inline-block mr-1"></i> Saison
+                    <i data-lucide="calendar" class="w-3 h-3 inline-block mr-1"></i> Saisons
                 </label>
-                <select name="saison_id" class="filter-select">
-                    <option value="">Toutes les saisons</option>
+                <select name="saison_ids" class="filter-select" multiple size="4">
                     {% for s in filter_options.saisons %}
-                    <option value="{{ s.id }}" {% if current_filters.saison_id == s.id %}selected{% endif %}>
+                    <option value="{{ s.id }}" {% if current_filters.saison_ids and s.id in current_filters.saison_ids %}selected{% endif %}>
                         {{ s.code }}
                     </option>
                     {% endfor %}
                 </select>
+            </div>
+
+            <!-- Date après -->
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">
+                    <i data-lucide="calendar-plus" class="w-3 h-3 inline-block mr-1"></i> Après le
+                </label>
+                <input type="date" name="after_date" value="{{ current_filters.date_from }}" class="filter-select">
+            </div>
+
+            <!-- Date avant -->
+            <div>
+                <label class="block text-xs font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">
+                    <i data-lucide="calendar-minus" class="w-3 h-3 inline-block mr-1"></i> Avant le
+                </label>
+                <input type="date" name="before_date" value="{{ current_filters.date_to }}" class="filter-select">
             </div>
 
             <!-- Genre -->
@@ -721,7 +745,7 @@
 function palmares() {
     return {
         activeTab: 'joueurs',
-        showFilters: {{ 'true' if (current_filters.saison_id or current_filters.genre or current_filters.categorie or current_filters.niveau_min or current_filters.niveau_max or current_filters.departement) else 'false' }},
+        showFilters: {{ 'true' if (current_filters.saison_id or (current_filters.saison_ids and current_filters.saison_ids|length > 0) or current_filters.date_from or current_filters.date_to or current_filters.genre or current_filters.categorie or current_filters.niveau_min or current_filters.niveau_max or current_filters.departement) else 'false' }},
     };
 }
 </script>
