@@ -102,6 +102,16 @@ def extract_equipes(
                 val = val[single.end():]
         eq[key] = clean_team_name(val)
 
+    # Méthode 2 fallback : header line with organisateur + team names
+    # Line 3 typically has "Organisateur TEAM_A TEAM_B"
+    if not eq["equipe_a"] or not eq["equipe_b"]:
+        header_teams = _extract_teams_from_header_line(lines)
+        if header_teams:
+            if not eq["equipe_a"] and header_teams[0]:
+                eq["equipe_a"] = header_teams[0]
+            if not eq["equipe_b"] and len(header_teams) > 1 and header_teams[1]:
+                eq["equipe_b"] = header_teams[1]
+
     # Méthode 3 fallback : mots positionnels
     if not eq["equipe_a"] or not eq["equipe_b"]:
         team_words = sorted(
@@ -119,6 +129,85 @@ def extract_equipes(
                 eq["equipe_b"] = clean_team_name(right.strip())
 
     return eq
+
+
+def _extract_teams_from_header_line(lines: list[str]) -> list[str]:
+    """Extract team names from the organisateur line in the header.
+
+    Line 3 (or nearby) typically has the pattern:
+    ``"Organisateur TEAM_A TEAM_B"``
+
+    After stripping the organisateur prefix, the remainder contains two
+    team names separated by a space boundary.  The players table (row 0)
+    is the primary source, but when that is unavailable this provides a
+    reliable fallback.
+    """
+    from pyvolley.parsers.utils import extract_organisateur
+
+    for line in lines[:8]:
+        stripped = line.strip()
+        is_org_line = any(kw in stripped for kw in (
+            'Compétitions', 'Compétition', 'Comité', 'Comite', 'Ligue',
+        ))
+        if not is_org_line:
+            continue
+        if 'Match:' in stripped or 'Salle:' in stripped or 'Ville:' in stripped:
+            continue
+
+        org = extract_organisateur(stripped)
+        if not org:
+            continue
+
+        remainder = stripped[len(org):].strip()
+        if not remainder:
+            continue
+
+        # Use the players table header structure: the organisateur line
+        # lists teams in left-right order. Heuristic: split at the point
+        # where team B starts. Look for a known team-name boundary by
+        # trying to find two plausible club names.
+        teams = _split_two_teams(remainder)
+        if teams and len(teams) >= 2:
+            return [clean_team_name(t) for t in teams]
+        if remainder:
+            return [clean_team_name(remainder)]
+
+    return []
+
+
+def _split_two_teams(text: str) -> list[str]:
+    """Split a string containing two team names into a list of two names.
+
+    Heuristic: try to find a split point where each half looks like a
+    plausible club name (at least 2 uppercase words).
+    """
+    words = text.split()
+    if len(words) < 2:
+        return [text]
+
+    best_split = None
+    best_score = -1
+
+    for i in range(1, len(words)):
+        left = ' '.join(words[:i])
+        right = ' '.join(words[i:])
+        if len(left) < 2 or len(right) < 2:
+            continue
+
+        # Score: prefer splits where both sides have similar word counts
+        # and both have at least 1 word
+        lw = len(words[:i])
+        rw = len(words[i:])
+        balance = 1.0 / (1.0 + abs(lw - rw))
+        score = balance
+
+        if score > best_score:
+            best_score = score
+            best_split = i
+
+    if best_split:
+        return [' '.join(words[:best_split]), ' '.join(words[best_split:])]
+    return [text]
 
 
 # =====================================================================

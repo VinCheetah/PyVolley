@@ -66,6 +66,11 @@ _FAST_TABLE_SETTINGS = {
     "intersection_tolerance": 2,
 }
 
+_FALLBACK_TABLE_SETTINGS = {
+    "vertical_strategy": "lines",
+    "horizontal_strategy": "lines",
+}
+
 
 class MatchSheetParser(BaseParser):
     """Parser de feuilles de match FFVB — extraction exhaustive et robuste.
@@ -127,9 +132,17 @@ class MatchSheetParser(BaseParser):
                 lines = full_text.splitlines()
 
                 tables = page.extract_tables(table_settings=_FAST_TABLE_SETTINGS)
-                if len(tables) < 3:
-                    tables = page.extract_tables()
                 tidx = _identify_tables(tables)
+
+                # Validate that the essential tables were identified.
+                # With lines_strict, pdfplumber sometimes finds many tiny
+                # tables (individual SET cells) that pass the count check
+                # but lack the structured results/players data.
+                if not tidx.get('results') or not tidx.get('players'):
+                    tables = page.extract_tables(
+                        table_settings=_FALLBACK_TABLE_SETTINGS,
+                    )
+                    tidx = _identify_tables(tables)
                 fields_count = 0
 
                 # ── Phase 1 : Informations générales ──
@@ -182,7 +195,9 @@ class MatchSheetParser(BaseParser):
                 )
 
                 if match_joue and not has_detail_score and not has_set_scores:
-                    tables_fallback = page.extract_tables()
+                    tables_fallback = page.extract_tables(
+                        table_settings=_FALLBACK_TABLE_SETTINGS,
+                    )
                     tidx_fallback = _identify_tables(tables_fallback)
                     fallback_res_data, fallback_duree = extract_resultats_table(tidx_fallback)
                     fallback_has_set_scores = any(
