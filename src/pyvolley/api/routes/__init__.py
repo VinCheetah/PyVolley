@@ -16,6 +16,7 @@ from pyvolley.api.routes.arbitres import router as arbitres_router
 from pyvolley.api.routes.saisons import router as saisons_router
 from pyvolley.api.routes.competitions import router as competitions_router
 from pyvolley.api.routes.stats import router as stats_router
+from pyvolley.api.routes.map import router as map_router
 
 router = APIRouter()
 
@@ -29,5 +30,6 @@ router.include_router(arbitres_router)
 router.include_router(saisons_router)
 router.include_router(competitions_router)
 router.include_router(stats_router)
+router.include_router(map_router)
 
 __all__ = ["router"]

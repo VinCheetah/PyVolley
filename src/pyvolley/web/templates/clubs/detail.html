@@ -1,8 +1,10 @@
 {% extends "base.html" %}
 {% from "macros/ui.html" import breadcrumb %}
+{% from "macros/map.html" import map_head, map_card %}
 {% block title %}{{ club.nom }} - PyVolley{% endblock %}
 
 {% block extra_head %}
+{{ map_head() }}
 <style>
     :root {
         --club-primary: {{ club_branding.primary if club_branding else '#f59e0b' }};
@@ -296,6 +298,9 @@
         </div>
     </div>
     {% endif %}
+
+    <!-- Carte interactive — Localisation du club -->
+    {{ map_card(club_id=club.id, title="Localisation", height="350px") }}
 
     <!-- Equipes du club -->
     <div class="card overflow-hidden">

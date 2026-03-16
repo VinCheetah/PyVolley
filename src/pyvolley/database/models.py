@@ -145,6 +145,10 @@ class ClubDB(Base):
     url_planning: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     url_classement: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
+    # Coordonnées géographiques (pour la carte interactive)
+    latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
     # Relations
     equipes: Mapped[List["EquipeDB"]] = relationship(back_populates="club")
     aliases: Mapped[List["ClubAliasDB"]] = relationship(
@@ -176,6 +180,10 @@ class SalleClubDB(Base):
     sol: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     capacite: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     transport: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
+    # Coordonnées géographiques (pour la carte interactive)
+    latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     club: Mapped["ClubDB"] = relationship(back_populates="salles")
 
