@@ -55,6 +55,9 @@ def _niveau_rank(niveau_str: Optional[str]) -> Optional[int]:
 class StatsFilters:
     """Filtres pour les statistiques amusantes."""
     saison_id: Optional[int] = None
+    saison_ids: Optional[List[int]] = None
+    date_from: Optional[datetime.date] = None
+    date_to: Optional[datetime.date] = None
     genre: Optional[str] = None
     categorie: Optional[str] = None
     niveau_min: Optional[str] = None  # rang textuel
@@ -75,8 +78,18 @@ class StatsAmusantesService:
 
     def _base_match_filter(self, stmt, filters: StatsFilters):
         """Applique les filtres communs sur les matchs (la table MatchDB doit être dans le FROM)."""
-        if filters.saison_id:
+        season_ids = list(filters.saison_ids or [])
+        if filters.saison_id and filters.saison_id not in season_ids:
+            season_ids.append(filters.saison_id)
+
+        if season_ids:
+            stmt = stmt.where(MatchDB.saison_id.in_(season_ids))
+        elif filters.saison_id:
             stmt = stmt.where(MatchDB.saison_id == filters.saison_id)
+        if filters.date_from:
+            stmt = stmt.where(MatchDB.date_match >= filters.date_from)
+        if filters.date_to:
+            stmt = stmt.where(MatchDB.date_match <= filters.date_to)
         if filters.genre or filters.categorie or filters.niveau_min or filters.niveau_max:
             # Joindre la compétition si on filtre dessus
             if not self._has_join(stmt, CompetitionDB):
@@ -133,12 +146,16 @@ class StatsAmusantesService:
     def _filtered_match_ids(self, filters: StatsFilters) -> Optional[List[int]]:
         """Retourne les IDs de matchs correspondant aux filtres, ou None si pas de filtre.
         Résultat mis en cache pour éviter les requêtes répétées."""
-        cache_key = f"{filters.saison_id}:{filters.genre}:{filters.categorie}:{filters.niveau_min}:{filters.niveau_max}:{filters.departement}"
+        cache_key = (
+            f"{filters.saison_id}:{filters.saison_ids}:{filters.date_from}:{filters.date_to}:"
+            f"{filters.genre}:{filters.categorie}:{filters.niveau_min}:{filters.niveau_max}:{filters.departement}"
+        )
         if cache_key in self._match_ids_cache:
             return self._match_ids_cache[cache_key]
 
         has_filter = any([
-            filters.saison_id, filters.genre, filters.categorie,
+            filters.saison_id, filters.saison_ids, filters.date_from, filters.date_to,
+            filters.genre, filters.categorie,
             filters.niveau_min, filters.niveau_max, filters.departement,
         ])
         if not has_filter:
@@ -1102,6 +1119,9 @@ class StatsAmusantesService:
         import json
         return json.dumps({
             "saison_id": filters.saison_id,
+            "saison_ids": sorted(filters.saison_ids or []),
+            "date_from": filters.date_from.isoformat() if filters.date_from else None,
+            "date_to": filters.date_to.isoformat() if filters.date_to else None,
             "genre": filters.genre,
             "categorie": filters.categorie,
             "niveau_min": filters.niveau_min,

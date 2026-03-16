@@ -7,6 +7,7 @@ et fournir des méthodes de recherche avancées.
 
 from typing import Optional, List, Type, TypeVar, Generic
 from datetime import datetime
+from datetime import date as dt_date
 from sqlalchemy.orm import Session, joinedload, subqueryload
 from sqlalchemy import select, func, or_, case, extract, distinct, desc, asc, and_, literal_column
 
@@ -592,6 +593,9 @@ class MatchRepository(BaseRepository[MatchDB]):
         competition_id: Optional[int] = None,
         poule_id: Optional[int] = None,
         saison_id: Optional[int] = None,
+        saison_ids: Optional[List[int]] = None,
+        date_from: Optional[dt_date] = None,
+        date_to: Optional[dt_date] = None,
         departements: Optional[List[str]] = None,
         limit: int = 50,
     ) -> List[MatchDB]:
@@ -611,6 +615,12 @@ class MatchRepository(BaseRepository[MatchDB]):
             stmt = stmt.where(MatchDB.poule_id == poule_id)
         if saison_id:
             stmt = stmt.where(MatchDB.saison_id == saison_id)
+        if saison_ids:
+            stmt = stmt.where(MatchDB.saison_id.in_(saison_ids))
+        if date_from:
+            stmt = stmt.where(MatchDB.date_match >= date_from)
+        if date_to:
+            stmt = stmt.where(MatchDB.date_match <= date_to)
         if equipe_nom:
             equipe_ids = self.session.scalars(
                 select(EquipeDB.id).where(EquipeDB.nom.ilike(f"%{equipe_nom}%"))
@@ -728,7 +738,13 @@ class MatchRepository(BaseRepository[MatchDB]):
         )
         return self.session.scalar(stmt)
 
-    def get_stats_by_month(self, saison_id: Optional[int] = None) -> list:
+    def get_stats_by_month(
+        self,
+        saison_id: Optional[int] = None,
+        saison_ids: Optional[List[int]] = None,
+        date_from: Optional[dt_date] = None,
+        date_to: Optional[dt_date] = None,
+    ) -> list:
         """Nombre de matchs par mois."""
         stmt = (
             select(
@@ -742,9 +758,21 @@ class MatchRepository(BaseRepository[MatchDB]):
         )
         if saison_id:
             stmt = stmt.where(MatchDB.saison_id == saison_id)
+        if saison_ids:
+            stmt = stmt.where(MatchDB.saison_id.in_(saison_ids))
+        if date_from:
+            stmt = stmt.where(MatchDB.date_match >= date_from)
+        if date_to:
+            stmt = stmt.where(MatchDB.date_match <= date_to)
         return list(self.session.execute(stmt))
 
-    def count_by_saison(self) -> list:
+    def count_by_saison(
+        self,
+        saison_id: Optional[int] = None,
+        saison_ids: Optional[List[int]] = None,
+        date_from: Optional[dt_date] = None,
+        date_to: Optional[dt_date] = None,
+    ) -> list:
         """Nombre de matchs par saison."""
         stmt = (
             select(SaisonDB.code, func.count(MatchDB.id))
@@ -752,6 +780,14 @@ class MatchRepository(BaseRepository[MatchDB]):
             .group_by(SaisonDB.code)
             .order_by(SaisonDB.code)
         )
+        if saison_id:
+            stmt = stmt.where(MatchDB.saison_id == saison_id)
+        if saison_ids:
+            stmt = stmt.where(MatchDB.saison_id.in_(saison_ids))
+        if date_from:
+            stmt = stmt.where(MatchDB.date_match >= date_from)
+        if date_to:
+            stmt = stmt.where(MatchDB.date_match <= date_to)
         return list(self.session.execute(stmt))
 
 

@@ -82,7 +82,7 @@ class MatchSheetParser(BaseParser):
 
     @property
     def version(self) -> str:
-        return "6.0.1"
+        return "6.1.2"
 
     # ================================================================
     # Point d'entrée
@@ -96,7 +96,7 @@ class MatchSheetParser(BaseParser):
             with pdfplumber.open(str(pdf_path)) as pdf:
                 if not pdf.pages:
                     return False
-                text = pdf.pages[0].extract_text() or ""
+                text = pdf.pages[0].extract_text_simple() or ""
                 markers = ["Match:", "Vainqueur", "RESULTATS", "SET"]
                 return sum(1 for m in markers if m in text) >= 2
         except Exception:
@@ -119,17 +119,16 @@ class MatchSheetParser(BaseParser):
                     return result
 
                 page = pdf.pages[0]
-                full_text = page.extract_text() or ""
                 words = page.extract_words()
-                tables = page.extract_tables(table_settings=_FAST_TABLE_SETTINGS)
-                if len(tables) < 3:
-                    tables = page.extract_tables()
-
+                full_text = page.extract_text() or ""
                 if not full_text.strip():
                     result.add_error("Aucun texte extrait du PDF")
                     return result
-
                 lines = full_text.splitlines()
+
+                tables = page.extract_tables(table_settings=_FAST_TABLE_SETTINGS)
+                if len(tables) < 3:
+                    tables = page.extract_tables()
                 tidx = _identify_tables(tables)
                 fields_count = 0
 
@@ -181,6 +180,22 @@ class MatchSheetParser(BaseParser):
                     or (r.get('points_b') or 0) > 0
                     for r in res_data
                 )
+
+                if match_joue and not has_detail_score and not has_set_scores:
+                    tables_fallback = page.extract_tables()
+                    tidx_fallback = _identify_tables(tables_fallback)
+                    fallback_res_data, fallback_duree = extract_resultats_table(tidx_fallback)
+                    fallback_has_set_scores = any(
+                        (row.get('points_a') or 0) > 0
+                        or (row.get('points_b') or 0) > 0
+                        for row in fallback_res_data
+                    )
+                    if fallback_has_set_scores:
+                        tidx = tidx_fallback
+                        res_data = fallback_res_data
+                        has_set_scores = True
+                        if fallback_duree and not resultat.get("duree_totale"):
+                            resultat["duree_totale"] = fallback_duree
 
                 # ── Phase 4 : Détails des sets ──
                 sets_detailed: list[dict] = []

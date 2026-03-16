@@ -67,6 +67,13 @@ def extract_header(lines: list[str]) -> dict:
         # ── Ville, date, heure ──
         if 'Ville:' in line:
             header.update(_parse_ville_date_line(line))
+        elif (
+            not header.get("date_obj")
+            and any(day in line for day in JOURS_SEMAINE)
+        ) or (not header.get("heure_obj") and 'h' in line and 'à' in line):
+            frag = _parse_date_time_fragment(line)
+            if frag:
+                header.update(frag)
 
         # ── Salle, genre, catégorie ──
         if 'Salle:' in line:
@@ -188,6 +195,37 @@ def _parse_ville_date_line(line: str) -> dict:
         lieu = m.group(1).strip()
         if lieu and lieu not in JOURS_SEMAINE:
             info["lieu"] = lieu
+
+    if dm := _DATE_PATTERN.search(line):
+        jour_sem, jour_s, mois_s, annee_s = dm.groups()
+        jour = int(jour_s)
+        annee = int(annee_s)
+        info["date"] = f"{jour_sem} {jour} {mois_s.capitalize()} {annee}"
+        mois_num = MOIS_MAP.get(mois_s.lower(), 1)
+        try:
+            info["date_obj"] = dt_date(annee, mois_num, jour)
+        except ValueError:
+            pass
+
+    if hm := _HEURE_PATTERN.search(line):
+        h, mn = int(hm.group(1)), int(hm.group(2))
+        info["heure"] = f"{h}h{mn:02d}"
+        try:
+            info["heure_obj"] = dt_time(h, mn)
+        except ValueError:
+            pass
+
+    return info
+
+
+def _parse_date_time_fragment(line: str) -> dict:
+    """Parse une ligne fragmentée contenant uniquement date/heure.
+
+    Cas fréquent avec ``extract_text_simple`` :
+    ``Ville: X`` sur une ligne puis ``Samedi 10 Octobre 2025 à 20h00``
+    sur la suivante.
+    """
+    info: dict = {}
 
     if dm := _DATE_PATTERN.search(line):
         jour_sem, jour_s, mois_s, annee_s = dm.groups()

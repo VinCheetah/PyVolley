@@ -101,7 +101,7 @@ def import_data(
         help="Conserver les PDFs après parsing. --no-keep-pdfs libère l'espace.",
     ),
     concurrent: int = typer.Option(
-        5, "--concurrent", "-c",
+        10, "--concurrent", "-c",
         help="Nombre de téléchargements simultanés (1–20).",
     ),
     dry_run: bool = typer.Option(
