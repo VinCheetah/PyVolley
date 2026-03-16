@@ -178,8 +178,8 @@ def _extract_teams_from_header_line(lines: list[str]) -> list[str]:
 def _split_two_teams(text: str) -> list[str]:
     """Split a string containing two team names into a list of two names.
 
-    Heuristic: try to find a split point where each half looks like a
-    plausible club name (at least 2 uppercase words).
+    Heuristic: find the split point that produces the most balanced word
+    count between the two halves.
     """
     words = text.split()
     if len(words) < 2:
