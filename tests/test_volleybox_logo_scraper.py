@@ -6,7 +6,7 @@ from pyvolley.scrapers.volleybox.logo_scraper import VolleyboxLogoScraper
 def test_find_best_team_from_sitemap_tokens(monkeypatch):
     scraper = VolleyboxLogoScraper()
 
-    sitemap_root = "https://volleybox.net/sitemap-teams-1.xml"
+    sitemap_root = "https://volleybox.net/fr/sitemap-teams-1.xml"
     sitemap_teams = """
 https://volleybox.net/fr/harnes-volley-ball-t99999
 https://volleybox.net/fr/grenoble-vuc-t12345
