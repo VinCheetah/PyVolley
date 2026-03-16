@@ -66,6 +66,11 @@ _FAST_TABLE_SETTINGS = {
     "intersection_tolerance": 2,
 }
 
+_FALLBACK_TABLE_SETTINGS = {
+    "vertical_strategy": "lines",
+    "horizontal_strategy": "lines",
+}
+
 
 class MatchSheetParser(BaseParser):
     """Parser de feuilles de match FFVB — extraction exhaustive et robuste.
@@ -127,29 +132,61 @@ class MatchSheetParser(BaseParser):
                 lines = full_text.splitlines()
 
                 tables = page.extract_tables(table_settings=_FAST_TABLE_SETTINGS)
-                if len(tables) < 3:
-                    tables = page.extract_tables()
                 tidx = _identify_tables(tables)
+
+                # Validate that the essential tables were identified.
+                # With lines_strict, pdfplumber sometimes finds many tiny
+                # tables (individual SET cells) that pass the count check
+                # but lack the structured results/players data.
+                if not tidx.get('results') or not tidx.get('players'):
+                    tables = page.extract_tables(
+                        table_settings=_FALLBACK_TABLE_SETTINGS,
+                    )
+                    tidx = _identify_tables(tables)
                 fields_count = 0
+                sources: dict[str, str] = {}
 
                 # ── Phase 1 : Informations générales ──
 
                 header = extract_header(lines)
                 fields_count += sum(1 for v in header.values() if v)
+                for key, val in header.items():
+                    if val:
+                        sources[key] = "header_line"
 
                 equipes_info = extract_equipes(tidx, words, lines)
                 fields_count += sum(1 for v in equipes_info.values() if v)
+                if equipes_info.get("equipe_a"):
+                    sources["equipe_a"] = (
+                        "table_players" if tidx.get("players") else "header_line"
+                    )
+                if equipes_info.get("equipe_b"):
+                    sources["equipe_b"] = (
+                        "table_players" if tidx.get("players") else "header_line"
+                    )
 
                 # ── Phase 2 : Personnes ──
 
                 joueurs_a, joueurs_b, duplication_detected = extract_joueurs(tidx)
                 fields_count += len(joueurs_a) + len(joueurs_b)
+                if joueurs_a:
+                    sources["joueurs_a"] = "table_players"
+                if joueurs_b:
+                    sources["joueurs_b"] = "table_players"
 
                 liberos_a, liberos_b = extract_liberos(words)
                 mark_liberos(joueurs_a, liberos_a)
                 mark_liberos(joueurs_b, liberos_b)
+                if liberos_a:
+                    sources["liberos_a"] = "words_positional"
+                if liberos_b:
+                    sources["liberos_b"] = "words_positional"
 
                 off_a, off_b = extract_officiels(words)
+                if off_a:
+                    sources["officiels_a"] = "words_positional"
+                if off_b:
+                    sources["officiels_b"] = "words_positional"
 
                 cap_a, cap_b = detect_capitaines(
                     None, None, words, tidx, page=page,
@@ -159,11 +196,18 @@ class MatchSheetParser(BaseParser):
 
                 arbitres = extract_arbitres(tidx)
                 fields_count += len(arbitres)
+                if arbitres:
+                    sources["arbitres"] = "table_results"
 
                 # ── Phase 3 : Résultats & détection match joué ──
 
                 resultat = extract_resultat(lines, tidx)
                 fields_count += sum(1 for v in resultat.values() if v)
+                for key, val in resultat.items():
+                    if val:
+                        sources[f"resultat.{key}"] = (
+                            "table_results" if tidx.get("results") else "text_line"
+                        )
 
                 match_joue = is_match_played(resultat)
                 has_detail_score = has_detailed_scores(resultat)
@@ -182,7 +226,9 @@ class MatchSheetParser(BaseParser):
                 )
 
                 if match_joue and not has_detail_score and not has_set_scores:
-                    tables_fallback = page.extract_tables()
+                    tables_fallback = page.extract_tables(
+                        table_settings=_FALLBACK_TABLE_SETTINGS,
+                    )
                     tidx_fallback = _identify_tables(tables_fallback)
                     fallback_res_data, fallback_duree = extract_resultats_table(tidx_fallback)
                     fallback_has_set_scores = any(
@@ -201,11 +247,13 @@ class MatchSheetParser(BaseParser):
                 sets_detailed: list[dict] = []
                 if has_detail_score or has_set_scores:
                     sets_detailed = extract_all_sets(tidx)
+                    sources["sets_detailed"] = "set_sections"
                 else:
                     logger.debug(
                         "Pas de données de sets détaillées – parsing des "
                         "sections SET ignoré : %s", pdf_path.name,
                     )
+                    sources["sets_detailed"] = "skipped"
 
                 # Construction des Sets
                 sets, set_warnings = build_sets(
@@ -222,9 +270,15 @@ class MatchSheetParser(BaseParser):
                 sanctions, sanc_warnings = extract_sanctions(tidx)
                 for w in sanc_warnings:
                     diag.data_warning(Cat.SANCTION, w)
+                if sanctions:
+                    sources["sanctions"] = "table_results"
 
                 remarques = extract_remarques(tidx)
+                if remarques:
+                    sources["remarques"] = "table_results"
                 demande_nf = extract_demande_non_fondee(tidx)
+                if demande_nf:
+                    sources["demande_non_fondee"] = "table_results"
 
                 # ── Fallback heure : utiliser le début du 1er set ──
                 if not header.get("heure_obj") and sets:
@@ -288,6 +342,7 @@ class MatchSheetParser(BaseParser):
                 result.match = match
                 result.fields_extracted = min(fields_count, 40)
                 result.fields_total = 40
+                result.field_sources = sources
 
                 # ── Warnings contextuels ──
                 if not match_joue:

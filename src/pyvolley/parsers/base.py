@@ -26,6 +26,12 @@ class ParseResult:
     # Métriques de qualité
     fields_extracted: int = 0
     fields_total: int = 0
+
+    # Source tracking: maps field/section names to their extraction source.
+    # Populated by the parser to show what data was extracted and from where.
+    # Values are short source labels like "table_players", "header_line",
+    # "words_positional", "table_results", "set_section", etc.
+    field_sources: dict[str, str] = field(default_factory=dict)
     
     @property
     def completeness(self) -> float:
