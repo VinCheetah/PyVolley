@@ -11,6 +11,7 @@ Create Date: 2026-03-16 17:05:00+00:00
 from typing import Sequence, Union
 
 from alembic import op
+import sqlalchemy as sa
 
 
 revision: str = "a7b8c9d0e1f2"
@@ -20,22 +21,38 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.drop_column("clubs", "url_planning")
-    op.drop_column("clubs", "url_classement")
-    op.drop_column("competitions", "url_calendrier")
-    op.drop_column("competitions", "url_classement")
-    op.drop_column("poules", "url_calendrier")
-    op.drop_column("poules", "url_classement")
-    op.drop_column("entites_ffvb", "url_calendrier")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
+    def _drop_if_exists(table_name: str, column_name: str) -> None:
+        existing_columns = {column["name"] for column in inspector.get_columns(table_name)}
+        if column_name in existing_columns:
+            with op.batch_alter_table(table_name, schema=None) as batch_op:
+                batch_op.drop_column(column_name)
+
+    _drop_if_exists("clubs", "url_planning")
+    _drop_if_exists("clubs", "url_classement")
+    _drop_if_exists("competitions", "url_calendrier")
+    _drop_if_exists("competitions", "url_classement")
+    _drop_if_exists("poules", "url_calendrier")
+    _drop_if_exists("poules", "url_classement")
+    _drop_if_exists("entites_ffvb", "url_calendrier")
 
 
 def downgrade() -> None:
-    import sqlalchemy as sa
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
 
-    op.add_column("entites_ffvb", sa.Column("url_calendrier", sa.String(length=500), nullable=True))
-    op.add_column("poules", sa.Column("url_classement", sa.String(length=500), nullable=True))
-    op.add_column("poules", sa.Column("url_calendrier", sa.String(length=500), nullable=True))
-    op.add_column("competitions", sa.Column("url_classement", sa.String(length=500), nullable=True))
-    op.add_column("competitions", sa.Column("url_calendrier", sa.String(length=500), nullable=True))
-    op.add_column("clubs", sa.Column("url_classement", sa.String(length=500), nullable=True))
-    op.add_column("clubs", sa.Column("url_planning", sa.String(length=500), nullable=True))
+    def _add_if_missing(table_name: str, column: sa.Column) -> None:
+        existing_columns = {col["name"] for col in inspector.get_columns(table_name)}
+        if column.name not in existing_columns:
+            with op.batch_alter_table(table_name, schema=None) as batch_op:
+                batch_op.add_column(column)
+
+    _add_if_missing("entites_ffvb", sa.Column("url_calendrier", sa.String(length=500), nullable=True))
+    _add_if_missing("poules", sa.Column("url_classement", sa.String(length=500), nullable=True))
+    _add_if_missing("poules", sa.Column("url_calendrier", sa.String(length=500), nullable=True))
+    _add_if_missing("competitions", sa.Column("url_classement", sa.String(length=500), nullable=True))
+    _add_if_missing("competitions", sa.Column("url_calendrier", sa.String(length=500), nullable=True))
+    _add_if_missing("clubs", sa.Column("url_classement", sa.String(length=500), nullable=True))
+    _add_if_missing("clubs", sa.Column("url_planning", sa.String(length=500), nullable=True))

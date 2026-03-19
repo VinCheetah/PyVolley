@@ -22,27 +22,44 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        "joueur_stats_cache",
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("joueur_id", sa.Integer(), nullable=False),
-        sa.Column("aggregated_stats", sa.JSON(), nullable=True),
-        sa.Column("per_match_stats", sa.JSON(), nullable=True),
-        sa.Column("match_count", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("computed_at", sa.DateTime(), nullable=False),
-        sa.PrimaryKeyConstraint("id"),
-        sa.ForeignKeyConstraint(["joueur_id"], ["joueurs.id"], ondelete="CASCADE"),
-        sa.UniqueConstraint("joueur_id", name="uq_joueur_stats_cache_joueur_id"),
-    )
-    op.create_index(
-        "ix_joueur_stats_cache_joueur_id", "joueur_stats_cache", ["joueur_id"], unique=True
-    )
-    op.create_index(
-        "ix_joueur_stats_cache_computed_at", "joueur_stats_cache", ["computed_at"], unique=False
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    table_names = set(inspector.get_table_names())
+
+    if "joueur_stats_cache" not in table_names:
+        op.create_table(
+            "joueur_stats_cache",
+            sa.Column("id", sa.Integer(), nullable=False),
+            sa.Column("joueur_id", sa.Integer(), nullable=False),
+            sa.Column("aggregated_stats", sa.JSON(), nullable=True),
+            sa.Column("per_match_stats", sa.JSON(), nullable=True),
+            sa.Column("match_count", sa.Integer(), nullable=False, server_default="0"),
+            sa.Column("computed_at", sa.DateTime(), nullable=False),
+            sa.PrimaryKeyConstraint("id"),
+            sa.ForeignKeyConstraint(["joueur_id"], ["joueurs.id"], ondelete="CASCADE"),
+            sa.UniqueConstraint("joueur_id", name="uq_joueur_stats_cache_joueur_id"),
+        )
+
+    indexes = {index["name"] for index in inspector.get_indexes("joueur_stats_cache")}
+    if "ix_joueur_stats_cache_joueur_id" not in indexes:
+        op.create_index(
+            "ix_joueur_stats_cache_joueur_id", "joueur_stats_cache", ["joueur_id"], unique=True
+        )
+    if "ix_joueur_stats_cache_computed_at" not in indexes:
+        op.create_index(
+            "ix_joueur_stats_cache_computed_at", "joueur_stats_cache", ["computed_at"], unique=False
+        )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_joueur_stats_cache_computed_at", table_name="joueur_stats_cache")
-    op.drop_index("ix_joueur_stats_cache_joueur_id", table_name="joueur_stats_cache")
-    op.drop_table("joueur_stats_cache")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    table_names = set(inspector.get_table_names())
+
+    if "joueur_stats_cache" in table_names:
+        indexes = {index["name"] for index in inspector.get_indexes("joueur_stats_cache")}
+        if "ix_joueur_stats_cache_computed_at" in indexes:
+            op.drop_index("ix_joueur_stats_cache_computed_at", table_name="joueur_stats_cache")
+        if "ix_joueur_stats_cache_joueur_id" in indexes:
+            op.drop_index("ix_joueur_stats_cache_joueur_id", table_name="joueur_stats_cache")
+        op.drop_table("joueur_stats_cache")

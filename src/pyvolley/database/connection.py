@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Generator, Optional
 
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import create_engine, event, text, inspect as sa_inspect
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
@@ -156,24 +156,50 @@ def init_db() -> None:
     from pyvolley.database.models import Base
 
     engine = get_engine()
-    Base.metadata.create_all(bind=engine)
-    logger.info("Database tables created successfully")
 
-    # Synchroniser Alembic : si aucune révision n'est encore enregistrée,
-    # stamper à head pour indiquer que le schéma actuel est à jour.
+    current_rev = None
+    table_names: set[str] = set()
     try:
         from alembic.runtime.migration import MigrationContext
 
         with engine.connect() as conn:
             ctx = MigrationContext.configure(conn)
             current_rev = ctx.get_current_revision()
-
-        if current_rev is None:
-            from pyvolley.database.migrations import stamp
-            stamp("head")
-            logger.info("Alembic stamped at head after create_all")
+            table_names = set(sa_inspect(conn).get_table_names())
     except Exception as e:
-        # Ne pas bloquer le démarrage si le stamp échoue
+        logger.warning("Could not inspect Alembic/database state: %s", e)
+
+    if current_rev:
+        try:
+            from pyvolley.database.migrations import upgrade
+
+            upgrade("head")
+            logger.info("Database migrations checked/applied to head")
+        except Exception as e:
+            logger.warning("Could not apply pending migrations: %s", e)
+        return
+
+    if not table_names:
+        try:
+            from pyvolley.database.migrations import upgrade
+
+            upgrade("head")
+            logger.info("Database initialized from Alembic migrations")
+            return
+        except Exception as e:
+            logger.warning("Migration-based initialization failed, fallback create_all: %s", e)
+            Base.metadata.create_all(bind=engine)
+            logger.info("Database tables created successfully (bootstrap fallback)")
+
+    else:
+        logger.info("Existing non-versioned schema detected; create_all skipped")
+
+    try:
+        from pyvolley.database.migrations import stamp
+
+        stamp("head")
+        logger.info("Alembic stamped at head")
+    except Exception as e:
         logger.warning("Could not stamp Alembic revision after init_db: %s", e)
 
 

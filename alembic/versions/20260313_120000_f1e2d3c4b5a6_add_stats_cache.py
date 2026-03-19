@@ -23,19 +23,34 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        "stats_cache",
-        sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("filter_key", sa.String(length=500), nullable=False),
-        sa.Column("stats_data", sa.JSON(), nullable=False),
-        sa.Column("computed_at", sa.DateTime(), nullable=False),
-        sa.Column("match_count", sa.Integer(), nullable=False, server_default="0"),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("filter_key", name="uq_stats_cache_filter_key"),
-    )
-    op.create_index("ix_stats_cache_computed_at", "stats_cache", ["computed_at"], unique=False)
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    table_names = set(inspector.get_table_names())
+
+    if "stats_cache" not in table_names:
+        op.create_table(
+            "stats_cache",
+            sa.Column("id", sa.Integer(), nullable=False),
+            sa.Column("filter_key", sa.String(length=500), nullable=False),
+            sa.Column("stats_data", sa.JSON(), nullable=False),
+            sa.Column("computed_at", sa.DateTime(), nullable=False),
+            sa.Column("match_count", sa.Integer(), nullable=False, server_default="0"),
+            sa.PrimaryKeyConstraint("id"),
+            sa.UniqueConstraint("filter_key", name="uq_stats_cache_filter_key"),
+        )
+
+    indexes = {index["name"] for index in inspector.get_indexes("stats_cache")}
+    if "ix_stats_cache_computed_at" not in indexes:
+        op.create_index("ix_stats_cache_computed_at", "stats_cache", ["computed_at"], unique=False)
 
 
 def downgrade() -> None:
-    op.drop_index("ix_stats_cache_computed_at", table_name="stats_cache")
-    op.drop_table("stats_cache")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    table_names = set(inspector.get_table_names())
+
+    if "stats_cache" in table_names:
+        indexes = {index["name"] for index in inspector.get_indexes("stats_cache")}
+        if "ix_stats_cache_computed_at" in indexes:
+            op.drop_index("ix_stats_cache_computed_at", table_name="stats_cache")
+        op.drop_table("stats_cache")

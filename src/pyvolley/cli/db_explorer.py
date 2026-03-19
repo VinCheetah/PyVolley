@@ -45,10 +45,8 @@ def _init_quiet_db():
         logging.getLogger(name).setLevel(logging.WARNING)
 
     from pyvolley.database.connection import get_engine
-    from pyvolley.database.models import Base
     engine = get_engine()
     engine.echo = False
-    Base.metadata.create_all(bind=engine)
     _db_initialized = True
 
 
@@ -782,7 +780,11 @@ def search_joueurs(
                     JoueurDB.nom.ilike(pattern),
                     JoueurDB.prenom.ilike(pattern),
                     JoueurDB.licence.ilike(pattern),
-                    func.concat(JoueurDB.nom, " ", JoueurDB.prenom).ilike(pattern),
+                    (
+                        func.coalesce(JoueurDB.nom, "")
+                        + " "
+                        + func.coalesce(JoueurDB.prenom, "")
+                    ).ilike(pattern),
                 )
             )
 

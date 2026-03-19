@@ -201,17 +201,16 @@ class ExportImportService:
 
         for match_info in matches:
             try:
-                result = self._import_single_match(
-                    match_info, saison, entite
-                )
+                with self.session.begin_nested():
+                    result = self._import_single_match(
+                        match_info, saison, entite
+                    )
                 stats[result] += 1
             except Exception as e:
                 logger.error(
                     "Erreur import match %s: %s",
                     match_info.code_match, e,
                 )
-                # Rollback pour nettoyer la session après une erreur
-                self.session.rollback()
                 stats["errors"] += 1
 
         # Finaliser l'audit

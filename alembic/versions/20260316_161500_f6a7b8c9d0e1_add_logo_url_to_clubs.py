@@ -21,8 +21,20 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column("clubs", sa.Column("logo_url", sa.String(length=500), nullable=True))
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = {column["name"] for column in inspector.get_columns("clubs")}
+
+    if "logo_url" not in columns:
+        with op.batch_alter_table("clubs", schema=None) as batch_op:
+            batch_op.add_column(sa.Column("logo_url", sa.String(length=500), nullable=True))
 
 
 def downgrade() -> None:
-    op.drop_column("clubs", "logo_url")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = {column["name"] for column in inspector.get_columns("clubs")}
+
+    if "logo_url" in columns:
+        with op.batch_alter_table("clubs", schema=None) as batch_op:
+            batch_op.drop_column("logo_url")

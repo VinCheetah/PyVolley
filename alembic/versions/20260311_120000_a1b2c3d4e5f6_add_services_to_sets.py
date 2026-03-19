@@ -23,10 +23,24 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column("sets", sa.Column("services_a", sa.JSON(), nullable=True))
-    op.add_column("sets", sa.Column("services_b", sa.JSON(), nullable=True))
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = {column["name"] for column in inspector.get_columns("sets")}
+
+    with op.batch_alter_table("sets", schema=None) as batch_op:
+        if "services_a" not in columns:
+            batch_op.add_column(sa.Column("services_a", sa.JSON(), nullable=True))
+        if "services_b" not in columns:
+            batch_op.add_column(sa.Column("services_b", sa.JSON(), nullable=True))
 
 
 def downgrade() -> None:
-    op.drop_column("sets", "services_b")
-    op.drop_column("sets", "services_a")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = {column["name"] for column in inspector.get_columns("sets")}
+
+    with op.batch_alter_table("sets", schema=None) as batch_op:
+        if "services_b" in columns:
+            batch_op.drop_column("services_b")
+        if "services_a" in columns:
+            batch_op.drop_column("services_a")

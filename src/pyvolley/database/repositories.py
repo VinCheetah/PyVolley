@@ -87,7 +87,11 @@ class JoueurRepository(BaseRepository[JoueurDB]):
                 or_(
                     JoueurDB.nom.ilike(pattern),
                     JoueurDB.prenom.ilike(pattern),
-                    func.concat(JoueurDB.nom, " ", JoueurDB.prenom).ilike(pattern),
+                    (
+                        func.coalesce(JoueurDB.nom, "")
+                        + " "
+                        + func.coalesce(JoueurDB.prenom, "")
+                    ).ilike(pattern),
                 )
             )
         )
@@ -1102,7 +1106,11 @@ class ArbitreRepository(BaseRepository[ArbitreDB]):
                 or_(
                     ArbitreDB.nom.ilike(pattern),
                     ArbitreDB.prenom.ilike(pattern),
-                    func.concat(ArbitreDB.nom, " ", ArbitreDB.prenom).ilike(pattern),
+                    (
+                        func.coalesce(ArbitreDB.nom, "")
+                        + " "
+                        + func.coalesce(ArbitreDB.prenom, "")
+                    ).ilike(pattern),
                 )
             )
         )
@@ -1481,10 +1489,10 @@ class EntraineurRepository:
                 or_(
                     OfficielMatchDB.nom.ilike(pattern),
                     OfficielMatchDB.prenom.ilike(pattern),
-                    func.concat(
-                        func.coalesce(OfficielMatchDB.nom, ""),
-                        " ",
-                        func.coalesce(OfficielMatchDB.prenom, ""),
+                    (
+                        func.coalesce(OfficielMatchDB.nom, "")
+                        + " "
+                        + func.coalesce(OfficielMatchDB.prenom, "")
                     ).ilike(pattern),
                 )
             )

@@ -273,8 +273,6 @@ def _build_sanction(s_db: SanctionDB) -> Sanction:
             s_db.type_sanction, s_db.id,
         )
         type_sanction = TypeSanction.AVERTISSEMENT
-    except ValueError:
-        type_sanction = TypeSanction.AVERTISSEMENT
 
     return Sanction(
         type=type_sanction,
