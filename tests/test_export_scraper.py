@@ -265,6 +265,22 @@ class TestParseExportCsv:
         assert m.vainqueur is None
         assert m.date_match == date(2026, 3, 15)
 
+    def test_unplayed_match_with_zero_zero_set_score(self):
+        """Le placeholder FFVB 0/0 ne doit pas marquer un match comme joué."""
+        csv_data = self._make_csv(
+            "ABCCS;01;EMA102;2026-03-22;20:00;0132380;EQUIPE A;0132348;EQUIPE B;"
+            " 0/0;;0-0;GYMNASE Z;"
+            "0;;;;;0;;;;;;;;;;;;;;;;;;;;;;\n"
+        )
+        matches = parse_export_csv(csv_data, "ABCCS", "2025/2026", BASE_URL)
+
+        assert len(matches) == 1
+        m = matches[0]
+        assert m.match_joue is False
+        assert m.sets == []
+        assert m.score_sets is None
+        assert m.vainqueur is None
+
     def test_forfait_p_3(self):
         csv_data = self._make_csv(
             "ABCCS;01;2FD062;2025-10-05;15:00;0136082;TEAM A;0067689;TEAM B;"
@@ -337,6 +353,60 @@ class TestParseExportCsv:
         csv_data = self.HEADER.encode("latin-1")
         matches = parse_export_csv(csv_data, "ABCCS", "2025/2026", BASE_URL)
         assert matches == []
+
+    def test_plausibility_corrects_date_year_from_season(self):
+        csv_data = self._make_csv(
+            "ABCCS;01;EMA102;2024-10-05;19:30;0132380;EQUIPE A;0132348;EQUIPE B;"
+            " 3/1;25-18,20-25,25-22,25-20;95-85;GYMNASE X;"
+            "0;;;;;0;;;;;;;;;;;;;;;;;;;;;;\n"
+        )
+        matches = parse_export_csv(csv_data, "ABCCS", "2025/2026", BASE_URL)
+
+        assert len(matches) == 1
+        m = matches[0]
+        assert m.date_match == date(2025, 10, 5)
+        assert m.plausibility_summary.get("total", 0) >= 1
+        assert any(
+            issue.get("rule_id") == "scrape-date-season"
+            for issue in m.plausibility_issues
+        )
+
+    def test_plausibility_removes_invalid_hour_and_club_code(self):
+        csv_data = self._make_csv(
+            "ABCCS;01;EMA103;2025-10-05;29:90;ABC;EQUIPE A;0132348;EQUIPE B;"
+            " 3/0;25-18,25-16,25-19;75-53;GYMNASE X;"
+            "0;;;;;0;;;;;;;;;;;;;;;;;;;;;;\n"
+        )
+        matches = parse_export_csv(csv_data, "ABCCS", "2025/2026", BASE_URL)
+
+        assert len(matches) == 1
+        m = matches[0]
+        assert m.heure is None
+        assert m.club_a_code_ffvb is None
+        assert any(
+            issue.get("rule_id") == "scrape-hour-format"
+            for issue in m.plausibility_issues
+        )
+        assert any(
+            issue.get("rule_id") == "scrape-club-code-format"
+            for issue in m.plausibility_issues
+        )
+
+    def test_plausibility_aligns_score_sets_with_set_details(self):
+        csv_data = self._make_csv(
+            "ABCCS;01;EMA104;2025-11-15;19:30;0132380;EQUIPE A;0132348;EQUIPE B;"
+            " 2/2;25-18,25-16,20-25,25-23;95-82;GYMNASE X;"
+            "0;;;;;0;;;;;;;;;;;;;;;;;;;;;;\n"
+        )
+        matches = parse_export_csv(csv_data, "ABCCS", "2025/2026", BASE_URL)
+
+        assert len(matches) == 1
+        m = matches[0]
+        assert m.score_sets == "3/1"
+        assert any(
+            issue.get("rule_id") == "scrape-score-sets-consistency"
+            for issue in m.plausibility_issues
+        )
 
 
 # ============== Tests des dataclasses ==============

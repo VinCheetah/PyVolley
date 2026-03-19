@@ -415,8 +415,6 @@ class TestEnrichClubs:
         assert club.correspondant_email == "contact@harnes-volleyball.fr"
         assert club.ville == "LEFOREST"
         assert club.departement == "62"
-        assert club.url_planning is None
-        assert club.url_classement is None
 
         # Vérifier les salles
         salles = adressier_session.execute(
@@ -452,7 +450,6 @@ class TestEnrichClubs:
         ).scalar_one()
         assert club.nom == "NOUVEAU CLUB VB"
         assert club.couleurs == "VERT"
-        assert club.url_planning is None
 
     def test_enrich_infers_nom_court_from_teams(self, adressier_session):
         """Infère nom_court depuis les équipes associées au club."""
@@ -515,6 +512,7 @@ class TestEnrichClubs:
         service.enrich_clubs(
             clubs_info, "ABCCS", "2025/2026",
             "https://www.ffvbbeach.org/ffvbapp/resu/",
+            force_reenrich=True,
         )
 
         salles = adressier_session.execute(
@@ -538,6 +536,81 @@ class TestEnrichClubs:
 
         assert stats["skipped"] == 1
         assert stats["enriched"] == 0
+
+    def test_enrich_skips_already_enriched_by_default(self, adressier_session):
+        """N'écrase pas un club déjà enrichi sans demande explicite."""
+        club = ClubDB(
+            nom="CLUB STABLE",
+            code_ffvb="0777000",
+            correspondant_email="ancien@club.fr",
+        )
+        adressier_session.add(club)
+        adressier_session.flush()
+
+        service = ExportImportService(adressier_session)
+        clubs_info = [
+            AdressierClubInfo(
+                code_ffvb="0777000",
+                nom="CLUB STABLE UPDATED",
+                correspondant_email="nouveau@club.fr",
+                couleurs="ROUGE",
+            )
+        ]
+
+        stats = service.enrich_clubs(
+            clubs_info,
+            "ABCCS",
+            "2025/2026",
+            "https://www.ffvbbeach.org/ffvbapp/resu/",
+        )
+
+        assert stats["created"] == 0
+        assert stats["enriched"] == 0
+        assert stats["skipped"] == 1
+
+        loaded = adressier_session.execute(
+            select(ClubDB).where(ClubDB.code_ffvb == "0777000")
+        ).scalar_one()
+        assert loaded.correspondant_email == "ancien@club.fr"
+        assert loaded.couleurs is None
+
+    def test_enrich_can_force_reenrich_existing_club(self, adressier_session):
+        """Ré-enrichit un club déjà enrichi quand le mode forcé est activé."""
+        club = ClubDB(
+            nom="CLUB FORCE",
+            code_ffvb="0777001",
+            correspondant_email="ancien@club.fr",
+        )
+        adressier_session.add(club)
+        adressier_session.flush()
+
+        service = ExportImportService(adressier_session)
+        clubs_info = [
+            AdressierClubInfo(
+                code_ffvb="0777001",
+                nom="CLUB FORCE UPDATED",
+                correspondant_email="nouveau@club.fr",
+                couleurs="BLEU",
+            )
+        ]
+
+        stats = service.enrich_clubs(
+            clubs_info,
+            "ABCCS",
+            "2025/2026",
+            "https://www.ffvbbeach.org/ffvbapp/resu/",
+            force_reenrich=True,
+        )
+
+        assert stats["created"] == 0
+        assert stats["enriched"] == 1
+        assert stats["skipped"] == 0
+
+        loaded = adressier_session.execute(
+            select(ClubDB).where(ClubDB.code_ffvb == "0777001")
+        ).scalar_one()
+        assert loaded.correspondant_email == "nouveau@club.fr"
+        assert loaded.couleurs == "BLEU"
 
     def test_enrich_multiple_clubs(self, adressier_session):
         """Enrichit plusieurs clubs d'un coup."""
@@ -594,8 +667,6 @@ class TestClubDBModel:
             correspondant_telephone="01.02.03.04.05",
             correspondant_portable="06.01.02.03.04",
             correspondant_email="test@test.fr",
-            url_planning="https://example.com/planning",
-            url_classement="https://example.com/classement",
         )
         adressier_session.add(club)
         adressier_session.flush()
@@ -608,7 +679,6 @@ class TestClubDBModel:
         assert loaded.couleurs == "BLANC ET NOIR"
         assert loaded.president == "M. TEST"
         assert loaded.correspondant_email == "test@test.fr"
-        assert loaded.url_planning == "https://example.com/planning"
 
     def test_salle_club_relationship(self, adressier_session):
         """Vérifie la relation ClubDB ← SalleClubDB."""

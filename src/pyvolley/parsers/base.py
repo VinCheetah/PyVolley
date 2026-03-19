@@ -12,6 +12,7 @@ from pyvolley.core.models import Match
 
 if TYPE_CHECKING:
     from pyvolley.parsers.diagnostics import Diagnostic
+    from pyvolley.parsers.plausibility import PlausibilityReport
 
 
 @dataclass
@@ -21,6 +22,7 @@ class ParseResult:
     match: Optional[Match] = None
     errors: list[str] = field(default_factory=list)
     diagnostics: list["Diagnostic"] = field(default_factory=list)
+    plausibility_report: Optional["PlausibilityReport"] = None
     parse_time_ms: float = 0.0
     
     # Métriques de qualité
@@ -51,6 +53,18 @@ class ParseResult:
             1 for d in self.diagnostics
             if d.level in (DiagnosticLevel.WARNING, DiagnosticLevel.ERROR)
         )
+
+    @property
+    def plausibility_changes_count(self) -> int:
+        if not self.plausibility_report:
+            return 0
+        return self.plausibility_report.touched_count
+
+    @property
+    def plausibility_flagged_count(self) -> int:
+        if not self.plausibility_report:
+            return 0
+        return self.plausibility_report.flagged_count
 
 
 @dataclass

@@ -180,6 +180,26 @@
   color: var(--text-primary);
 }
 
+/* ── Date range filters ── */
+.filter-date-input {
+  appearance: auto;
+  -webkit-appearance: none;
+  background-image: none;
+  padding-right: 0.75rem;
+  min-height: 36px;
+  font-variant-numeric: tabular-nums;
+}
+.filter-date-input::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.8;
+}
+.filter-date-hint {
+  display: block;
+  margin-top: 0.35rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
 /* ── Tooltip ── */
 .tooltip-text {
   visibility: hidden;

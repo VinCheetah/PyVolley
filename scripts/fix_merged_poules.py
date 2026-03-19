@@ -25,8 +25,7 @@ def fix_merged_poules(db_path: str, dry_run: bool = False) -> None:
 
     # Find all 2-char poule codes
     merged_poules = conn.execute("""
-        SELECT p.id, p.code, p.competition_id, p.nom, p.tour,
-               p.url_calendrier, p.url_classement
+        SELECT p.id, p.code, p.competition_id, p.nom, p.tour
         FROM poules p
         WHERE LENGTH(p.code) <= 2
     """).fetchall()
@@ -41,7 +40,7 @@ def fix_merged_poules(db_path: str, dry_run: bool = False) -> None:
     total_new = 0
     total_moved = 0
 
-    for poule_id, code, comp_id, nom, tour, url_cal, url_cls in merged_poules:
+    for poule_id, code, comp_id, nom, tour in merged_poules:
         # Get all match codes for this poule
         matches = conn.execute("""
             SELECT id, code_match
@@ -100,9 +99,9 @@ def fix_merged_poules(db_path: str, dry_run: bool = False) -> None:
                 print(f"    {prefix}: reusing existing poule id={new_poule_id}")
             else:
                 conn.execute("""
-                    INSERT INTO poules (code, nom, tour, url_calendrier, url_classement, competition_id)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (prefix, nom, tour, url_cal, url_cls, comp_id))
+                    INSERT INTO poules (code, nom, tour, competition_id)
+                    VALUES (?, ?, ?, ?)
+                """, (prefix, nom, tour, comp_id))
                 new_poule_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
                 total_new += 1
                 print(f"    {prefix}: created poule id={new_poule_id}, "

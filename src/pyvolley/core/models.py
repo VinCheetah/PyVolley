@@ -368,7 +368,23 @@ class Match(MatchBase):
     
     @property
     def is_played(self) -> bool:
-        return bool(self.match_joue or self.vainqueur_nom or self.sets_a > 0 or self.sets_b > 0)
+        has_score_final = False
+        if self.score_final and "/" in self.score_final:
+            left, right = self.score_final.split("/", 1)
+            left = left.strip()
+            right = right.strip()
+            if left.isdigit() and right.isdigit():
+                has_score_final = (int(left) + int(right)) > 0
+            elif left.upper() == "P" or right.upper() == "P":
+                has_score_final = True
+
+        return bool(
+            self.match_joue
+            or self.vainqueur_nom
+            or self.sets_a > 0
+            or self.sets_b > 0
+            or has_score_final
+        )
 
     def equipe(self, side: str) -> Optional[Equipe]:
         """Retourne l'équipe pour un côté ('A' ou 'B')."""

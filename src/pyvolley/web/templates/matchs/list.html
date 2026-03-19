@@ -26,16 +26,17 @@
                 </div>
                 {% endif %}
                 <div>
-                    <span class="text-xs" style="color: var(--text-muted);">Après le</span>
-                    <input type="date" name="after_date" value="{{ time_filter.date_from }}" class="filter-select">
+                    <span class="text-xs" style="color: var(--text-muted);">Du</span>
+                    <input type="date" name="after_date" value="{{ time_filter.date_from }}" class="filter-select filter-date-input" lang="fr" title="Format : jj/mm/aaaa">
                 </div>
                 <div>
-                    <span class="text-xs" style="color: var(--text-muted);">Avant le</span>
-                    <input type="date" name="before_date" value="{{ time_filter.date_to }}" class="filter-select">
+                    <span class="text-xs" style="color: var(--text-muted);">Au</span>
+                    <input type="date" name="before_date" value="{{ time_filter.date_to }}" class="filter-select filter-date-input" lang="fr" title="Format : jj/mm/aaaa">
+                    <span class="filter-date-hint">Format : jj/mm/aaaa</span>
                 </div>
                 <div class="flex gap-2">
                     <button type="submit" class="pagination-btn" style="background: var(--accent-blue); color: white; border-color: var(--accent-blue);">Filtrer</button>
-                    <a href="/matchs" class="pagination-btn">Reset</a>
+                    <a href="/matchs" class="pagination-btn">Réinitialiser</a>
                 </div>
                 {% if selected_departements and selected_departements|length > 0 %}
                 <input type="hidden" name="departements" value="{{ selected_departements|join(',') }}">

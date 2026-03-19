@@ -39,6 +39,7 @@ class DiagnosticCategory(str, Enum):
     # ── Identité du match ──
     CODE_MATCH = "code_match"
     DATE = "date"
+    DUREE = "duree"
     HEURE = "heure"
     LIEU = "lieu"
     SALLE = "salle"
@@ -78,6 +79,7 @@ CATEGORY_FOLDERS: dict[DiagnosticCategory, tuple[str, str]] = {
     # (folder_name, display_label)
     DiagnosticCategory.CODE_MATCH: ("code_match_manquant", "Code match manquant"),
     DiagnosticCategory.DATE: ("date_manquante", "Date manquante"),
+    DiagnosticCategory.DUREE: ("duree_invraisemblable", "Durée invraisemblable"),
     DiagnosticCategory.HEURE: ("heure_manquante", "Heure manquante"),
     DiagnosticCategory.LIEU: ("lieu_manquant", "Lieu manquant"),
     DiagnosticCategory.SALLE: ("salle_manquante", "Salle manquante"),

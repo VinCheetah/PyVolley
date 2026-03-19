@@ -54,6 +54,11 @@ from pyvolley.parsers.extractors.resultats import (
     extract_remarques, extract_demande_non_fondee,
 )
 from pyvolley.parsers.validation import validate_match
+from pyvolley.parsers.plausibility import (
+    PlausibilityEngine,
+    issues_to_diagnostics,
+    ApprovalCallback,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -81,13 +86,46 @@ class MatchSheetParser(BaseParser):
     3. Mots positionnels → libéros, officiels, capitaines
     """
 
+    def __init__(
+        self,
+        *,
+        plausibility_enabled: bool = True,
+        plausibility_policy: str = "auto",
+        plausibility_approval: Optional[ApprovalCallback] = None,
+    ):
+        self._plausibility_enabled = plausibility_enabled
+        self._plausibility_policy = plausibility_policy
+        self._plausibility_approval = plausibility_approval
+        self._plausibility_engine = PlausibilityEngine()
+
     @property
     def name(self) -> str:
         return "MatchSheetParser"
 
     @property
     def version(self) -> str:
-        return "6.1.2"
+        return "6.2.0"
+
+    def configure_plausibility(
+        self,
+        *,
+        enabled: Optional[bool] = None,
+        policy: Optional[str] = None,
+        approval: Optional[ApprovalCallback] = None,
+    ) -> None:
+        """Configure les contrôles de vraisemblance.
+
+        Args:
+            enabled: Active/désactive les contrôles.
+            policy: ``auto``, ``report-only`` ou ``strict``.
+            approval: Callback optionnel pour valider/rejeter une correction.
+        """
+        if enabled is not None:
+            self._plausibility_enabled = enabled
+        if policy is not None:
+            self._plausibility_policy = policy
+        if approval is not None:
+            self._plausibility_approval = approval
 
     # ================================================================
     # Point d'entrée
@@ -343,6 +381,16 @@ class MatchSheetParser(BaseParser):
                 result.fields_extracted = min(fields_count, 40)
                 result.fields_total = 40
                 result.field_sources = sources
+
+                # ── Contrôles de vraisemblance (auto-correction) ──
+                if self._plausibility_enabled:
+                    plausibility_report = self._plausibility_engine.check(
+                        match,
+                        policy=self._plausibility_policy,
+                        approve=self._plausibility_approval,
+                    )
+                    result.plausibility_report = plausibility_report
+                    diag.extend(issues_to_diagnostics(plausibility_report.issues))
 
                 # ── Warnings contextuels ──
                 if not match_joue:

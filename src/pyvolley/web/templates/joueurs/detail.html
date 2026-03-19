@@ -1,25 +1,38 @@
 {% extends "base.html" %}
 {% from "macros/ui.html" import breadcrumb %}
+{% from "macros/map.html" import map_head %}
 {% block title %}{{ joueur.nom }} {{ joueur.prenom }} - PyVolley{% endblock %}
 
+{% block extra_head %}
+{{ map_head() }}
+{% endblock %}
+
 {% block content %}
-{% set analysis_time_filter = analysis_time_filter|default({'season_ids': [], 'date_from': '', 'date_to': ''}, true) %}
-{% set analysis_saisons = analysis_saisons|default([], true) %}
-<div class="space-y-6">
+{% set initial_tab = initial_tab|default('resume', true) %}
+{% set active_filter_count = active_filter_count|default(0, true) %}
+{% set stats = stats|default({'matchs_joues': 0, 'victoires': 0, 'defaites': 0, 'sets_gagnes': 0, 'equipes_count': 0, 'taux_victoire': none}, true) %}
+{% set hide_filters = hide_filters|default({'saisons': true, 'equipes': true, 'clubs': true, 'competitions': true, 'niveaux': true}, true) %}
+{% set filter_options = filter_options|default({'saisons': [], 'equipes': [], 'clubs': [], 'competitions': [], 'niveaux': []}, true) %}
+{% set filter_state = filter_state|default({'saison_ids': [], 'date_from': '', 'date_to': '', 'equipe_ids': [], 'club_ids': [], 'competition_ids': [], 'niveaux': [], 'resultat': '', 'domicile_exterieur': ''}, true) %}
+{% set base_match_count = base_match_count|default(stats.matchs_joues, true) %}
+{% set recent_matchs = recent_matchs|default([], true) %}
+{% set per_match_stats = per_match_stats|default([], true) %}
+{% set match_rows = match_rows|default([], true) %}
+{% set map_markers = map_markers|default([], true) %}
+{% set match_evolution_stats = match_evolution_stats|default([], true) %}
+{% set aggregated_stats = aggregated_stats|default(none, true) %}
+<div class="space-y-6" x-data="{ activeTab: '{{ initial_tab|default('resume') }}', filtersOpen: false }">
 
     {{ breadcrumb([('Accueil', '/'), ('Joueurs', '/joueurs'), (joueur.nom ~ ' ' ~ joueur.prenom, '')]) }}
 
-    <!-- Header Card -->
     <div class="card p-6 md:p-8">
         <div class="flex flex-col md:flex-row md:items-center gap-6">
-            <!-- Avatar -->
             <div class="w-20 h-20 rounded-2xl flex items-center justify-center flex-shrink-0"
                  style="background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));">
                 <span class="text-3xl font-black text-white">
                     {{ joueur.prenom[0] if joueur.prenom else '' }}{{ joueur.nom[0] if joueur.nom else '' }}
                 </span>
             </div>
-            <!-- Info -->
             <div class="flex-1">
                 <h1 class="text-2xl md:text-3xl font-bold mb-1">
                     <span style="color: var(--text-secondary);">{{ joueur.prenom }}</span>
@@ -30,254 +43,217 @@
                         <i data-lucide="credit-card" class="w-3 h-3 mr-1"></i>
                         {{ joueur.licence }}
                     </span>
-                    {% if stats.genre %}
-                    <span class="badge {% if stats.genre == 'MASCULIN' %}badge-blue{% elif stats.genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %}">
-                        {{ stats.genre }}
-                    </span>
-                    {% endif %}
-                    {% if stats.saisons %}
-                    {% for s in stats.saisons %}
-                    <span class="badge badge-purple">{{ s }}</span>
-                    {% endfor %}
+                    <span class="badge badge-purple">{{ stats.matchs_joues }} matchs filtrés</span>
+                    {% if active_filter_count > 0 %}
+                    <span class="badge badge-gold">{{ active_filter_count }} filtre{% if active_filter_count > 1 %}s{% endif %}</span>
                     {% endif %}
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Stats Grid -->
-    <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-        <div class="stat-card">
-            <div class="stat-value gradient-text-blue">{{ stats.matchs_joues or 0 }}</div>
-            <div class="stat-label">Matchs joués</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-value" style="color: var(--accent-green);">{{ stats.victoires or 0 }}</div>
-            <div class="stat-label">Victoires</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-value" style="color: var(--accent-red);">{{ stats.defaites or 0 }}</div>
-            <div class="stat-label">Défaites</div>
-        </div>
-        <div class="stat-card">
-            {% set total_played = (stats.victoires or 0) + (stats.defaites or 0) %}
-            <div class="stat-value gradient-text-gold">
-                {% if total_played > 0 %}{{ ((stats.victoires / total_played) * 100)|round(0)|int }}%{% else %}—{% endif %}
-            </div>
-            <div class="stat-label">Taux de victoire</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-value gradient-text-gold">{{ stats.capitaine_count or 0 }}</div>
-            <div class="stat-label">Fois capitaine</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-value" style="color: var(--accent-purple);">{{ stats.libero_count or 0 }}</div>
-            <div class="stat-label">Fois libéro</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-value" style="color: var(--accent-cyan);">{{ stats.equipes|length if stats.equipes else 0 }}</div>
-            <div class="stat-label">Équipes</div>
-        </div>
-    </div>
+    <div class="card overflow-hidden">
+        <button type="button"
+                class="w-full p-4 flex items-center justify-between"
+                style="border-bottom: 1px solid var(--border-color);"
+                @click="filtersOpen = !filtersOpen">
+            <span class="text-sm font-semibold uppercase tracking-wider" style="color: var(--accent-cyan);">
+                <i data-lucide="sliders-horizontal" class="w-4 h-4 inline-block mr-1"></i>
+                Filtres des matchs sélectionnés
+            </span>
+            <span class="text-xs" style="color: var(--text-muted);" x-text="filtersOpen ? 'Masquer' : 'Afficher'"></span>
+        </button>
 
-    <!-- Numéro de maillot -->
-    {% if numero_stats and numero_stats.matches_with_number > 0 %}
-    <div class="card p-4">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
-                <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--accent-purple);">
-                    <i data-lucide="shirt" class="w-4 h-4 inline-block mr-1"></i>
-                    Statistiques numéro de maillot
-                </h2>
-                <div class="flex flex-wrap items-center gap-3 mt-2 text-sm" style="color: var(--text-secondary);">
-                    <span>Numéro principal :
-                        <strong style="color: var(--accent-cyan);">#{{ numero_stats.principal }}</strong>
-                    </span>
-                    <span>•</span>
-                    <span>{{ numero_stats.distinct_count }} numéro{% if numero_stats.distinct_count > 1 %}s{% endif %} utilisé{% if numero_stats.distinct_count > 1 %}s{% endif %}</span>
-                    <span>•</span>
-                    <span>{{ numero_stats.matches_with_number }} match{% if numero_stats.matches_with_number > 1 %}s{% endif %} avec numéro</span>
+        <form method="get" action="/joueurs/{{ joueur.id }}" class="p-4 space-y-4" x-show="filtersOpen" x-transition x-cloak>
+            <input type="hidden" name="tab" :value="activeTab">
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                {% if not hide_filters.saisons %}
+                <div>
+                    <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Saisons</label>
+                    <select name="saison_ids" class="filter-select" multiple size="4">
+                        {% for s in filter_options.saisons %}
+                        <option value="{{ s.id }}" {% if s.id in filter_state.saison_ids %}selected{% endif %}>{{ s.label }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
-            </div>
-            <div class="flex flex-wrap gap-2">
-                {% for n in numero_stats.distribution %}
-                <span class="badge badge-purple text-xs">
-                    #{{ n.numero }} · {{ n.count }} match{% if n.count > 1 %}s{% endif %} ({{ n.pct|round(0)|int }}%)
-                </span>
-                {% endfor %}
-            </div>
-        </div>
-    </div>
-    {% endif %}
+                {% endif %}
 
-    <!-- Win/Loss bar -->
-    {% set total_played = (stats.victoires or 0) + (stats.defaites or 0) %}
-    {% if total_played > 0 %}
-    <div class="card p-4">
-        <div class="flex justify-between text-xs mb-1" style="color: var(--text-muted);">
-            <span class="font-semibold" style="color: var(--accent-green);">V: {{ stats.victoires }}</span>
-            <span class="font-semibold" style="color: var(--accent-red);">D: {{ stats.defaites }}</span>
-        </div>
-        <div class="h-3 rounded-full overflow-hidden" style="background: var(--bg-card-hover);">
-            {% set pct = (stats.victoires / total_played * 100)|round(1) %}
-            <div class="h-full rounded-full transition-all duration-500"
-                 style="width: {{ pct }}%; background: linear-gradient(90deg, var(--accent-green), var(--accent-blue));"></div>
-        </div>
-        <div class="flex justify-between text-xs mt-2" style="color: var(--text-muted);">
-            <span>Sets : <span style="color: var(--accent-cyan);">{{ stats.sets_gagnes or 0 }} G</span> / <span style="color: var(--accent-red);">{{ stats.sets_perdus or 0 }} P</span></span>
-            {% if (stats.sets_gagnes or 0) + (stats.sets_perdus or 0) > 0 %}
-            <span>Ratio sets : {{ ((stats.sets_gagnes / ((stats.sets_gagnes or 0) + (stats.sets_perdus or 0))) * 100)|round(0)|int }}%</span>
-            {% endif %}
-        </div>
-    </div>
-    {% endif %}
+                <div>
+                    <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Date de début</label>
+                    <input type="date" name="date_from" value="{{ filter_state.date_from }}" class="filter-select filter-date-input" lang="fr">
+                </div>
 
-    <!-- Espace d'analyse avancée -->
-    <div class="card p-4">
-        <div class="flex items-start justify-between gap-4 mb-3">
-            <div>
-                <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--accent-cyan);">
-                    <i data-lucide="microscope" class="w-4 h-4 inline-block mr-1"></i>
-                    Espace d'analyse avancée
-                </h2>
-                <p class="text-xs mt-1" style="color: var(--text-muted);">
-                    Filtre les statistiques détaillées du joueur par saisons et période précise (avant/après).
-                </p>
+                <div>
+                    <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Date de fin</label>
+                    <input type="date" name="date_to" value="{{ filter_state.date_to }}" class="filter-select filter-date-input" lang="fr">
+                </div>
+
+                <div>
+                    <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Résultat</label>
+                    <select name="resultat" class="filter-select">
+                        <option value="" {% if not filter_state.resultat %}selected{% endif %}>Tous</option>
+                        <option value="victoire" {% if filter_state.resultat == 'victoire' %}selected{% endif %}>Victoires</option>
+                        <option value="defaite" {% if filter_state.resultat == 'defaite' %}selected{% endif %}>Défaites</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Domicile / Extérieur</label>
+                    <select name="domicile_exterieur" class="filter-select">
+                        <option value="" {% if not filter_state.domicile_exterieur %}selected{% endif %}>Tous</option>
+                        <option value="domicile" {% if filter_state.domicile_exterieur == 'domicile' %}selected{% endif %}>Domicile</option>
+                        <option value="exterieur" {% if filter_state.domicile_exterieur == 'exterieur' %}selected{% endif %}>Extérieur</option>
+                    </select>
+                </div>
+
+                {% if not hide_filters.equipes %}
+                <div>
+                    <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Équipes du joueur</label>
+                    <select name="equipe_ids" class="filter-select" multiple size="4">
+                        {% for e in filter_options.equipes %}
+                        <option value="{{ e.id }}" {% if e.id in filter_state.equipe_ids %}selected{% endif %}>{{ e.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
+
+                {% if not hide_filters.clubs %}
+                <div>
+                    <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Clubs</label>
+                    <select name="club_ids" class="filter-select" multiple size="4">
+                        {% for c in filter_options.clubs %}
+                        <option value="{{ c.id }}" {% if c.id in filter_state.club_ids %}selected{% endif %}>{{ c.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
+
+                {% if not hide_filters.competitions %}
+                <div>
+                    <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Compétitions</label>
+                    <select name="competition_ids" class="filter-select" multiple size="4">
+                        {% for c in filter_options.competitions %}
+                        <option value="{{ c.id }}" {% if c.id in filter_state.competition_ids %}selected{% endif %}>{{ c.label }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
+
+                {% if not hide_filters.niveaux %}
+                <div>
+                    <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Niveaux</label>
+                    <select name="niveaux" class="filter-select" multiple size="4">
+                        {% for n in filter_options.niveaux %}
+                        <option value="{{ n }}" {% if n in filter_state.niveaux %}selected{% endif %}>{{ n }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
             </div>
-            {% if analysis_time_filter.season_ids or analysis_time_filter.date_from or analysis_time_filter.date_to %}
-            <a href="/joueurs/{{ joueur.id }}" class="badge badge-red text-xs">Réinitialiser analyse</a>
-            {% endif %}
-        </div>
-        <form method="get" action="/joueurs/{{ joueur.id }}" class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-            <div>
-                <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Saisons</label>
-                <select name="saison_ids" class="filter-select" multiple size="4">
-                    {% for s in analysis_saisons %}
-                    <option value="{{ s.id }}" {% if analysis_time_filter.season_ids and s.id in analysis_time_filter.season_ids %}selected{% endif %}>{{ s.code }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <div>
-                <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Après le</label>
-                <input type="date" name="after_date" value="{{ analysis_time_filter.date_from }}" class="filter-select">
-            </div>
-            <div>
-                <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Avant le</label>
-                <input type="date" name="before_date" value="{{ analysis_time_filter.date_to }}" class="filter-select">
-            </div>
-            <div class="flex gap-2">
-                <button type="submit" class="pagination-btn" style="background: var(--accent-blue); color: white; border-color: var(--accent-blue);">Analyser</button>
-                <a href="/joueurs/{{ joueur.id }}" class="pagination-btn">Reset</a>
+
+            <div class="flex flex-wrap items-center gap-2">
+                <button type="submit" class="pagination-btn" style="background: var(--accent-blue); color: white; border-color: var(--accent-blue);">Appliquer</button>
+                <a :href="'/joueurs/{{ joueur.id }}?tab=' + activeTab" class="pagination-btn">Réinitialiser</a>
+                <span class="text-xs ml-2" style="color: var(--text-muted);">{{ stats.matchs_joues }} / {{ base_match_count }} matchs joués sélectionnés</span>
             </div>
         </form>
     </div>
 
-    <!-- ═══════════════ Performance Stats ═══════════════ -->
-    {% if aggregated_stats and aggregated_stats.matchs_joues > 0 %}
-    <div class="card overflow-hidden" x-data="{ showPerfDetail: false }">
-        <div class="p-4 cursor-pointer"
-             style="border-bottom: 1px solid var(--border-color);"
-             @click="showPerfDetail = !showPerfDetail">
-            <div class="flex items-center justify-between">
-                <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--accent-cyan);">
-                    <i data-lucide="bar-chart-3" class="w-4 h-4 inline-block mr-1"></i>
-                    Statistiques de performance
+    <div class="card p-2">
+        <div class="flex flex-wrap gap-2">
+            <button @click="activeTab = 'resume'" class="pagination-btn" :style="activeTab === 'resume' ? 'background: var(--bg-card-hover); color: var(--text-primary); border-color: var(--accent-blue)' : ''">Résumé</button>
+            <button @click="activeTab = 'stats'" class="pagination-btn" :style="activeTab === 'stats' ? 'background: var(--bg-card-hover); color: var(--text-primary); border-color: var(--accent-cyan)' : ''">Stats détaillées</button>
+            <button @click="activeTab = 'matchs'" class="pagination-btn" :style="activeTab === 'matchs' ? 'background: var(--bg-card-hover); color: var(--text-primary); border-color: var(--accent-purple)' : ''">Tous les matchs</button>
+            <button @click="activeTab = 'carte'" class="pagination-btn" :style="activeTab === 'carte' ? 'background: var(--bg-card-hover); color: var(--text-primary); border-color: var(--accent-green)' : ''">Carte des matchs</button>
+        </div>
+    </div>
+
+    <div x-show="activeTab === 'resume'" class="space-y-6">
+        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            <div class="stat-card"><div class="stat-value gradient-text-blue">{{ stats.matchs_joues }}</div><div class="stat-label">Matchs joués</div></div>
+            <div class="stat-card"><div class="stat-value" style="color: var(--accent-green);">{{ stats.victoires }}</div><div class="stat-label">Victoires</div></div>
+            <div class="stat-card"><div class="stat-value" style="color: var(--accent-red);">{{ stats.defaites }}</div><div class="stat-label">Défaites</div></div>
+            <div class="stat-card"><div class="stat-value gradient-text-gold">{% set win_rate = stats.taux_victoire|default(none, true) %}{% if win_rate is not none %}{{ win_rate|round(0)|int }}%{% else %}—{% endif %}</div><div class="stat-label">Taux de victoire</div></div>
+            <div class="stat-card"><div class="stat-value" style="color: var(--accent-cyan);">{{ stats.sets_gagnes }}</div><div class="stat-label">Sets gagnés</div></div>
+            <div class="stat-card"><div class="stat-value" style="color: var(--accent-purple);">{{ stats.equipes_count }}</div><div class="stat-label">Équipes</div></div>
+        </div>
+
+        {% if numero_stats and numero_stats.matches_with_number > 0 %}
+        <div class="card p-4">
+            <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--accent-purple);">Numéros de maillot</h2>
+            <div class="flex flex-wrap gap-2 mt-3">
+                {% for n in numero_stats.distribution %}
+                <span class="badge badge-purple">#{{ n.numero }} · {{ n.count }} ({{ n.pct|round(0)|int }}%)</span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <div class="card overflow-hidden">
+            <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
+                <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                    <i data-lucide="clock-3" class="w-4 h-4 inline-block mr-1"></i>
+                    Derniers matchs
                 </h2>
-                <button class="text-xs px-2 py-1 rounded transition"
-                        style="color: var(--text-muted); background: var(--bg-card-hover);">
-                    <i :data-lucide="showPerfDetail ? 'chevron-up' : 'chevron-down'" class="w-4 h-4 inline-block"></i>
-                </button>
             </div>
-        </div>
-
-        <!-- Aggregated stats summary -->
-        <div class="p-4">
-            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-                <div class="stat-card">
-                    <div class="stat-value" style="color: var(--accent-cyan);">{{ aggregated_stats.total_points_joues }}</div>
-                    <div class="stat-label">Points joués</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" style="color: var(--accent-green);">{{ aggregated_stats.total_points_gagnes }}</div>
-                    <div class="stat-label">Pts gagnés (terrain)</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" style="color: var(--accent-red);">{{ aggregated_stats.total_points_perdus }}</div>
-                    <div class="stat-label">Pts perdus</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value gradient-text-gold">{{ aggregated_stats.total_services }}</div>
-                    <div class="stat-label">Services</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" style="color: var(--accent-gold);">{{ aggregated_stats.max_serie_service }}</div>
-                    <div class="stat-label">Max série</div>
-                </div>
-                <div class="stat-card">
-                    {% if aggregated_stats.total_temps_jeu > 0 %}
-                    <div class="stat-value gradient-text-blue">{{ aggregated_stats.total_temps_jeu|round(0)|int }}′</div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Équipe</th>
+                        <th>Adversaire</th>
+                        <th class="text-center">Score</th>
+                        <th class="text-center">Résultat</th>
+                        <th>Niveau</th>
+                        <th class="text-right">Détails</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in recent_matchs %}
+                    <tr>
+                        <td>{{ row.date|format_date if row.date else '—' }}</td>
+                        <td>{{ row.equipe_nom|truncate_name(26) }}</td>
+                        <td>{{ row.adversaire_nom|truncate_name(26) }}</td>
+                        <td class="text-center">{{ row.score }}</td>
+                        <td class="text-center">
+                            {% if row.victoire is sameas true %}<span class="badge badge-green">V</span>
+                            {% elif row.victoire is sameas false %}<span class="badge badge-red">D</span>
+                            {% else %}<span class="badge">—</span>{% endif %}
+                        </td>
+                        <td>{% if row.niveau %}<span class="badge badge-blue">{{ row.niveau }}</span>{% else %}<span style="color: var(--text-muted);">—</span>{% endif %}</td>
+                        <td class="text-right"><a href="{{ path_for_entity('match', row.match_id) }}" class="badge badge-blue text-xs">Voir</a></td>
+                    </tr>
                     {% else %}
-                    <div class="stat-value" style="color: var(--text-muted);">—</div>
-                    {% endif %}
-                    <div class="stat-label">Temps de jeu total</div>
-                </div>
-            </div>
+                    <tr><td colspan="7" class="text-center py-8" style="color: var(--text-muted);">Aucun match trouvé pour ce filtre.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
 
-            <!-- Moyennes row -->
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
-                <div class="p-3 rounded-lg text-center" style="background: var(--bg-card-hover);">
-                    <div class="text-lg font-bold" style="color: var(--accent-cyan);">
-                        {% if aggregated_stats.matchs_joues > 0 %}
-                        {{ (aggregated_stats.total_points_joues / aggregated_stats.matchs_joues)|round(1) }}
-                        {% else %}—{% endif %}
-                    </div>
-                    <div class="text-xs" style="color: var(--text-muted);">Pts/match</div>
-                </div>
-                <div class="p-3 rounded-lg text-center" style="background: var(--bg-card-hover);">
-                    <div class="text-lg font-bold" style="color: var(--accent-green);">
-                        {{ aggregated_stats.moyenne_services_par_serie|round(2) }}
-                    </div>
-                    <div class="text-xs" style="color: var(--text-muted);">Services/série</div>
-                </div>
-                <div class="p-3 rounded-lg text-center" style="background: var(--bg-card-hover);">
-                    <div class="text-lg font-bold" style="color: var(--accent-blue);">
-                        {% if aggregated_stats.moyenne_temps_par_match > 0 %}
-                        {{ aggregated_stats.moyenne_temps_par_match|round(0)|int }}′
-                        {% else %}—{% endif %}
-                    </div>
-                    <div class="text-xs" style="color: var(--text-muted);">Temps/match</div>
-                </div>
-                <div class="p-3 rounded-lg text-center" style="background: var(--bg-card-hover);">
-                    <div class="text-lg font-bold" style="color: var(--accent-gold);">
-                        {{ aggregated_stats.moyenne_temps_morts_par_match|round(2) }}
-                    </div>
-                    <div class="text-xs" style="color: var(--text-muted);">TM prov./match</div>
-                </div>
-            </div>
-
-            <!-- Changements + Sanctions row -->
-            <div class="flex flex-wrap gap-3 mt-4 text-xs" style="color: var(--text-muted);">
-                <span>Changements : <strong style="color: var(--accent-green);">{{ aggregated_stats.total_entrees }}</strong> entrées / <strong style="color: var(--accent-red);">{{ aggregated_stats.total_sorties }}</strong> sorties</span>
-                <span>•</span>
-                <span>TM provoqués : <strong style="color: var(--accent-gold);">{{ aggregated_stats.total_temps_morts_provoques }}</strong></span>
-                {% if aggregated_stats.total_sanctions > 0 %}
-                <span>•</span>
-                <span>Sanctions : <strong style="color: var(--accent-red);">{{ aggregated_stats.total_sanctions }}</strong></span>
-                {% endif %}
-                <span>•</span>
-                <span>Sets : <strong style="color: var(--accent-cyan);">{{ aggregated_stats.total_sets_joues }}</strong> joués (<strong>{{ aggregated_stats.total_sets_titulaire }}</strong> titulaire)</span>
-            </div>
+    <div x-show="activeTab === 'stats'" class="space-y-6" x-cloak>
+        {% if aggregated_stats and aggregated_stats.matchs_joues > 0 %}
+        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            <div class="stat-card"><div class="stat-value" style="color: var(--accent-cyan);">{{ aggregated_stats.total_points_joues }}</div><div class="stat-label">Points joués</div></div>
+            <div class="stat-card"><div class="stat-value" style="color: var(--accent-green);">{{ aggregated_stats.total_points_gagnes }}</div><div class="stat-label">Points gagnés</div></div>
+            <div class="stat-card"><div class="stat-value" style="color: var(--accent-red);">{{ aggregated_stats.total_points_perdus }}</div><div class="stat-label">Points perdus</div></div>
+            <div class="stat-card"><div class="stat-value gradient-text-gold">{{ aggregated_stats.total_services }}</div><div class="stat-label">Services</div></div>
+            <div class="stat-card"><div class="stat-value" style="color: var(--accent-purple);">{{ aggregated_stats.max_serie_service }}</div><div class="stat-label">Max série</div></div>
+            <div class="stat-card"><div class="stat-value" style="color: var(--accent-blue);">{{ aggregated_stats.total_sets_joues }}</div><div class="stat-label">Sets joués</div></div>
         </div>
 
-        <!-- Per-match stats table (collapsible) -->
-        <div x-show="showPerfDetail" x-transition x-cloak>
-            <div class="p-4" style="border-top: 1px solid var(--border-color);">
-                <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">
-                    <i data-lucide="table" class="w-3 h-3 inline-block mr-1"></i>
-                    Détail par match ({{ per_match_stats|length }})
-                </h3>
+        {% if match_evolution_stats and match_evolution_stats|length > 1 %}
+        <div class="card p-4">
+            <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">Évolution chronologique</h3>
+            <div style="height: 260px;"><canvas id="matchEvolutionChart"></canvas></div>
+        </div>
+        {% endif %}
+
+        <div class="card overflow-hidden">
+            <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
+                <h3 class="text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Détail performance par match</h3>
             </div>
-            {% if per_match_stats %}
             <div class="overflow-x-auto">
                 <table class="data-table text-xs">
                     <thead>
@@ -287,543 +263,160 @@
                             <th class="text-center">#</th>
                             <th>Niveau</th>
                             <th class="text-center">V/D</th>
-                            <th class="text-center">Sets</th>
                             <th class="text-center">Pts joués</th>
                             <th class="text-center">Pts gagnés</th>
                             <th class="text-center">Pts perdus</th>
                             <th class="text-center">% Pts gagnés</th>
                             <th class="text-center">Services</th>
-                            <th class="text-center">Séries</th>
                             <th class="text-center">Max série</th>
-                            <th class="text-center">Temps</th>
-                            <th class="text-center">Chg</th>
-                            <th class="text-center">TM prov.</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for pm in per_match_stats %}
                         {% set pms = pm.stats %}
                         <tr>
-                            <td class="whitespace-nowrap" style="color: var(--text-muted);">
-                                {% if pm.date %}{{ pm.date|format_date }}{% else %}—{% endif %}
-                            </td>
-                            <td class="whitespace-nowrap">
-                                <a href="{{ path_for_entity('match', pm.match_id) }}" class="hover:text-white transition" style="color: var(--accent-blue);">
-                                    {{ pm.adversaire|truncate(25, True) if pm.adversaire else '?' }}
-                                </a>
-                            </td>
-                            <td class="text-center">
-                                {% if pm.numero %}
-                                <span class="badge badge-purple text-xs">#{{ pm.numero }}</span>
-                                {% else %}
-                                <span style="color: var(--text-muted);">—</span>
-                                {% endif %}
-                            </td>
-                            <td class="whitespace-nowrap">
-                                {% if pm.niveau_principal %}
-                                <span class="badge badge-blue text-xs">{{ pm.niveau_principal }}</span>
-                                {% else %}
-                                <span style="color: var(--text-muted);">—</span>
-                                {% endif %}
-                            </td>
-                            <td class="text-center">
-                                {% if pms.victoire %}
-                                <span class="badge badge-green text-xs">V</span>
-                                {% else %}
-                                <span class="badge badge-red text-xs">D</span>
-                                {% endif %}
-                            </td>
-                            <td class="text-center">{{ pms.sets_joues }}<span class="opacity-50">/{{ pms.sets_titulaire }}T</span></td>
-                            <td class="text-center font-semibold" style="color: var(--accent-cyan);">{{ pms.points_joues }}</td>
-                            <td class="text-center font-semibold" style="color: var(--accent-green);">{{ pms.points_gagnes }}</td>
-                            <td class="text-center font-semibold" style="color: var(--accent-red);">{{ pms.points_perdus }}</td>
-                            <td class="text-center">
-                                <span class="font-semibold" style="color: var(--accent-gold);">{{ pm.ratio_points_pct|round(1) }}%</span>
-                            </td>
+                            <td>{{ pm.date|format_date if pm.date else '—' }}</td>
+                            <td><a href="{{ path_for_entity('match', pm.match_id) }}" style="color: var(--accent-blue);" class="hover:text-white">{{ pm.adversaire|truncate(30, True) }}</a></td>
+                            <td class="text-center">{% if pm.numero %}<span class="badge badge-purple text-xs">#{{ pm.numero }}</span>{% else %}—{% endif %}</td>
+                            <td>{% if pm.niveau_principal %}<span class="badge badge-blue text-xs">{{ pm.niveau_principal }}</span>{% else %}—{% endif %}</td>
+                            <td class="text-center">{% if pms.victoire %}<span class="badge badge-green text-xs">V</span>{% else %}<span class="badge badge-red text-xs">D</span>{% endif %}</td>
+                            <td class="text-center">{{ pms.points_joues }}</td>
+                            <td class="text-center" style="color: var(--accent-green);">{{ pms.points_gagnes }}</td>
+                            <td class="text-center" style="color: var(--accent-red);">{{ pms.points_perdus }}</td>
+                            <td class="text-center" style="color: var(--accent-gold);">{{ pm.ratio_points_pct|round(1) }}%</td>
                             <td class="text-center">{{ pms.services }}</td>
-                            <td class="text-center">{{ pms.serie }}</td>
-                            <td class="text-center">{% if pms.max_serie > 0 %}<span class="font-bold" style="color: var(--accent-gold);">{{ pms.max_serie }}</span>{% else %}—{% endif %}</td>
-                            <td class="text-center whitespace-nowrap">
-                                {% if pms.temps_jeu_estime is not none %}
-                                {{ pms.temps_jeu_estime|round(0)|int }}′
-                                {% else %}—{% endif %}
-                            </td>
-                            <td class="text-center">
-                                {% if pms.nb_changements_total > 0 %}{{ pms.nb_changements_total }}{% else %}—{% endif %}
-                            </td>
-                            <td class="text-center">
-                                {% if pms.temps_morts_provoques > 0 %}
-                                <span class="font-semibold" style="color: var(--accent-gold);">{{ pms.temps_morts_provoques }}</span>
-                                {% else %}—{% endif %}
-                            </td>
+                            <td class="text-center">{{ pms.max_serie if pms.max_serie > 0 else '—' }}</td>
                         </tr>
+                        {% else %}
+                        <tr><td colspan="11" class="text-center py-8" style="color: var(--text-muted);">Aucune statistique détaillée sur ce filtre.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
             </div>
-            {% else %}
-            <div class="p-8 text-center text-sm" style="color: var(--text-muted);">
-                Aucune donnée de performance détaillée disponible.
-            </div>
-            {% endif %}
         </div>
-    </div>
-    {% endif %}
-
-    <!-- Évolution des statistiques match par match -->
-    {% if match_evolution_stats and match_evolution_stats|length > 1 %}
-    <div class="card overflow-hidden">
-        <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
-            <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--accent-cyan);">
-                <i data-lucide="line-chart" class="w-4 h-4 inline-block mr-1"></i>
-                Évolution des statistiques par match
-            </h2>
-            <p class="text-xs mt-1" style="color: var(--text-muted);">
-                Suivi chronologique sur {{ match_evolution_stats|length }} matchs : performance terrain, service, temps de jeu et niveau.
-            </p>
-        </div>
-        <div class="p-4 grid grid-cols-1 xl:grid-cols-2 gap-6">
-            <div class="card p-4">
-                <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">Points par match</h3>
-                <div style="height: 250px;"><canvas id="matchPointsChart"></canvas></div>
-            </div>
-            <div class="card p-4">
-                <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">Service & rythme</h3>
-                <div style="height: 250px;"><canvas id="matchServiceChart"></canvas></div>
-            </div>
-            <div class="card p-4 xl:col-span-2">
-                <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">Évolution du niveau des matchs</h3>
-                <div style="height: 280px;"><canvas id="matchLevelChart"></canvas></div>
-            </div>
-        </div>
-    </div>
-    {% endif %}
-
-    <!-- Charts row -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-        <!-- Results pie chart -->
-        {% if total_played > 0 %}
-        <div class="card p-6">
-            <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
-                <i data-lucide="pie-chart" class="w-4 h-4 inline-block mr-1"></i> Résultats
-            </h2>
-            <div class="max-w-xs mx-auto" style="height: 220px;">
-                <canvas id="resultsChart"></canvas>
-            </div>
-        </div>
-        {% endif %}
-
-        <!-- Activity chart (matches per month) -->
-        {% if detailed_stats.matchs_par_mois %}
-        <div class="card p-6">
-            <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
-                <i data-lucide="activity" class="w-4 h-4 inline-block mr-1"></i> Activité
-            </h2>
-            <div style="height: 220px;">
-                <canvas id="activityChart"></canvas>
-            </div>
-        </div>
+        {% else %}
+        <div class="card p-8 text-center" style="color: var(--text-muted);">Aucune statistique détaillée disponible pour les matchs filtrés.</div>
         {% endif %}
     </div>
 
-    <!-- Season-by-season stats -->
-    {% if detailed_stats.stats_par_saison %}
-    <div class="card overflow-hidden">
-        <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
-            <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
-                <i data-lucide="calendar" class="w-4 h-4 inline-block mr-1"></i>
-                Parcours par saison
-            </h2>
-        </div>
-        <div class="space-y-0">
-            {% for season in detailed_stats.stats_par_saison %}
-            <div class="p-4 {% if not loop.last %}border-b{% endif %}" style="border-color: var(--border-color);">
-                <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
-                    <div class="flex items-center gap-3">
-                        <span class="badge badge-purple font-bold">{{ season.saison }}</span>
-                        <span class="text-sm">
-                            <span class="font-bold" style="color: var(--accent-blue);">{{ season.matchs }}</span>
-                            <span style="color: var(--text-muted);">matchs</span>
-                        </span>
-                        {% if season.victoires > 0 or season.defaites > 0 %}
-                        <span class="text-sm">
-                            <span style="color: var(--accent-green);">{{ season.victoires }}V</span>
-                            <span style="color: var(--text-muted);">/</span>
-                            <span style="color: var(--accent-red);">{{ season.defaites }}D</span>
-                        </span>
-                        {% endif %}
-                    </div>
-                    <div class="flex flex-wrap gap-2">
-                        {% for eq in season.equipes %}
-                        <a href="{{ path_for_entity('equipe', eq.id) }}" class="badge badge-blue text-xs">
-                            {{ eq.nom|truncate_name(25) }}
-                            {% if eq.niveau %}
-                            <span class="ml-1 opacity-75">· {{ eq.niveau }}</span>
-                            {% endif %}
-                        </a>
+    <div x-show="activeTab === 'matchs'" class="space-y-6" x-cloak>
+        <div class="card overflow-hidden">
+            <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
+                <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Liste complète des matchs ({{ match_rows|length }})</h2>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Saison</th>
+                            <th>Compétition</th>
+                            <th>Équipe</th>
+                            <th>Adversaire</th>
+                            <th>Niveau</th>
+                            <th>Lieu</th>
+                            <th class="text-center">Score</th>
+                            <th class="text-center">Résultat</th>
+                            <th class="text-right">Détails</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in match_rows %}
+                        <tr>
+                            <td>{{ row.date|format_date if row.date else '—' }}</td>
+                            <td>{{ row.saison or '—' }}</td>
+                            <td>{% if row.competition %}<span class="badge">{{ row.competition|truncate_name(28) }}</span>{% else %}—{% endif %}</td>
+                            <td>{{ row.equipe_nom|truncate_name(26) }}</td>
+                            <td>{{ row.adversaire_nom|truncate_name(26) }}</td>
+                            <td>{% if row.niveau %}<span class="badge badge-blue text-xs">{{ row.niveau }}</span>{% else %}—{% endif %}</td>
+                            <td>{{ row.domicile_exterieur }}</td>
+                            <td class="text-center">{{ row.score }}</td>
+                            <td class="text-center">
+                                {% if row.victoire is sameas true %}<span class="badge badge-green">V</span>
+                                {% elif row.victoire is sameas false %}<span class="badge badge-red">D</span>
+                                {% else %}<span class="badge">—</span>{% endif %}
+                            </td>
+                            <td class="text-right"><a href="{{ path_for_entity('match', row.match_id) }}" class="badge badge-blue text-xs">Voir</a></td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="10" class="text-center py-8" style="color: var(--text-muted);">Aucun match trouvé pour ce filtre.</td></tr>
                         {% endfor %}
-                    </div>
-                </div>
-                {% if season.competitions %}
-                <div class="flex flex-wrap gap-2 mt-2">
-                    {% for comp in season.competitions %}
-                    <a href="{{ path_for_entity('competition', comp.id) }}" class="badge badge-green text-xs hover:opacity-80 transition">
-                        <i data-lucide="medal" class="w-3 h-3 mr-1"></i>
-                        {{ comp.nom|truncate_name(40) }}
-                        {% if comp.niveau %}· {{ comp.niveau }}{% endif %}
-                    </a>
-                    {% endfor %}
-                </div>
-                {% endif %}
-                {% if season.matchs > 0 %}
-                <div class="mt-2 h-2 rounded-full overflow-hidden" style="background: var(--bg-card-hover); max-width: 200px;">
-                    {% set s_total = season.victoires + season.defaites %}
-                    {% if s_total > 0 %}
-                    <div class="h-full rounded-full"
-                         style="width: {{ (season.victoires / s_total * 100)|round(0) }}%; background: linear-gradient(90deg, var(--accent-green), var(--accent-blue));"></div>
-                    {% endif %}
-                </div>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div x-show="activeTab === 'carte'" class="space-y-6" x-cloak>
+        <div class="card overflow-hidden">
+            <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
+                <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                    <i data-lucide="map" class="w-4 h-4 inline-block mr-1"></i>
+                    Carte des matchs filtrés ({{ map_markers|length }} point{% if map_markers|length > 1 %}s{% endif %})
+                </h2>
+            </div>
+            <div class="p-4">
+                <div id="joueurMatchMap" style="height: 460px; width: 100%; border-radius: 0.75rem;"></div>
+                {% if map_markers|length == 0 %}
+                <p class="text-sm mt-3" style="color: var(--text-muted);">Aucune coordonnée disponible pour les matchs filtrés.</p>
                 {% endif %}
             </div>
-            {% endfor %}
         </div>
-    </div>
-    {% endif %}
-
-    <!-- Equipes -->
-    {% if stats.equipes %}
-    <div class="card p-6">
-        <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
-            <i data-lucide="users" class="w-4 h-4 inline-block mr-1"></i> Équipes
-        </h2>
-        <div class="flex flex-wrap gap-2">
-            {% for eq in stats.equipes %}
-            <a href="{{ path_for_entity('equipe', eq.id) }}" class="badge badge-blue">
-                {{ eq.nom }}
-                {% if eq.genre %}
-                <span class="opacity-75">· {{ eq.genre }}</span>
-                {% endif %}
-                {% if eq.niveau %}
-                <span class="opacity-75">· {{ eq.niveau }}</span>
-                {% endif %}
-                {% if eq.saison %}
-                <span class="opacity-75">· {{ eq.saison.code }}</span>
-                {% endif %}
-            </a>
-            {% endfor %}
-        </div>
-    </div>
-    {% endif %}
-
-    <!-- Season performance chart -->
-    {% if detailed_stats.stats_par_saison|length > 1 %}
-    <div class="card p-6">
-        <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
-            <i data-lucide="trending-up" class="w-4 h-4 inline-block mr-1"></i> Évolution par saison
-        </h2>
-        <div style="height: 280px;">
-            <canvas id="seasonChart"></canvas>
-        </div>
-    </div>
-    {% endif %}
-
-    <!-- Competition level evolution -->
-    {% if detailed_stats.niveau_evolution and detailed_stats.niveau_evolution|selectattr('niveau_principal')|list|length > 1 %}
-    <div class="card p-6">
-        <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
-            <i data-lucide="bar-chart-3" class="w-4 h-4 inline-block mr-1"></i> Évolution du niveau de compétition
-        </h2>
-        <div style="height: 250px;">
-            <canvas id="levelChart"></canvas>
-        </div>
-        <div class="flex flex-wrap gap-2 mt-4">
-            {% for niv in detailed_stats.niveau_evolution %}
-            {% if niv.niveau_principal %}
-            <div class="flex items-center gap-2">
-                <span class="badge badge-purple text-xs">{{ niv.saison }}</span>
-                <span class="text-sm" style="color: var(--text-secondary);">{{ niv.niveau_principal }}</span>
-            </div>
-            {% endif %}
-            {% endfor %}
-        </div>
-    </div>
-    {% endif %}
-
-    <!-- Historique des matchs -->
-    <div class="card overflow-hidden">
-        <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
-            <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
-                <i data-lucide="history" class="w-4 h-4 inline-block mr-1"></i>
-                Historique des matchs ({{ matchs|length }})
-            </h2>
-        </div>
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>Date</th>
-                    <th>Équipe A</th>
-                    <th class="text-center">Score</th>
-                    <th>Équipe B</th>
-                    <th class="text-right">Détails</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for m in matchs %}
-                <tr>
-                    <td class="text-sm" style="color: var(--text-muted);">
-                        {{ m.date_match|format_date }}
-                    </td>
-                    <td>
-                        <a href="{{ path_for_entity('equipe', m.equipe_a.id) }}" class="font-medium hover:text-white transition"
-                           style="color: var(--team-a-light);">
-                            {{ m.equipe_a.nom|truncate_name(20) if m.equipe_a else '?' }}
-                        </a>
-                    </td>
-                    <td class="text-center">
-                        <span class="set-score {% if m.sets_equipe_a > m.sets_equipe_b %}won-a{% else %}won-b{% endif %}">
-                            {{ m.sets_equipe_a }}-{{ m.sets_equipe_b }}
-                        </span>
-                    </td>
-                    <td>
-                        <a href="{{ path_for_entity('equipe', m.equipe_b.id) }}" class="font-medium hover:text-white transition"
-                           style="color: var(--team-b-light);">
-                            {{ m.equipe_b.nom|truncate_name(20) if m.equipe_b else '?' }}
-                        </a>
-                    </td>
-                    <td class="text-right">
-                        <a href="{{ path_for_entity('match', m.id) }}" class="badge badge-blue text-xs">Voir</a>
-                    </td>
-                </tr>
-                {% else %}
-                <tr>
-                    <td colspan="5" class="text-center py-8" style="color: var(--text-muted);">
-                        Aucun match trouvé
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
     </div>
 
 </div>
 {% endblock %}
 
 {% block extra_scripts %}
-{% set total_played = (stats.victoires or 0) + (stats.defaites or 0) %}
+{% set safe_match_evolution_stats = match_evolution_stats|default([], true) %}
+{% set safe_map_markers = map_markers|default([], true) %}
 <script>
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     const chartColors = {
-        green: '#22c55e', greenBg: 'rgba(34, 197, 94, 0.2)',
-        red: '#ef4444', redBg: 'rgba(239, 68, 68, 0.2)',
-        blue: '#3b82f6', blueBg: 'rgba(59, 130, 246, 0.2)',
-        purple: '#a855f7', purpleBg: 'rgba(168, 85, 247, 0.2)',
-        gold: '#f59e0b', goldBg: 'rgba(245, 158, 11, 0.2)',
-        cyan: '#06b6d4', cyanBg: 'rgba(6, 182, 212, 0.2)',
+        green: '#22c55e', red: '#ef4444', blue: '#3b82f6', gold: '#f59e0b', cyan: '#06b6d4'
     };
     const gridColor = 'rgba(42, 48, 80, 0.5)';
     const textColor = '#8b92a8';
 
-    // Results pie chart
-    {% if total_played > 0 %}
-    const resultsCtx = document.getElementById('resultsChart');
-    if (resultsCtx) {
-        new Chart(resultsCtx, {
-            type: 'doughnut',
-            data: {
-                labels: ['Victoires', 'Défaites'],
-                datasets: [{
-                    data: [{{ stats.victoires or 0 }}, {{ stats.defaites or 0 }}],
-                    backgroundColor: [chartColors.greenBg, chartColors.redBg],
-                    borderColor: [chartColors.green, chartColors.red],
-                    borderWidth: 2,
-                }]
-            },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                cutout: '65%',
-                plugins: {
-                    legend: { position: 'bottom', labels: { color: textColor, font: { size: 12 } } }
-                }
-            }
-        });
-    }
-    {% endif %}
-
-    // Activity chart (matches per month)
-    {% if detailed_stats.matchs_par_mois %}
-    const activityCtx = document.getElementById('activityChart');
-    if (activityCtx) {
-        const monthsData = {{ detailed_stats.matchs_par_mois | tojson }};
-        const months = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
-        const labels = monthsData.map(d => months[d.month - 1] + ' ' + d.year);
-        const data = monthsData.map(d => d.count);
-
-        new Chart(activityCtx, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: 'Matchs',
-                    data: data,
-                    backgroundColor: chartColors.blueBg,
-                    borderColor: chartColors.blue,
-                    borderWidth: 1, borderRadius: 4,
-                }]
-            },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                scales: {
-                    y: { beginAtZero: true, grid: { color: gridColor }, ticks: { color: textColor, stepSize: 1 } },
-                    x: { grid: { display: false }, ticks: { color: textColor, maxRotation: 45, font: { size: 10 } } }
-                },
-                plugins: { legend: { display: false } }
-            }
-        });
-    }
-    {% endif %}
-
-    // Season evolution chart
-    {% if detailed_stats.stats_par_saison|length > 1 %}
-    const seasonCtx = document.getElementById('seasonChart');
-    if (seasonCtx) {
-        const seasonData = {{ detailed_stats.stats_par_saison | tojson }};
-        const sLabels = seasonData.map(s => s.saison);
-        const sMatchs = seasonData.map(s => s.matchs);
-        const sVictoires = seasonData.map(s => s.victoires);
-        const sDefaites = seasonData.map(s => s.defaites);
-        const sWinRate = seasonData.map(s => {
-            const total = s.victoires + s.defaites;
-            return total > 0 ? Math.round(s.victoires / total * 100) : 0;
-        });
-
-        new Chart(seasonCtx, {
-            type: 'bar',
-            data: {
-                labels: sLabels,
-                datasets: [
-                    {
-                        label: 'Victoires', data: sVictoires,
-                        backgroundColor: chartColors.greenBg,
-                        borderColor: chartColors.green,
-                        borderWidth: 1, borderRadius: 4,
-                        stack: 'results',
-                    },
-                    {
-                        label: 'Défaites', data: sDefaites,
-                        backgroundColor: chartColors.redBg,
-                        borderColor: chartColors.red,
-                        borderWidth: 1, borderRadius: 4,
-                        stack: 'results',
-                    },
-                    {
-                        label: '% Victoire', data: sWinRate,
-                        type: 'line',
-                        borderColor: chartColors.gold,
-                        backgroundColor: chartColors.goldBg,
-                        borderWidth: 2, pointRadius: 4,
-                        tension: 0.3,
-                        yAxisID: 'y1',
-                    }
-                ]
-            },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                scales: {
-                    y: {
-                        beginAtZero: true, stacked: true,
-                        grid: { color: gridColor },
-                        ticks: { color: textColor, stepSize: 1 },
-                        title: { display: true, text: 'Matchs', color: textColor }
-                    },
-                    y1: {
-                        beginAtZero: true, max: 100, position: 'right',
-                        grid: { display: false },
-                        ticks: { color: chartColors.gold, callback: v => v + '%' },
-                        title: { display: true, text: '% Victoire', color: chartColors.gold }
-                    },
-                    x: { stacked: true, grid: { display: false }, ticks: { color: textColor } }
-                },
-                plugins: {
-                    legend: { labels: { color: textColor, font: { size: 11 } } }
-                }
-            }
-        });
-    }
-    {% endif %}
-
-    // Match-by-match evolution charts
-    {% if match_evolution_stats and match_evolution_stats|length > 1 %}
-    const matchEvolutionData = {{ match_evolution_stats | tojson }};
-    const evolutionLabels = matchEvolutionData.map((m, idx) => {
-        const dateLabel = m.date ? new Date(m.date).toLocaleDateString('fr-FR') : `M${idx + 1}`;
-        return `${dateLabel}`;
-    });
-    const pointsJouesData = matchEvolutionData.map(m => m.points_joues || 0);
-    const pointsGagnesData = matchEvolutionData.map(m => m.points_gagnes || 0);
-    const pointsPerdusData = matchEvolutionData.map(m => m.points_perdus || 0);
-    const ratioData = matchEvolutionData.map(m => m.ratio_points_pct || 0);
-    const servicesData = matchEvolutionData.map(m => m.services || 0);
-    const maxSerieData = matchEvolutionData.map(m => m.max_serie || 0);
-    const tempsData = matchEvolutionData.map(m => m.temps_jeu_estime ?? null);
-    const niveauRanks = matchEvolutionData.map(m => m.niveau_rank);
-    const niveauLabels = matchEvolutionData.map(m => m.niveau_principal || 'Inconnu');
-
-    const matchPointsCtx = document.getElementById('matchPointsChart');
-    if (matchPointsCtx) {
-        new Chart(matchPointsCtx, {
+    {% if safe_match_evolution_stats|length > 1 %}
+    const evolutionData = {{ safe_match_evolution_stats | tojson }};
+    const evolutionCtx = document.getElementById('matchEvolutionChart');
+    if (evolutionCtx) {
+        new Chart(evolutionCtx, {
             type: 'line',
             data: {
-                labels: evolutionLabels,
+                labels: evolutionData.map((m, i) => m.date ? new Date(m.date).toLocaleDateString('fr-FR') : `M${i + 1}`),
                 datasets: [
                     {
-                        label: 'Pts joués',
-                        data: pointsJouesData,
+                        label: 'Points joués',
+                        data: evolutionData.map(m => m.points_joues || 0),
                         borderColor: chartColors.cyan,
-                        backgroundColor: chartColors.cyanBg,
+                        backgroundColor: 'rgba(6, 182, 212, 0.15)',
                         borderWidth: 2,
-                        tension: 0.3,
-                        pointRadius: 3,
+                        tension: 0.25,
+                        pointRadius: 2,
                     },
                     {
-                        label: 'Pts gagnés',
-                        data: pointsGagnesData,
-                        borderColor: chartColors.green,
-                        backgroundColor: chartColors.greenBg,
-                        borderWidth: 2,
-                        tension: 0.3,
-                        pointRadius: 3,
-                    },
-                    {
-                        label: 'Pts perdus',
-                        data: pointsPerdusData,
-                        borderColor: chartColors.red,
-                        backgroundColor: chartColors.redBg,
-                        borderWidth: 2,
-                        tension: 0.3,
-                        pointRadius: 3,
-                    },
-                    {
-                        label: '% Pts gagnés',
-                        data: ratioData,
-                        type: 'line',
+                        label: '% points gagnés',
+                        data: evolutionData.map(m => m.ratio_points_pct || 0),
                         borderColor: chartColors.gold,
-                        backgroundColor: chartColors.goldBg,
+                        backgroundColor: 'rgba(245, 158, 11, 0.12)',
                         borderWidth: 2,
                         borderDash: [6, 4],
-                        pointRadius: 3,
+                        tension: 0.25,
+                        pointRadius: 2,
                         yAxisID: 'y1',
-                    }
+                    },
                 ]
             },
             options: {
-                responsive: true, maintainAspectRatio: false,
+                responsive: true,
+                maintainAspectRatio: false,
                 scales: {
                     y: {
                         beginAtZero: true,
                         grid: { color: gridColor },
                         ticks: { color: textColor },
-                        title: { display: true, text: 'Points', color: textColor }
                     },
                     y1: {
                         beginAtZero: true,
@@ -831,242 +424,59 @@ document.addEventListener('DOMContentLoaded', function() {
                         position: 'right',
                         grid: { display: false },
                         ticks: { color: chartColors.gold, callback: v => `${v}%` },
-                        title: { display: true, text: '% Gagnés', color: chartColors.gold }
                     },
                     x: {
                         grid: { display: false },
-                        ticks: { color: textColor, maxRotation: 45, font: { size: 10 } }
-                    }
+                        ticks: { color: textColor, maxRotation: 45, font: { size: 10 } },
+                    },
                 },
                 plugins: {
-                    legend: { labels: { color: textColor, font: { size: 11 } } },
-                    tooltip: {
-                        callbacks: {
-                            afterBody: function(items) {
-                                const idx = items[0].dataIndex;
-                                const m = matchEvolutionData[idx];
-                                return [
-                                    `Adversaire: ${m.adversaire || '?'}`,
-                                    `Numéro: ${m.numero ? '#' + m.numero : '—'}`,
-                                    `Résultat: ${m.victoire ? 'Victoire' : 'Défaite'}`,
-                                ];
-                            }
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    const matchServiceCtx = document.getElementById('matchServiceChart');
-    if (matchServiceCtx) {
-        new Chart(matchServiceCtx, {
-            type: 'bar',
-            data: {
-                labels: evolutionLabels,
-                datasets: [
-                    {
-                        label: 'Services',
-                        data: servicesData,
-                        backgroundColor: chartColors.blueBg,
-                        borderColor: chartColors.blue,
-                        borderWidth: 1,
-                        borderRadius: 4,
-                    },
-                    {
-                        label: 'Max série',
-                        data: maxSerieData,
-                        type: 'line',
-                        borderColor: chartColors.purple,
-                        backgroundColor: chartColors.purpleBg,
-                        borderWidth: 2,
-                        pointRadius: 4,
-                        tension: 0.3,
-                        yAxisID: 'y',
-                    },
-                    {
-                        label: 'Temps de jeu (min)',
-                        data: tempsData,
-                        type: 'line',
-                        borderColor: chartColors.green,
-                        backgroundColor: chartColors.greenBg,
-                        borderWidth: 2,
-                        pointRadius: 3,
-                        borderDash: [5, 3],
-                        tension: 0.3,
-                        yAxisID: 'y1',
-                    }
-                ]
+                    legend: { labels: { color: textColor } },
+                },
             },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        grid: { color: gridColor },
-                        ticks: { color: textColor, stepSize: 1 },
-                        title: { display: true, text: 'Services / Série', color: textColor },
-                    },
-                    y1: {
-                        beginAtZero: true,
-                        position: 'right',
-                        grid: { display: false },
-                        ticks: { color: chartColors.green },
-                        title: { display: true, text: 'Temps (min)', color: chartColors.green }
-                    },
-                    x: { grid: { display: false }, ticks: { color: textColor, maxRotation: 45, font: { size: 10 } } }
-                },
-                plugins: {
-                    legend: { labels: { color: textColor, font: { size: 11 } } }
-                }
-            }
-        });
-    }
-
-    const matchLevelCtx = document.getElementById('matchLevelChart');
-    if (matchLevelCtx) {
-        const validRanks = niveauRanks.filter(v => v !== null && v !== undefined);
-        const minRank = validRanks.length ? Math.max(0, Math.min(...validRanks) - 1) : 0;
-        const maxRank = validRanks.length ? Math.min(10, Math.max(...validRanks) + 1) : 10;
-
-        new Chart(matchLevelCtx, {
-            type: 'line',
-            data: {
-                labels: evolutionLabels,
-                datasets: [{
-                    label: 'Niveau du match',
-                    data: niveauRanks,
-                    borderColor: chartColors.purple,
-                    backgroundColor: chartColors.purpleBg,
-                    borderWidth: 3,
-                    pointRadius: 5,
-                    pointHoverRadius: 7,
-                    tension: 0.25,
-                    spanGaps: true,
-                    fill: true,
-                }]
-            },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                scales: {
-                    y: {
-                        min: minRank,
-                        max: maxRank,
-                        grid: { color: gridColor },
-                        ticks: {
-                            color: textColor,
-                            stepSize: 1,
-                            callback: function(v) {
-                                const map = {
-                                    0: 'Loisir', 1: 'Départemental', 2: 'Pré-régional', 3: 'Régional',
-                                    4: 'Pré-national', 5: 'National', 6: 'N2', 7: 'N1', 8: 'Élite', 9: 'Pro B', 10: 'Pro A'
-                                };
-                                return map[v] || '';
-                            }
-                        },
-                        title: { display: true, text: 'Niveau', color: textColor }
-                    },
-                    x: { grid: { display: false }, ticks: { color: textColor, maxRotation: 45, font: { size: 10 } } }
-                },
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        callbacks: {
-                            label: function(ctx) {
-                                return `Niveau: ${niveauLabels[ctx.dataIndex] || 'Inconnu'}`;
-                            },
-                            afterLabel: function(ctx) {
-                                const m = matchEvolutionData[ctx.dataIndex];
-                                return `Adversaire: ${m.adversaire || '?'}`;
-                            }
-                        }
-                    }
-                }
-            }
         });
     }
     {% endif %}
 
-    // Competition level evolution chart
-    {% if detailed_stats.niveau_evolution and detailed_stats.niveau_evolution|selectattr('niveau_principal')|list|length > 1 %}
-    const levelCtx = document.getElementById('levelChart');
-    if (levelCtx) {
-        const NIVEAU_ORDER = {
-            'LOISIR': 0, 'DEPARTEMENTAL': 1, 'DÉPARTEMENTAL': 1, 'DEPARTEMENTALE': 1, 'DÉPARTEMENTALE': 1,
-            'PRE_REGIONALE': 2, 'PRÉ_RÉGIONALE': 2, 'PREREGIONALE': 2,
-            'REGIONAL': 3, 'RÉGIONAL': 3, 'REGIONALE': 3, 'RÉGIONALE': 3,
-            'PRE_NATIONALE': 4, 'PRÉNATIONAL': 4, 'PRENATIONAL': 4, 'PRENATIONALE': 4, 'PRÉNATIONALE': 4,
-            'PRE-NATIONAL': 4, 'PRÉ-NATIONAL': 4, 'PRE-NATIONALE': 4, 'PRÉ-NATIONALE': 4,
-            'NATIONAL': 5, 'NATIONALE': 5, 'N3': 5, 'N2': 6, 'N1': 7,
-            'ELITE': 8, 'ÉLITE': 8, 'PRO': 9, 'PRO B': 9, 'PRO A': 10,
-        };
-        const NIVEAU_LABELS = {
-            0: 'Loisir', 1: 'Départemental', 2: 'Pré-régional', 3: 'Régional',
-            4: 'Pré-national', 5: 'National', 6: 'N2', 7: 'N1', 8: 'Élite', 9: 'Pro B', 10: 'Pro A',
-        };
-        const niveauData = {{ detailed_stats.niveau_evolution | tojson }};
-        const nlabels = [];
-        const nvalues = [];
-        const ntips = [];
-        niveauData.forEach(d => {
-            if (d.niveau_principal) {
-                nlabels.push(d.saison);
-                const rank = NIVEAU_ORDER[d.niveau_principal.toUpperCase()] ?? null;
-                nvalues.push(rank);
-                ntips.push(d.niveau_principal);
-            }
+    const markers = {{ safe_map_markers | tojson }};
+    const mapContainer = document.getElementById('joueurMatchMap');
+    if (mapContainer && markers.length > 0 && typeof L !== 'undefined') {
+        const map = L.map(mapContainer, {
+            center: [46.6, 2.3],
+            zoom: 6,
+            scrollWheelZoom: true,
+            zoomControl: true,
         });
 
-        // Find min/max ranks for Y axis
-        const validValues = nvalues.filter(v => v !== null);
-        const minRank = Math.max(0, Math.min(...validValues) - 1);
-        const maxRank = Math.min(10, Math.max(...validValues) + 1);
-
-        new Chart(levelCtx, {
-            type: 'line',
-            data: {
-                labels: nlabels,
-                datasets: [{
-                    label: 'Niveau',
-                    data: nvalues,
-                    borderColor: chartColors.purple,
-                    backgroundColor: chartColors.purpleBg,
-                    borderWidth: 3,
-                    pointRadius: 6,
-                    pointBackgroundColor: chartColors.purple,
-                    tension: 0.3,
-                    fill: true,
-                }]
-            },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                scales: {
-                    y: {
-                        min: minRank, max: maxRank,
-                        grid: { color: gridColor },
-                        ticks: {
-                            color: textColor,
-                            stepSize: 1,
-                            callback: function(v) { return NIVEAU_LABELS[v] || ''; }
-                        },
-                        title: { display: true, text: 'Niveau', color: textColor }
-                    },
-                    x: { grid: { display: false }, ticks: { color: textColor } }
-                },
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                        callbacks: {
-                            label: function(ctx) {
-                                return ntips[ctx.dataIndex] || '';
-                            }
-                        }
-                    }
-                }
+        L.tileLayer(
+            'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+            {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+                subdomains: 'abcd',
+                maxZoom: 19,
             }
+        ).addTo(map);
+
+        const leafletMarkers = [];
+        markers.forEach((item) => {
+            const marker = L.circleMarker([item.lat, item.lng], {
+                radius: 7,
+                color: item.color || '#3b82f6',
+                fillColor: item.color || '#3b82f6',
+                fillOpacity: 0.7,
+                weight: 2,
+            }).addTo(map);
+            marker.bindPopup(item.popup_html || item.label || 'Match');
+            leafletMarkers.push(marker);
         });
+
+        if (leafletMarkers.length > 1) {
+            const group = L.featureGroup(leafletMarkers);
+            map.fitBounds(group.getBounds().pad(0.15));
+        } else {
+            map.setView([markers[0].lat, markers[0].lng], 11);
+        }
     }
-    {% endif %}
 });
 </script>
 {% endblock %}

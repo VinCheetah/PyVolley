@@ -93,12 +93,24 @@
 
             <!-- Score central -->
             <div class="text-center flex-shrink-0">
+                {% if match.statut == 'joué' or match.statut == 'forfait' %}
                 <div class="score-main">
                     <span class="score-team-a">{{ match.sets_equipe_a }}</span>
                     <span class="score-separator">—</span>
                     <span class="score-team-b">{{ match.sets_equipe_b }}</span>
                 </div>
-                {% if match.duree_totale %}
+                {% elif match.statut == 'à_venir' %}
+                <div class="badge badge-blue">
+                    <i data-lucide="clock" class="w-3 h-3 mr-1"></i>
+                    Match à venir
+                </div>
+                {% else %}
+                <div class="badge" style="color: var(--accent-gold);">
+                    <i data-lucide="help-circle" class="w-3 h-3 mr-1"></i>
+                    Résultat non renseigné
+                </div>
+                {% endif %}
+                {% if (match.statut == 'joué' or match.statut == 'forfait') and match.duree_totale %}
                 <div class="text-xs mt-1" style="color: var(--text-muted);">{{ match.duree_totale }}</div>
                 {% endif %}
             </div>
@@ -119,7 +131,7 @@
         </div>
 
         <!-- Set scores -->
-        {% if match.sets %}
+        {% if (match.statut == 'joué' or match.statut == 'forfait') and match.sets %}
         <div class="flex justify-center gap-3 mt-6">
             {% for set in match.sets %}
             <div class="text-center cursor-pointer transition transform hover:scale-110"

@@ -12,6 +12,7 @@ Commandes principales :
 - ``stats``         : statistiques globales de la base de données
 - ``compute-stats`` : pré-calculer les statistiques palmarès et les stocker en base
 - ``compute-player-stats`` : pré-calculer les statistiques détaillées joueurs par match
+- ``plausibility-audit`` : relancer les contrôles de vraisemblance a posteriori
 - ``init``          : initialiser la base de données
 - ``db``            : gestion de la base (migrations, exploration)
 - ``report``        : rapports détaillés sur les entités en base
@@ -41,8 +42,14 @@ from pyvolley.cli.helpers import (
     add_saison_filter,
     add_entity_filter,
     make_progress,
-    sanitize_filename,
     format_entities_display,
+)
+from pyvolley.cli.list_commands import list_app
+from pyvolley.cli.plausibility_cli import (
+    apply_plausibility_core_to_match_db,
+    build_plausibility_reviewer,
+    display_plausibility_summary,
+    display_warning_summary,
 )
 from pyvolley.shared.pdf_storage import (
     build_pdf_storage_path,
@@ -55,6 +62,23 @@ app = typer.Typer(
     add_completion=False,
 )
 console = Console()
+
+
+def _configure_parser_plausibility(
+    parser,
+    *,
+    enabled: bool,
+    policy: str,
+    approval,
+) -> None:
+    """Configure la plausibilité d'un parser si l'API est disponible."""
+    configure = getattr(parser, "configure_plausibility", None)
+    if callable(configure):
+        configure(
+            enabled=enabled,
+            policy=policy,
+            approval=approval,
+        )
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -96,6 +120,10 @@ def import_data(
         False, "--force", "-f",
         help="Re-traiter les matchs déjà parsés.",
     ),
+    force_club_enrichment: bool = typer.Option(
+        False, "--force-club-enrichment",
+        help="Ré-enrichir les clubs même s'ils ont déjà des données adressier.",
+    ),
     keep_pdfs: bool = typer.Option(
         True, "--keep-pdfs/--no-keep-pdfs",
         help="Conserver les PDFs après parsing. --no-keep-pdfs libère l'espace.",
@@ -111,6 +139,18 @@ def import_data(
     verbose: bool = typer.Option(
         False, "--verbose", "-v",
         help="Affichage détaillé.",
+    ),
+    plausibility: bool = typer.Option(
+        True, "--plausibility/--no-plausibility",
+        help="Activer les contrôles de vraisemblance et auto-corrections.",
+    ),
+    plausibility_policy: str = typer.Option(
+        "auto", "--plausibility-policy",
+        help="Politique: auto, report-only, strict.",
+    ),
+    review_fixes: bool = typer.Option(
+        False, "--review-fixes",
+        help="Demander validation manuelle pour les corrections proposées.",
     ),
 ):
     """
@@ -194,7 +234,11 @@ def import_data(
     # ── Étape 1 : Scrape ───────────────────────────────────────────
     if "scrape" in steps:
         _import_scrape(
-            scraper, entities_to_process, saisons, verbose=verbose,
+            scraper,
+            entities_to_process,
+            saisons,
+            verbose=verbose,
+            force_club_enrichment=force_club_enrichment,
         )
 
     # ── Étape 2 : Download ─────────────────────────────────────────
@@ -206,12 +250,16 @@ def import_data(
             )
             _import_stream(
                 limit=limit, saison=saisons, entity=entity, verbose=verbose,
+                plausibility=plausibility,
+                plausibility_policy=plausibility_policy,
+                review_fixes=review_fixes,
             )
             steps = [s for s in steps if s != "parse"]
         else:
             console.print("\n[bold blue]═══ Download ═══[/bold blue]")
             _import_download(
                 limit=limit, saison=saisons, concurrent=concurrent,
+                entity=entity,
                 verbose=verbose,
             )
 
@@ -221,6 +269,9 @@ def import_data(
         _import_parse(
             limit=limit, saison=saisons, entity=entity,
             force=force, verbose=verbose,
+            plausibility=plausibility,
+            plausibility_policy=plausibility_policy,
+            review_fixes=review_fixes,
         )
 
         # Nettoyage post-parse si --no-keep-pdfs
@@ -282,6 +333,7 @@ def _import_scrape(
     saisons: list[str],
     *,
     verbose: bool = False,
+    force_club_enrichment: bool = False,
 ) -> None:
     """Étape 1 : scrape des exports CSV et import en base."""
     from pyvolley.database.connection import DatabaseSession
@@ -341,7 +393,7 @@ def _import_scrape(
                     f"  DB : {' | '.join(parts) or '[dim]aucun changement[/dim]'}"
                 )
 
-                # Enrichissement clubs (systématique)
+                # Enrichissement clubs (idempotent par défaut)
                 try:
                     poule_codes = sorted({
                         (m.poule_code_ffvb or m.poule_code)
@@ -357,16 +409,21 @@ def _import_scrape(
                         )
                     if clubs_info:
                         club_stats = service.enrich_clubs(
-                            clubs_info, target_entity, target_saison,
+                            clubs_info,
+                            target_entity,
+                            target_saison,
                             scraper.base_url,
+                            force_reenrich=force_club_enrichment,
                         )
                         enriched = club_stats.get("enriched", 0)
                         created = club_stats.get("created", 0)
+                        skipped = club_stats.get("skipped", 0)
                         total_clubs += enriched + created
-                        if enriched or created:
+                        if enriched or created or skipped:
                             console.print(
                                 f"  Clubs : [magenta]{created} créés, "
-                                f"{enriched} enrichis[/magenta]"
+                                f"{enriched} enrichis, "
+                                f"{skipped} ignorés[/magenta]"
                             )
                     else:
                         console.print(
@@ -388,6 +445,7 @@ def _import_download(
     *,
     limit: Optional[int] = None,
     saison: Optional[List[str]] = None,
+    entity: Optional[List[str]] = None,
     concurrent: int = 5,
     verbose: bool = False,
 ) -> None:
@@ -422,6 +480,7 @@ def _import_download(
             )
         )
         stmt, _ = add_saison_filter(session, stmt, saison)
+        stmt = add_entity_filter(session, stmt, entity)
         stmt = stmt.order_by(MatchDB.code_match)
         if limit:
             stmt = stmt.limit(limit)
@@ -582,6 +641,9 @@ def _import_parse(
     entity: Optional[List[str]] = None,
     force: bool = False,
     verbose: bool = False,
+    plausibility: bool = True,
+    plausibility_policy: str = "auto",
+    review_fixes: bool = False,
 ) -> None:
     """Étape 3 : parsing des PDFs et enrichissement de la base."""
     from pyvolley.parsers.factory import ParserFactory
@@ -600,6 +662,15 @@ def _import_parse(
     )
 
     parser = ParserFactory.get_default()
+    approval_cb = None
+    if review_fixes:
+        approval_cb = build_plausibility_reviewer(console)
+    _configure_parser_plausibility(
+        parser,
+        enabled=plausibility,
+        policy=plausibility_policy,
+        approval=approval_cb,
+    )
 
     with DatabaseSession() as session:
         stmt = (
@@ -652,6 +723,8 @@ def _import_parse(
     skipped_count = 0
     failed = 0
     warnings_count = 0
+    plausibility_touched = 0
+    plausibility_flagged = 0
     results = []
     error_details = []
 
@@ -696,11 +769,17 @@ def _import_parse(
                             'match': result.match,
                             'parse_time_ms': result.parse_time_ms,
                             'diagnostics': result.diagnostics,
+                            'plausibility_report': (
+                                result.plausibility_report.to_dict()
+                                if result.plausibility_report else None
+                            ),
                             'enriched': was_enriched,
                         })
 
                         if result.diagnostics:
                             warnings_count += result.warnings_count
+                        plausibility_touched += result.plausibility_changes_count
+                        plausibility_flagged += result.plausibility_flagged_count
 
                         if verbose and was_enriched:
                             m = result.match
@@ -755,6 +834,15 @@ def _import_parse(
         import_log.imported = enriched
         import_log.duplicates = skipped_count
         import_log.errors = failed
+        import_log.summary = json.dumps(
+            {
+                "warnings": warnings_count,
+                "plausibility_touched": plausibility_touched,
+                "plausibility_flagged": plausibility_flagged,
+                "total_results": len(results),
+            },
+            ensure_ascii=False,
+        )
         import_log.status = (
             "success" if failed == 0
             else "partial" if enriched > 0
@@ -769,12 +857,15 @@ def _import_parse(
         f"[green]✓ Enrichis :  {enriched}[/green]\n"
         f"[yellow]⏭ Ignorés :   {skipped_count}[/yellow]\n"
         f"[red]✗ Échecs :    {failed}[/red]\n"
-        f"[dim]⚠ Warnings :  {warnings_count}[/dim]",
+        f"[dim]⚠ Warnings :  {warnings_count}[/dim]\n"
+        f"[magenta]🧪 Plausibilité (modifs) : {plausibility_touched}[/magenta]\n"
+        f"[magenta]🧪 Plausibilité (signalées) : {plausibility_flagged}[/magenta]",
         title="Résumé du parsing",
     ))
 
     if results or error_details:
-        _display_warning_summary(results, error_details, enriched + failed)
+        display_warning_summary(console, results, error_details, enriched + failed)
+        display_plausibility_summary(console, results)
 
 
 def _import_stream(
@@ -783,6 +874,9 @@ def _import_stream(
     saison: Optional[List[str]] = None,
     entity: Optional[List[str]] = None,
     verbose: bool = False,
+    plausibility: bool = True,
+    plausibility_policy: str = "auto",
+    review_fixes: bool = False,
 ) -> None:
     """Mode streaming : download → parse → DB, sans conserver les PDFs."""
     import tempfile
@@ -795,6 +889,15 @@ def _import_stream(
 
     init_db()
     parser = ParserFactory.get_default()
+    approval_cb = None
+    if review_fixes:
+        approval_cb = build_plausibility_reviewer(console)
+    _configure_parser_plausibility(
+        parser,
+        enabled=plausibility,
+        policy=plausibility_policy,
+        approval=approval_cb,
+    )
 
     with DatabaseSession() as session:
         stmt = (
@@ -1152,121 +1255,7 @@ def status(
 # ════════════════════════════════════════════════════════════════════
 
 
-list_app = typer.Typer(help="📋 Consulter les données FFVB disponibles")
 app.add_typer(list_app, name="list")
-
-
-@list_app.command("entities")
-def list_entities():
-    """📋 Liste toutes les entités FFVB (ligues, comités, nationales)."""
-    from pyvolley.scrapers.ffvb import FFVBScraper
-
-    display_entities(FFVBScraper(), console)
-
-
-@list_app.command("poules")
-def list_poules(
-    entity: str = typer.Argument(
-        ..., help="Code de l'entité (ex: ABCCS, LIIFDF).",
-    ),
-    saison: Optional[str] = typer.Option(
-        None, "--saison", "-s", help="Saison YY/YY (ex: 23/24).",
-    ),
-):
-    """📋 Liste les poules disponibles pour une entité."""
-    from pyvolley.scrapers.ffvb import FFVBScraper
-
-    scraper = FFVBScraper()
-
-    try:
-        saison_values = resolve_saisons(scraper, [saison] if saison else None)
-    except ValueError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(1)
-
-    if len(saison_values) != 1:
-        console.print("[red]La commande 'list poules' accepte une seule saison.[/red]")
-        raise typer.Exit(1)
-    saison = saison_values[0]
-
-    with console.status(f"[bold blue]Récupération des poules pour {entity}..."):
-        poules = scraper.discover_poules(entity, saison)
-
-    if not poules:
-        console.print(f"[yellow]Aucune poule trouvée pour {entity}[/yellow]")
-        return
-
-    table = Table(title=f"📋 Poules — {entity} — {saison}")
-    table.add_column("Code", style="cyan", no_wrap=True)
-    table.add_column("Nom", style="white")
-
-    for p in sorted(poules, key=lambda x: x.code):
-        table.add_row(p.code, p.nom)
-
-    console.print(table)
-    console.print(f"\n[green]{len(poules)} poule(s)[/green]")
-
-
-@list_app.command("matches")
-def list_matches(
-    entity: str = typer.Argument(..., help="Code de l'entité."),
-    poule: Optional[str] = typer.Option(
-        None, "--poule", "-p", help="Filtrer par poule.",
-    ),
-    saison: Optional[str] = typer.Option(
-        None, "--saison", "-s", help="Saison YY/YY (ex: 23/24).",
-    ),
-    limit: int = typer.Option(
-        50, "--limit", "-n", help="Nombre max à afficher.",
-    ),
-):
-    """📋 Liste les matchs disponibles pour une entité."""
-    from pyvolley.scrapers.ffvb import FFVBScraper
-
-    scraper = FFVBScraper()
-    try:
-        saison_values = resolve_saisons(scraper, [saison] if saison else None)
-    except ValueError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(1)
-
-    if len(saison_values) != 1:
-        console.print("[red]La commande 'list matches' accepte une seule saison.[/red]")
-        raise typer.Exit(1)
-    saison = saison_values[0]
-
-    with console.status(f"[bold blue]Récupération des matchs pour {entity}..."):
-        export_matches = scraper.scrape_entity(entity, saison, poule=poule)
-
-    if not export_matches:
-        console.print("[yellow]Aucun match trouvé[/yellow]")
-        return
-
-    table = Table(title=f"📋 Matchs — {entity} — {saison}")
-    table.add_column("Code", style="cyan", no_wrap=True)
-    table.add_column("Poule", style="white")
-    table.add_column("Date", style="dim")
-    table.add_column("Équipe A", style="white")
-    table.add_column("Équipe B", style="white")
-    table.add_column("Score", style="green")
-    table.add_column("PDF", style="green")
-
-    for m in export_matches[:limit]:
-        date_str = m.date.strftime("%d/%m/%Y") if m.date else "—"
-        score = f"{m.score_a}-{m.score_b}" if m.score_a is not None else "—"
-        has_pdf = "✓" if m.feuille_match_url else "✗"
-        table.add_row(
-            m.code_match, m.poule_code or "—", date_str,
-            m.equipe_a_nom or "—", m.equipe_b_nom or "—", score, has_pdf,
-        )
-
-    console.print(table)
-
-    if len(export_matches) > limit:
-        console.print(
-            f"\n[dim]... et {len(export_matches) - limit} autres matchs[/dim]"
-        )
-    console.print(f"\n[green]{len(export_matches)} match(s)[/green]")
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -1287,6 +1276,18 @@ def parse(
     ),
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Afficher les détails.",
+    ),
+    plausibility: bool = typer.Option(
+        True, "--plausibility/--no-plausibility",
+        help="Activer les contrôles de vraisemblance.",
+    ),
+    plausibility_policy: str = typer.Option(
+        "auto", "--plausibility-policy",
+        help="Politique: auto, report-only, strict.",
+    ),
+    review_fixes: bool = typer.Option(
+        False, "--review-fixes",
+        help="Valider manuellement les corrections proposées.",
     ),
 ):
     """
@@ -1321,6 +1322,15 @@ def parse(
         pdf_files = pdf_files[:limit]
 
     parser = ParserFactory.get_default()
+    approval_cb = None
+    if review_fixes:
+        approval_cb = build_plausibility_reviewer(console)
+    _configure_parser_plausibility(
+        parser,
+        enabled=plausibility,
+        policy=plausibility_policy,
+        approval=approval_cb,
+    )
     console.print(
         f"[blue]Parser : {parser.name} v{parser.version} — "
         f"{len(pdf_files)} fichier(s)[/blue]\n"
@@ -1344,6 +1354,10 @@ def parse(
                         'match': result.match,
                         'parse_time_ms': result.parse_time_ms,
                         'diagnostics': result.diagnostics,
+                        'plausibility_report': (
+                            result.plausibility_report.to_dict()
+                            if result.plausibility_report else None
+                        ),
                     })
 
                     if verbose:
@@ -1389,12 +1403,16 @@ def parse(
         title="Résultat",
     ))
 
+    if results:
+        display_plausibility_summary(console, results)
+
     # Export JSON
     if output and results:
         export_data = [
             {
                 'file': r['file'],
                 'parse_time_ms': r['parse_time_ms'],
+                'plausibility_report': r.get('plausibility_report'),
                 'match': (
                     r['match'].model_dump()
                     if hasattr(r['match'], 'model_dump')
@@ -1648,6 +1666,26 @@ def sync_logos(
         "--only-missing/--all",
         help="Ne traiter que les clubs sans logo_url.",
     ),
+    top_candidates: int = typer.Option(
+        3,
+        "--top-candidates",
+        help="Nombre de candidats Volleybox évalués par club.",
+    ),
+    review: bool = typer.Option(
+        False,
+        "--review/--no-review",
+        help="Demander une confirmation manuelle pour chaque association.",
+    ),
+    max_fr_pages: int = typer.Option(
+        40,
+        "--max-fr-pages",
+        help="Nombre max de pages clubs FR explorées.",
+    ),
+    request_timeout: float = typer.Option(
+        25.0,
+        "--request-timeout",
+        help="Timeout HTTP (secondes) pour les requêtes logos.",
+    ),
 ):
     """🖼 Synchronise les logos clubs depuis Volleybox."""
     from sqlalchemy import select
@@ -1657,7 +1695,10 @@ def sync_logos(
     from pyvolley.scrapers.volleybox import VolleyboxLogoScraper
 
     init_db()
-    scraper = VolleyboxLogoScraper()
+    scraper = VolleyboxLogoScraper(
+        timeout=max(5.0, request_timeout),
+        max_fr_pages=max(1, max_fr_pages),
+    )
 
     with DatabaseSession() as session:
         stmt = select(ClubDB).where(ClubDB.code_ffvb.is_not(None)).order_by(ClubDB.nom.asc())
@@ -1670,22 +1711,112 @@ def sync_logos(
 
         updated = 0
         skipped = 0
+        associations: list[tuple[str, str, str, str]] = []
+        skip_reasons = {
+            "aucun_candidat_logo": 0,
+            "score_trop_faible": 0,
+            "rejet_manuel": 0,
+        }
 
-        for club in clubs:
-            names = [club.nom]
-            if club.nom_court:
-                names.append(club.nom_court)
-            names.extend(alias.alias for alias in (club.aliases or []) if alias.alias)
+        with make_progress(console) as progress:
+            task_id = progress.add_task("[cyan]Sync logos clubs", total=max(1, len(clubs)))
 
-            candidate = scraper.find_logo_for_club(names)
-            if not candidate or candidate.score < min_score:
-                skipped += 1
-                continue
+            for club in clubs:
+                progress.update(task_id, description=f"[cyan]Recherche logo: {club.nom[:45]}")
 
-            club.logo_url = candidate.logo_url
-            updated += 1
+                names = [club.nom]
+                if club.nom_court:
+                    names.append(club.nom_court)
+                names.extend(alias.alias for alias in (club.aliases or []) if alias.alias)
+
+                ordered_names = [name.strip() for name in names if name and name.strip()]
+                unique_names: list[str] = []
+                seen_names: set[str] = set()
+                for name in ordered_names:
+                    key = name.lower()
+                    if key in seen_names:
+                        continue
+                    seen_names.add(key)
+                    unique_names.append(name)
+
+                selected = scraper.find_logo_for_club(
+                    unique_names,
+                    target_city=club.ville,
+                    prefer_google=True,
+                )
+
+                candidates = []
+                if (not selected) or selected.source == "volleybox":
+                    candidates = scraper.find_team_candidates(
+                        unique_names,
+                        target_city=club.ville,
+                        limit=max(1, top_candidates),
+                        min_score=max(0.15, min_score * 0.5),
+                    )
+
+                if not selected:
+                    skipped += 1
+                    skip_reasons["aucun_candidat_logo"] += 1
+                    progress.advance(task_id)
+                    continue
+
+                if selected.source == "volleybox" and selected.score < min_score:
+                    skipped += 1
+                    skip_reasons["score_trop_faible"] += 1
+                    progress.advance(task_id)
+                    continue
+
+                console.print(
+                    f"[cyan][PROPOSE][/cyan] {club.nom} -> {selected.logo_url} "
+                    f"(source={selected.source}, ref={selected.result_url or selected.team_url}, "
+                    f"score={selected.score:.3f}, via={selected.matched_name}, city={selected.matched_city}, city_score={selected.city_score:.3f})"
+                )
+                if candidates:
+                    alternatives = [
+                        candidate for candidate in candidates if candidate.team_url != selected.team_url
+                    ][:3]
+                    for alt in alternatives:
+                        console.print(
+                            f"  [dim]- alt: {alt.team_url} "
+                            f"(score={alt.score:.3f}, via={alt.matched_name}, city={alt.matched_city}, city_score={alt.city_score:.3f})[/dim]"
+                        )
+
+                if review and not typer.confirm("Confirmer cette association ?", default=True):
+                    skipped += 1
+                    skip_reasons["rejet_manuel"] += 1
+                    progress.advance(task_id)
+                    continue
+
+                club.logo_url = selected.logo_url
+                updated += 1
+                associations.append(
+                    (
+                        club.nom,
+                        selected.source,
+                        selected.result_url or selected.team_url,
+                        selected.logo_url or "",
+                    )
+                )
+                progress.advance(task_id)
 
         session.commit()
+
+    if associations:
+        summary = Table(title="Récapitulatif associations logos")
+        summary.add_column("Club", style="cyan")
+        summary.add_column("Source", style="magenta")
+        summary.add_column("Référence", style="blue")
+        summary.add_column("Logo", style="green")
+        for club_name, source, reference, logo_url in associations:
+            summary.add_row(club_name, source, reference, logo_url)
+        console.print(summary)
+
+    reason_table = Table(title="Raisons des clubs ignorés")
+    reason_table.add_column("Raison", style="yellow")
+    reason_table.add_column("Nombre", style="red", justify="right")
+    for reason, count in skip_reasons.items():
+        reason_table.add_row(reason, str(count))
+    console.print(reason_table)
 
     console.print(
         Panel(
@@ -1694,6 +1825,12 @@ def sync_logos(
             title="Sync Volleybox",
         )
     )
+
+    if updated == 0:
+        console.print(
+            "[yellow]Aucun logo validé. Astuce: relancer avec "
+            "--min-score 0.2 --review et éventuellement --request-timeout 8.[/yellow]"
+        )
 
 
 @app.command("compute-stats")
@@ -1910,6 +2047,280 @@ def compute_player_stats(
             f"[red]✗ Erreurs : {errors}[/red]",
             title="Statistiques joueurs",
         ))
+
+
+@app.command("plausibility-audit")
+def plausibility_audit(
+    saison: Optional[List[str]] = typer.Option(
+        None, "--saison", "-s",
+        help="Restreindre à une saison (23/24) ou une plage (22/25).",
+    ),
+    entity: Optional[List[str]] = typer.Option(
+        None, "--entity", "-e",
+        help="Filtrer par code entité (ex: ABCCS). Répétable.",
+    ),
+    status: Optional[List[str]] = typer.Option(
+        None, "--status",
+        help="Filtrer par statut parsing (discovered, downloaded, parsed, error). Répétable.",
+    ),
+    played_only: bool = typer.Option(
+        False, "--played-only",
+        help="Ne traiter que les matchs joués.",
+    ),
+    limit: Optional[int] = typer.Option(
+        None, "--limit", "-n",
+        help="Nombre max de matchs à analyser.",
+    ),
+    policy: str = typer.Option(
+        "auto", "--policy",
+        help="Politique de plausibilité: auto, report-only, strict.",
+    ),
+    review_fixes: bool = typer.Option(
+        False, "--review-fixes",
+        help="Valider manuellement les corrections qui demandent revue.",
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run",
+        help="Analyse sans modifier la base.",
+    ),
+    report_file: Optional[Path] = typer.Option(
+        None, "--report-file",
+        help="Chemin du rapport JSON de l'audit (par défaut dans data/reports).",
+    ),
+    include_issues: bool = typer.Option(
+        True, "--include-issues/--summary-only",
+        help="Inclure le détail des anomalies dans le rapport JSON.",
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v",
+        help="Affichage détaillé par match.",
+    ),
+):
+    """🧪 Exécute les contrôles de vraisemblance a posteriori sur les matchs en base."""
+    from sqlalchemy import select
+    from sqlalchemy.orm import joinedload
+
+    from pyvolley.database.connection import DatabaseSession, init_db
+    from pyvolley.database.converters import match_db_to_core
+    from pyvolley.database.models import ImportLogDB, MatchDB
+    from pyvolley.parsers.plausibility import PlausibilityEngine
+
+    normalized_policy = (policy or "auto").strip().lower()
+    if normalized_policy not in {"auto", "report-only", "strict"}:
+        console.print(
+            f"[yellow]Politique '{policy}' invalide, fallback sur 'auto'[/yellow]"
+        )
+        normalized_policy = "auto"
+
+    if report_file is None:
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        report_file = Path("data/reports") / f"plausibility_audit_{stamp}.json"
+
+    init_db()
+    reviewer = build_plausibility_reviewer(console) if review_fixes else None
+    engine = PlausibilityEngine()
+
+    summary_data = {
+        "checked": 0,
+        "with_issues": 0,
+        "with_changes": 0,
+        "total_issues": 0,
+        "by_action": {},
+        "by_rule": {},
+    }
+    report_rows: list[dict[str, object]] = []
+
+    with DatabaseSession() as session:
+        stmt = (
+            select(MatchDB)
+            .options(joinedload(MatchDB.sets))
+            .options(joinedload(MatchDB.saison))
+            .options(joinedload(MatchDB.equipe_a))
+            .options(joinedload(MatchDB.equipe_b))
+            .order_by(MatchDB.date_match.desc(), MatchDB.id.desc())
+        )
+
+        stmt, _ = add_saison_filter(session, stmt, saison)
+        stmt = add_entity_filter(session, stmt, entity)
+
+        if status:
+            stmt = stmt.where(MatchDB.parsing_status.in_(status))
+        if played_only:
+            stmt = stmt.where(MatchDB.match_joue == True)  # noqa: E712
+        if limit:
+            stmt = stmt.limit(limit)
+
+        matches = list(session.scalars(stmt).unique().all())
+        if not matches:
+            console.print("[yellow]Aucun match trouvé pour cet audit[/yellow]")
+            raise typer.Exit(0)
+
+        log_entry = None
+        if not dry_run:
+            log_entry = ImportLogDB(
+                operation="plausibility-audit",
+                source=(
+                    f"saison={','.join(saison or []) or '*'};"
+                    f"entity={','.join(entity or []) or '*'};"
+                    f"status={','.join(status or []) or '*'}"
+                ),
+                total_attempted=len(matches),
+            )
+            session.add(log_entry)
+            session.flush()
+
+        with make_progress(console) as progress:
+            task = progress.add_task("Audit plausibilité...", total=len(matches))
+
+            for idx, match_db in enumerate(matches, start=1):
+                core_match = match_db_to_core(
+                    match_db,
+                    participants_a=[],
+                    participants_b=[],
+                )
+                plausibility_report = engine.check(
+                    core_match,
+                    policy=normalized_policy,
+                    approve=reviewer,
+                )
+                summary = plausibility_report.summary()
+                changes = apply_plausibility_core_to_match_db(
+                    match_db,
+                    core_match,
+                    apply_changes=(not dry_run),
+                )
+
+                summary_data["checked"] += 1
+                total_issues_raw = summary.get("total", 0)
+                total_issues = int(total_issues_raw) if isinstance(total_issues_raw, (int, float, str)) else 0
+                summary_data["total_issues"] += total_issues
+                if total_issues > 0:
+                    summary_data["with_issues"] += 1
+                if changes:
+                    summary_data["with_changes"] += 1
+
+                by_action = summary.get("by_action", {}) or {}
+                if isinstance(by_action, dict):
+                    for action, count in by_action.items():
+                        current = int(summary_data["by_action"].get(action, 0))
+                        summary_data["by_action"][action] = current + int(count)
+
+                by_rule = summary.get("by_rule", {}) or {}
+                if isinstance(by_rule, dict):
+                    for rule_id, count in by_rule.items():
+                        current = int(summary_data["by_rule"].get(rule_id, 0))
+                        summary_data["by_rule"][rule_id] = current + int(count)
+
+                if changes and not dry_run:
+                    match_db.updated_at = datetime.now()
+
+                if total_issues > 0 or changes:
+                    row = {
+                        "match_id": match_db.id,
+                        "code_match": match_db.code_match,
+                        "saison": match_db.saison.code if match_db.saison else None,
+                        "summary": summary,
+                        "changes": changes,
+                    }
+                    if include_issues:
+                        row["issues"] = [
+                            issue.to_dict() for issue in plausibility_report.issues
+                        ]
+                    report_rows.append(row)
+
+                if verbose and (summary.get("total", 0) or changes):
+                    progress.console.print(
+                        f"  [magenta]#{match_db.id} {match_db.code_match}[/magenta] "
+                        f"issues={summary.get('total', 0)} changes={len(changes)}"
+                    )
+
+                if not dry_run and idx % 200 == 0:
+                    session.commit()
+
+                progress.update(
+                    task,
+                    advance=1,
+                    description=(
+                        f"[cyan]Audit plausibilité[/cyan] "
+                        f"({summary_data['checked']}/{len(matches)})"
+                    ),
+                )
+
+        report_payload = {
+            "generated_at": datetime.now().isoformat(),
+            "config": {
+                "policy": normalized_policy,
+                "dry_run": dry_run,
+                "review_fixes": review_fixes,
+                "saison": saison or [],
+                "entity": entity or [],
+                "status": status or [],
+                "played_only": played_only,
+                "limit": limit,
+            },
+            "summary": summary_data,
+            "matches": report_rows,
+        }
+
+        report_file.parent.mkdir(parents=True, exist_ok=True)
+        report_file.write_text(
+            json.dumps(report_payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        if log_entry is not None:
+            log_entry.finished_at = datetime.now()
+            log_entry.imported = summary_data["with_changes"]
+            log_entry.duplicates = max(summary_data["checked"] - summary_data["with_changes"], 0)
+            log_entry.errors = 0
+            log_entry.updated = summary_data["with_changes"]
+            log_entry.summary = json.dumps(
+                {
+                    "plausibility": {
+                        "policy": normalized_policy,
+                        "checked": summary_data["checked"],
+                        "with_issues": summary_data["with_issues"],
+                        "with_changes": summary_data["with_changes"],
+                        "total_issues": summary_data["total_issues"],
+                        "by_action": summary_data["by_action"],
+                        "by_rule": summary_data["by_rule"],
+                        "dry_run": dry_run,
+                    },
+                    "report_file": str(report_file),
+                },
+                ensure_ascii=False,
+            )
+            log_entry.status = "success"
+            session.commit()
+
+    console.print(Panel(
+        f"[cyan]Matchs analysés : {summary_data['checked']}[/cyan]\n"
+        f"[yellow]Matchs avec anomalies : {summary_data['with_issues']}[/yellow]\n"
+        f"[magenta]{'Matchs modifiables' if dry_run else 'Matchs modifiés'} : "
+        f"{summary_data['with_changes']}[/magenta]\n"
+        f"[green]Rapport : {report_file}[/green]",
+        title="Audit de plausibilité",
+    ))
+
+    summary_table = Table(title="🧪 Actions de plausibilité")
+    summary_table.add_column("Action", style="magenta")
+    summary_table.add_column("Occurrences", justify="right", style="cyan")
+    for action, count in sorted(
+        summary_data["by_action"].items(), key=lambda i: i[1], reverse=True,
+    ):
+        summary_table.add_row(action, str(count))
+    if summary_data["by_action"]:
+        console.print(summary_table)
+
+    rules_table = Table(title="🧩 Règles touchées")
+    rules_table.add_column("Règle", style="white")
+    rules_table.add_column("Occurrences", justify="right", style="yellow")
+    for rule_id, count in sorted(
+        summary_data["by_rule"].items(), key=lambda i: i[1], reverse=True,
+    ):
+        rules_table.add_row(rule_id, str(count))
+    if summary_data["by_rule"]:
+        console.print(rules_table)
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -2202,59 +2613,7 @@ def _cleanup_parsed_pdfs(
         console.print(f"[dim]🗑 {deleted} PDFs supprimés (déjà parsés)[/dim]")
 
 
-def _display_warning_summary(
-    results: list[dict],
-    error_details: list[dict],
-    total_parsed: int,
-) -> None:
-    """Affiche un récapitulatif des diagnostics de parsing."""
-    from collections import Counter
-    from pyvolley.parsers.diagnostics import (
-        DiagnosticOrigin, CATEGORY_FOLDERS,
-    )
-
-    parsing_count: Counter = Counter()
-    data_count: Counter = Counter()
-
-    for r in results:
-        for w in r.get('diagnostics', []):
-            _, label = CATEGORY_FOLDERS.get(w.category, ("autre", "Autre"))
-            if w.origin == DiagnosticOrigin.PARSING:
-                parsing_count[label] += 1
-            else:
-                data_count[label] += 1
-
-    for r in error_details:
-        for w in r.get('diagnostics', []):
-            _, label = CATEGORY_FOLDERS.get(w.category, ("autre", "Autre"))
-            if w.origin == DiagnosticOrigin.PARSING:
-                parsing_count[label] += 1
-            else:
-                data_count[label] += 1
-        if r.get('errors'):
-            parsing_count["Erreur de parsing"] += len(r['errors'])
-
-    if not parsing_count and not data_count:
-        console.print("\n[green]✨ Aucun warning[/green]")
-        return
-
-    if parsing_count:
-        table = Table(title="⚠️ Problèmes de parsing")
-        table.add_column("Catégorie", style="white")
-        table.add_column("Occurrences", justify="right", style="red")
-        for label, count in parsing_count.most_common():
-            table.add_row(label, str(count))
-        console.print()
-        console.print(table)
-
-    if data_count:
-        table = Table(title="📋 Données incomplètes (source PDF)")
-        table.add_column("Catégorie", style="white")
-        table.add_column("Occurrences", justify="right", style="yellow")
-        for label, count in data_count.most_common():
-            table.add_row(label, str(count))
-        console.print()
-        console.print(table)
+_apply_plausibility_core_to_match_db = apply_plausibility_core_to_match_db
 
 
 # ════════════════════════════════════════════════════════════════════

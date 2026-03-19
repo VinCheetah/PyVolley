@@ -13,6 +13,7 @@ l'export CSV, avec fallback sur le matching par nom normalisé.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from datetime import datetime
@@ -123,6 +124,27 @@ class ExportImportService:
         self._equipe_cache: dict[tuple, EquipeDB] = {}
         self._arbitre_cache: dict[str, ArbitreDB] = {}  # licence → ArbitreDB
 
+    @staticmethod
+    def _has_adressier_data(club: ClubDB) -> bool:
+        """Retourne True si le club semble déjà enrichi via l'adressier."""
+        scalar_fields = (
+            club.ligue,
+            club.couleurs,
+            club.president,
+            club.entraineur,
+            club.entraineur_adjoint,
+            club.correspondant_nom,
+            club.correspondant_adresse,
+            club.correspondant_ville,
+            club.correspondant_telephone,
+            club.correspondant_portable,
+            club.correspondant_email,
+        )
+        if any(value and str(value).strip() for value in scalar_fields):
+            return True
+
+        return bool(club.salles)
+
     def clear_caches(self) -> None:
         """Vide tous les caches internes."""
         for cache in (
@@ -198,6 +220,12 @@ class ExportImportService:
         log_entry.updated = stats["updated"]
         log_entry.duplicates = stats["duplicates"]
         log_entry.errors = stats["errors"]
+        plausibility_stats = self._collect_plausibility_stats(matches)
+        if plausibility_stats["matches_with_issues"] > 0:
+            log_entry.summary = json.dumps(
+                {"scrape_plausibility": plausibility_stats},
+                ensure_ascii=False,
+            )
         log_entry.status = "success" if stats["errors"] == 0 else "partial"
 
         logger.info(
@@ -208,6 +236,34 @@ class ExportImportService:
         )
 
         return stats
+
+    def _collect_plausibility_stats(
+        self,
+        matches: list[ExportMatchInfo],
+    ) -> dict[str, object]:
+        by_action: dict[str, int] = {}
+        by_rule: dict[str, int] = {}
+        total_issues = 0
+        matches_with_issues = 0
+
+        for match in matches:
+            summary = getattr(match, "plausibility_summary", None)
+            if not summary:
+                continue
+            matches_with_issues += 1
+            total_issues += int(summary.get("total", 0) or 0)
+
+            for action, count in (summary.get("by_action") or {}).items():
+                by_action[action] = by_action.get(action, 0) + int(count)
+            for rule_id, count in (summary.get("by_rule") or {}).items():
+                by_rule[rule_id] = by_rule.get(rule_id, 0) + int(count)
+
+        return {
+            "matches_with_issues": matches_with_issues,
+            "total_issues": total_issues,
+            "by_action": by_action,
+            "by_rule": by_rule,
+        }
 
     # =================================================================
     # Import d'un match individuel
@@ -344,6 +400,27 @@ class ExportImportService:
             existing.sets_equipe_b = match_info.sets_equipe_b
             existing.forfait = match_info.forfait
             existing.score_source = "export"
+            updated = True
+
+        # Corriger les faux positifs (match marqué joué sans résultat réel)
+        if (
+            (not match_info.match_joue)
+            and existing.match_joue
+            and existing.parsing_status != "parsed"
+        ):
+            existing.match_joue = False
+            existing.vainqueur = None
+            existing.score_sets = None
+            existing.sets_equipe_a = 0
+            existing.sets_equipe_b = 0
+            existing.forfait = False
+            if existing.score_source == "export":
+                existing.score_source = None
+
+            # Supprimer les sets injectés par export (si présents)
+            for old_set in list(existing.sets):
+                self.session.delete(old_set)
+            existing.has_details = False
             updated = True
 
         # Ajouter/rafraîchir les sets détaillés si disponibles en export
@@ -508,17 +585,6 @@ class ExportImportService:
             niveau = match_info.niveau
             division = match_info.division or match_info.division_code
 
-            # Construire les URLs FFVB pour la compétition
-            url_cal = None
-            url_cls = None
-            if match_info.entite_code and match_info.saison:
-                from pyvolley.core.config import settings
-                base_url = settings.ffvb_base_url
-                from pyvolley.scrapers.ffvb.utils import build_home_url
-                url_cal = build_home_url(
-                    base_url, match_info.entite_code, match_info.saison,
-                )
-
             competition = CompetitionDB(
                 nom=comp_key_name,
                 code_competition=code_comp,
@@ -528,7 +594,6 @@ class ExportImportService:
                 division=division,
                 saison_id=saison.id,
                 entite_id=entite.id,
-                url_calendrier=url_cal,
             )
             self.session.add(competition)
             self.session.flush()
@@ -589,30 +654,10 @@ class ExportImportService:
 
         if not poule:
             nom = poule_nom or f"Poule {poule_code}"
-            # Construire les URLs FFVB
-            # Utiliser le code FFVB résolu pour les URLs (3 lettres vs 4 lettres)
-            url_poule_code = poule_code_ffvb or poule_code
-            url_cal = None
-            url_cls = None
-            if entite_code and saison_code:
-                from pyvolley.core.config import settings
-                base_url = settings.ffvb_base_url
-                from pyvolley.scrapers.ffvb.utils import (
-                    build_competition_calendar_url,
-                    build_classement_url,
-                )
-                url_cal = build_competition_calendar_url(
-                    base_url, entite_code, saison_code, url_poule_code,
-                )
-                url_cls = build_classement_url(
-                    base_url, entite_code, saison_code, url_poule_code,
-                )
             poule = PouleDB(
                 code=poule_code,
                 nom=nom,
                 competition_id=competition.id,
-                url_calendrier=url_cal,
-                url_classement=url_cls,
             )
             self.session.add(poule)
             self.session.flush()
@@ -828,6 +873,7 @@ class ExportImportService:
         entite_code: str,
         saison: str,
         base_url: str,
+        force_reenrich: bool = False,
     ) -> dict:
         """Enrichit les clubs en base avec les données de l'adressier FFVB.
 
@@ -839,6 +885,7 @@ class ExportImportService:
             entite_code: Code de l'entité (pour construire les URLs).
             saison: Saison au format ``YYYY/YYYY``.
             base_url: URL de base FFVB.
+            force_reenrich: Si ``True``, met à jour aussi les clubs déjà enrichis.
 
         Returns:
             Dict ``{"enriched": N, "created": N, "skipped": N}``.
@@ -864,6 +911,9 @@ class ExportImportService:
                 self.session.flush()
                 stats["created"] += 1
             else:
+                if not force_reenrich and self._has_adressier_data(club):
+                    stats["skipped"] += 1
+                    continue
                 stats["enriched"] += 1
 
             # Mettre à jour les champs
@@ -904,10 +954,6 @@ class ExportImportService:
             if club_info.correspondant_email:
                 club.correspondant_email = club_info.correspondant_email
 
-            # URLs reconstruites côté interface à partir du code FFVB
-            club.url_planning = None
-            club.url_classement = None
-
             # Salles — supprimer les existantes et recréer
             for existing_salle in club.salles:
                 self.session.delete(existing_salle)
@@ -930,9 +976,10 @@ class ExportImportService:
             self.session.flush()
 
         logger.info(
-            "Enrichissement clubs %s: %d enrichis, %d créés, %d ignorés",
+            "Enrichissement clubs %s: %d enrichis, %d créés, %d ignorés%s",
             entite_code,
             stats["enriched"], stats["created"], stats["skipped"],
+            " (forcé)" if force_reenrich else "",
         )
 
         return stats

@@ -24,8 +24,45 @@ from pyvolley.database.repositories import (
     SaisonRepository,
 )
 from pyvolley.analysis.classement import MatchData, calculer_classement
+from pyvolley.core.config import settings
+from pyvolley.scrapers.ffvb.utils import (
+    build_classement_url,
+    build_competition_calendar_url,
+    build_home_url,
+)
 
 router = APIRouter()
+
+
+def _to_ffvb_saison(saison_code: Optional[str]) -> Optional[str]:
+    if not saison_code:
+        return None
+    return saison_code.replace("-", "/")
+
+
+def _build_poule_links(poule) -> dict[str, Optional[str]]:
+    if not poule or not poule.competition or not poule.competition.entite or not poule.competition.saison:
+        return {"calendrier": None, "classement": None}
+
+    entite_code = poule.competition.entite.code
+    saison_code = _to_ffvb_saison(poule.competition.saison.code)
+    if not entite_code or not saison_code:
+        return {"calendrier": None, "classement": None}
+
+    return {
+        "calendrier": build_competition_calendar_url(
+            settings.ffvb_base_url,
+            entite_code,
+            saison_code,
+            poule.code,
+        ),
+        "classement": build_classement_url(
+            settings.ffvb_base_url,
+            entite_code,
+            saison_code,
+            poule.code,
+        ),
+    }
 
 
 @router.get("/competitions", response_class=HTMLResponse)
@@ -106,6 +143,25 @@ async def competition_detail(
         return await _render_youth_competition(
             request, competition, competition_repo, match_repo, equipe_repo
         )
+
+    # Liens FFVB reconstruits à la volée (non persistés en base)
+    for poule in competition.poules or []:
+        poule_links = _build_poule_links(poule)
+        poule.url_calendrier = poule_links["calendrier"]
+        poule.url_classement = poule_links["classement"]
+
+    first_poule = sorted(competition.poules or [], key=lambda p: p.code)[0] if competition.poules else None
+    if first_poule and competition.entite and competition.saison:
+        ffvb_saison = _to_ffvb_saison(competition.saison.code)
+        competition.url_calendrier = (
+            build_home_url(settings.ffvb_base_url, competition.entite.code, ffvb_saison)
+            if ffvb_saison
+            else None
+        )
+        competition.url_classement = first_poule.url_classement
+    else:
+        competition.url_calendrier = None
+        competition.url_classement = None
 
     is_multi_poule = competition.poules and len(competition.poules) > 1
 

@@ -85,14 +85,15 @@
 
                     <div>
                         <label class="text-xs font-semibold uppercase tracking-wider block mb-1"
-                               style="color: var(--text-muted);">Après le</label>
-                        <input type="date" name="after_date" value="{{ date_from }}" class="filter-select">
+                               style="color: var(--text-muted);">Du</label>
+                           <input type="date" name="after_date" value="{{ date_from }}" class="filter-select filter-date-input" lang="fr" title="Format : jj/mm/aaaa">
                     </div>
 
                     <div>
                         <label class="text-xs font-semibold uppercase tracking-wider block mb-1"
-                               style="color: var(--text-muted);">Avant le</label>
-                        <input type="date" name="before_date" value="{{ date_to }}" class="filter-select">
+                               style="color: var(--text-muted);">Au</label>
+                           <input type="date" name="before_date" value="{{ date_to }}" class="filter-select filter-date-input" lang="fr" title="Format : jj/mm/aaaa">
+                           <span class="filter-date-hint">Format : jj/mm/aaaa</span>
                     </div>
 
                     <div class="sm:col-span-2 lg:col-span-4 flex gap-2 pt-2">
@@ -132,10 +133,10 @@
         <span class="badge badge-gold">Ligue : {{ ligue }}</span>
         {% endif %}
         {% if date_from %}
-        <span class="badge badge-blue">Après : {{ date_from|format_date }}</span>
+        <span class="badge badge-blue">Du : {{ date_from|format_date }}</span>
         {% endif %}
         {% if date_to %}
-        <span class="badge badge-blue">Avant : {{ date_to|format_date }}</span>
+        <span class="badge badge-blue">Au : {{ date_to|format_date }}</span>
         {% endif %}
     </div>
     {% endif %}

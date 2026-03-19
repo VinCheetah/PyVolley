@@ -32,6 +32,10 @@ from typing import Optional
 from urllib.parse import urlencode, urljoin
 
 from pyvolley.scrapers.http_client import HttpClient
+from pyvolley.scrapers.ffvb.plausibility import (
+    ScrapePlausibilityEngine,
+    summarize_scrape_issues,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +142,10 @@ class ExportMatchInfo:
 
     # URL de la feuille de match (construite automatiquement)
     feuille_match_url: Optional[str] = None
+
+    # Contrôles de plausibilité appliqués au niveau scraper
+    plausibility_issues: list[dict[str, object]] = field(default_factory=list)
+    plausibility_summary: dict[str, object] = field(default_factory=dict)
 
     # Phase aller/retour
     phase_aller_retour: Optional[str] = None     # "ALLER", "RETOUR", None
@@ -307,6 +315,28 @@ def _parse_set_result(set_str: str) -> Optional[tuple[str, str]]:
     return None
 
 
+def _is_played_set_result(set_result: Optional[tuple[str, str]]) -> bool:
+    """Détermine si un score sets issu de la colonne Set signifie match joué.
+
+    Cas non joués à ignorer : ``0/0`` (ou format équivalent) sans forfait.
+    """
+    if not set_result:
+        return False
+
+    left_raw, right_raw = set_result
+    left = (left_raw or "").strip().upper()
+    right = (right_raw or "").strip().upper()
+
+    # Forfait explicite (3/P, P/3)
+    if left == "P" or right == "P":
+        return True
+
+    if left.isdigit() and right.isdigit():
+        return (int(left) + int(right)) > 0
+
+    return False
+
+
 def _parse_date(date_str: str) -> Optional[date]:
     """Parse une date ``JJ/MM/AAAA`` ou ``JJ-MM-AAAA``."""
     if not date_str or not date_str.strip():
@@ -444,6 +474,7 @@ def parse_export_csv(
     # Parse CSV (séparé par points-virgules)
     reader = csv.reader(io.StringIO(content), delimiter=";")
     matches: list[ExportMatchInfo] = []
+    plausibility_engine = ScrapePlausibilityEngine()
 
     header_skipped = False
     for row_idx, row in enumerate(reader):
@@ -549,13 +580,17 @@ def parse_export_csv(
                 forfait = True
 
         # Déterminer si le match est joué
-        match_joue = bool(sets) or bool(set_result) or forfait
+        has_set_result = _is_played_set_result(set_result)
+        match_joue = bool(sets) or has_set_result or forfait
 
         # Score sets nettoyé pour les forfaits
         if forfait and score_sets:
             # Garder le score_sets tel quel pour traçabilité, mais
             # normaliser le "P" en "0" pour le calcul
             score_sets = score_sets.replace("P", "0").replace("p", "0")
+        elif score_sets and not has_set_result and not sets:
+            # Cas FFVB fréquent sur matchs à venir: "0/0"
+            score_sets = None
 
         # Vainqueur
         vainqueur = None
@@ -604,6 +639,15 @@ def parse_export_csv(
             feuille_match_url=feuille_url,
             phase_aller_retour=phase_ar,
         )
+
+        plausibility_issues = plausibility_engine.apply(match_info)
+        if plausibility_issues:
+            match_info.plausibility_issues = [
+                issue.to_dict() for issue in plausibility_issues
+            ]
+            match_info.plausibility_summary = summarize_scrape_issues(
+                plausibility_issues
+            )
 
         matches.append(match_info)
 

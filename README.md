@@ -18,7 +18,7 @@ Système complet de scraping, parsing et analyse des feuilles de match de volley
 
 ## 📁 Structure du Projet
 
-```
+```text
 PyVolley/
 ├── src/pyvolley/           # Code source principal
 │   ├── core/               # Configuration, exceptions, modèles Pydantic
@@ -64,20 +64,32 @@ cp .env.example .env
 # Initialiser la base de données
 pyvolley init
 
-# Afficher les statistiques
-pyvolley stats
+# Pipeline principal FFVB (scrape → download → parse)
+pyvolley import -e ABCCS -s 24/25
 
-# Scraper des feuilles de match
-pyvolley scrape --output feuilles_match --limit 20
+# Suivre l'état du pipeline
+pyvolley status -s 24/25
 
-# Parser un PDF ou un dossier
-pyvolley parse feuilles_match/ --output matchs.json
+# Relancer une étape ciblée
+pyvolley import --only download -e ABCCS -s 24/25
+pyvolley import --only parse --force -s 24/25
 
-# Importer les données en base
-pyvolley import-db matchs.json
+# Parser un PDF ou un dossier (hors base)
+pyvolley parse data/pdfs/ --limit 10 --output matchs.json
+
+# Nettoyer les PDFs
+pyvolley cleanup pdfs --dry-run
+
+# Explorer les données disponibles côté FFVB
+pyvolley list entities
+pyvolley list poules ABCCS --saison 24/25
+pyvolley list matches ABCCS --saison 24/25 --limit 20
 
 # Lancer le serveur web
 pyvolley serve --host 0.0.0.0 --port 8000 --reload
+
+# Aide complète
+pyvolley --help
 ```
 
 ### Gestion de la base de données
@@ -100,6 +112,14 @@ pyvolley db history
 
 # Réinitialiser la base de données (⚠️ ATTENTION: supprime les données!)
 pyvolley db reset --force
+
+# Explorer les tables
+pyvolley db explore tables
+pyvolley db explore matchs --saison 24/25 --limit 20
+
+# Rapports détaillés
+pyvolley report joueur "Dupont"
+pyvolley report club "PARIS VOLLEY"
 ```
 
 ### Configuration PostgreSQL (Production)
@@ -196,7 +216,7 @@ pytest tests/test_api.py -v
 Le parser V2 extrait les informations suivantes d'une feuille de match :
 
 | Catégorie | Données |
-|-----------|---------|
+| --------- | ------- |
 | **Match** | Code, date, heure, lieu, salle, journée |
 | **Compétition** | Ligue, catégorie, genre, nom |
 | **Équipes** | Nom, club, joueurs (numéro, nom, prénom, licence) |
@@ -219,31 +239,3 @@ Le parser V2 extrait les informations suivantes d'une feuille de match :
 ## 📝 Licence
 
 MIT License - Voir [LICENSE](LICENSE)
-uvicorn pyvolley.web.app:app --reload
-```
-Accéder à http://localhost:8000
-
-## 🧪 Tests
-
-```bash
-# Lancer tous les tests
-pytest
-
-# Avec couverture
-pytest --cov=pyvolley
-
-# Benchmark des parsers
-pytest tests/benchmark/ -v
-```
-
-## 📊 Données Extraites
-
-- **Matchs** : Date, lieu, compétition, résultat
-- **Équipes** : Nom, club, joueurs, staff
-- **Joueurs** : Nom, licence, statistiques
-- **Sets** : Scores, formations, temps morts
-- **Arbitres** : Nom, licence, rôle
-
-## 📝 License
-
-MIT License

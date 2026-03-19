@@ -97,7 +97,6 @@ class EntiteFFVBDB(Base):
     code: Mapped[str] = mapped_column(String(20), unique=True, index=True)  # "ABCCS", "LIRA"
     nom: Mapped[str] = mapped_column(String(200))
     type: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # "nationale", "ligue", "comite"
-    url_calendrier: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
     # Relations
     competitions: Mapped[List["CompetitionDB"]] = relationship(back_populates="entite")
@@ -141,9 +140,7 @@ class ClubDB(Base):
     correspondant_portable: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     correspondant_email: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
 
-    # URLs (construites à partir du code FFVB)
-    url_planning: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    url_classement: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    # Logo externe (synchronisé depuis Volleybox)
     logo_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
     # Coordonnées géographiques (pour la carte interactive)
@@ -228,10 +225,6 @@ class CompetitionDB(Base):
     niveau: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     division: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
-    # URLs FFVB
-    url_calendrier: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    url_classement: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-
     # Foreign keys
     saison_id: Mapped[int] = mapped_column(ForeignKey("saisons.id"))
     entite_id: Mapped[Optional[int]] = mapped_column(ForeignKey("entites_ffvb.id"), nullable=True)
@@ -267,8 +260,6 @@ class PouleDB(Base):
     code: Mapped[str] = mapped_column(String(20))  # "EMA", "PMA", "1FA"
     nom: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     tour: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # Tour number (1, 2, 3... or 99 for finals)
-    url_calendrier: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    url_classement: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
     competition_id: Mapped[int] = mapped_column(ForeignKey("competitions.id", ondelete="CASCADE"))
 
@@ -464,7 +455,24 @@ class MatchDB(Base):
 
     @property
     def is_played(self) -> bool:
-        return self.vainqueur is not None or self.sets_equipe_a > 0
+        sets_total = (self.sets_equipe_a or 0) + (self.sets_equipe_b or 0)
+        has_score_sets = False
+        if self.score_sets and "/" in self.score_sets:
+            left, right = self.score_sets.split("/", 1)
+            left = left.strip()
+            right = right.strip()
+            if left.isdigit() and right.isdigit():
+                has_score_sets = (int(left) + int(right)) > 0
+            elif left.upper() == "P" or right.upper() == "P":
+                has_score_sets = True
+
+        return bool(
+            self.match_joue
+            or self.forfait
+            or self.vainqueur is not None
+            or sets_total > 0
+            or has_score_sets
+        )
 
     @property
     def statut(self) -> str:
@@ -478,7 +486,7 @@ class MatchDB(Base):
         """
         if self.forfait:
             return "forfait"
-        if self.match_joue or self.vainqueur is not None or (self.sets_equipe_a or 0) > 0:
+        if self.is_played:
             return "joué"
         if self.date_match and self.date_match > dt_date.today():
             return "à_venir"

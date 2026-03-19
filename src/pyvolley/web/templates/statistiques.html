@@ -24,16 +24,17 @@
                 </select>
             </div>
             <div>
-                <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Après le</label>
-                <input type="date" name="after_date" value="{{ time_filter.date_from }}" class="filter-select">
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Du</label>
+                <input type="date" name="after_date" value="{{ time_filter.date_from }}" class="filter-select filter-date-input" lang="fr" title="Format : jj/mm/aaaa">
             </div>
             <div>
-                <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Avant le</label>
-                <input type="date" name="before_date" value="{{ time_filter.date_to }}" class="filter-select">
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Au</label>
+                <input type="date" name="before_date" value="{{ time_filter.date_to }}" class="filter-select filter-date-input" lang="fr" title="Format : jj/mm/aaaa">
+                <span class="filter-date-hint">Format : jj/mm/aaaa</span>
             </div>
             <div class="flex gap-2">
                 <button type="submit" class="pagination-btn" style="background: var(--accent-blue); color: white; border-color: var(--accent-blue);">Filtrer</button>
-                <a href="/statistiques" class="pagination-btn">Reset</a>
+                <a href="/statistiques" class="pagination-btn">Réinitialiser</a>
             </div>
         </form>
     </div>

@@ -55,7 +55,7 @@ class TestAPIJoueurs:
     
     def test_get_joueur_not_found(self, api_client: TestClient):
         """Test joueur non trouvé."""
-        response = api_client.get("/api/joueurs/99999")
+        response = api_client.get("/api/joueurs/2147483647")
         
         assert response.status_code == 404
 
@@ -72,7 +72,7 @@ class TestAPIEquipes:
     
     def test_get_equipe_not_found(self, api_client: TestClient):
         """Test équipe non trouvée."""
-        response = api_client.get("/api/equipes/99999")
+        response = api_client.get("/api/equipes/2147483647")
         
         assert response.status_code == 404
 
@@ -89,7 +89,7 @@ class TestAPIMatchs:
     
     def test_get_match_not_found(self, api_client: TestClient):
         """Test match non trouvé."""
-        response = api_client.get("/api/matchs/99999")
+        response = api_client.get("/api/matchs/2147483647")
         
         assert response.status_code == 404
 

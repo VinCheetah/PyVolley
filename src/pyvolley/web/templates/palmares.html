@@ -135,17 +135,18 @@
             <!-- Date après -->
             <div>
                 <label class="block text-xs font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">
-                    <i data-lucide="calendar-plus" class="w-3 h-3 inline-block mr-1"></i> Après le
+                    <i data-lucide="calendar-plus" class="w-3 h-3 inline-block mr-1"></i> Du
                 </label>
-                <input type="date" name="after_date" value="{{ current_filters.date_from }}" class="filter-select">
+                <input type="date" name="after_date" value="{{ current_filters.date_from }}" class="filter-select filter-date-input" lang="fr" title="Format : jj/mm/aaaa">
             </div>
 
             <!-- Date avant -->
             <div>
                 <label class="block text-xs font-semibold uppercase tracking-wider mb-2" style="color: var(--text-muted);">
-                    <i data-lucide="calendar-minus" class="w-3 h-3 inline-block mr-1"></i> Avant le
+                    <i data-lucide="calendar-minus" class="w-3 h-3 inline-block mr-1"></i> Au
                 </label>
-                <input type="date" name="before_date" value="{{ current_filters.date_to }}" class="filter-select">
+                <input type="date" name="before_date" value="{{ current_filters.date_to }}" class="filter-select filter-date-input" lang="fr" title="Format : jj/mm/aaaa">
+                <span class="filter-date-hint">Format : jj/mm/aaaa</span>
             </div>
 
             <!-- Genre -->

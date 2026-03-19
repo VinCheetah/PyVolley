@@ -27,6 +27,13 @@ from pyvolley.parsers.diagnostics import (
     DiagnosticCollector,
     CATEGORY_FOLDERS,
 )
+from pyvolley.parsers.plausibility import (
+    PlausibilityEngine,
+    PlausibilityReport,
+    PlausibilityIssue,
+    PlausibilityAction,
+    PlausibilitySeverity,
+)
 
 __all__ = [
     "BaseParser",
@@ -40,4 +47,9 @@ __all__ = [
     "DiagnosticCategory",
     "DiagnosticCollector",
     "CATEGORY_FOLDERS",
+    "PlausibilityEngine",
+    "PlausibilityReport",
+    "PlausibilityIssue",
+    "PlausibilityAction",
+    "PlausibilitySeverity",
 ]
