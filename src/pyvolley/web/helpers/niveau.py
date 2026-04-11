@@ -1,9 +1,9 @@
 """
-Résolution des badges de niveau pour les compétitions/équipes.
+Resolution des badges de niveau pour les competitions/equipes.
 
-Hiérarchie (du plus spécifique au plus générique) :
-  CdF > Pro A > Pro B > Pro > Elite > Elite Avenir > N1 > N2 > N3
-  > Prénat > Préreg > Régional > Dép > Loisir
+Ordre de reference (du plus bas au plus haut) :
+    Loisir < Dep < Jeunes CdF < Prereg < Regional < Prenat < National
+    < N3 < N2 < N1 < Elite Avenir < Elite < Pro < Pro B < Pro A < CdF
 """
 
 import re
@@ -20,10 +20,84 @@ def _normalize_level_text(value: str) -> str:
 
 
 _RE_YOUTH = re.compile(
-    r"\b(M13|M15|M17|M18|M20|M21|U13|U15|U17|U18|U20|U21|JEUNES?)\b"
+    r"\b(M11|M13|M14|M15|M16|M17|M18|M19|M20|M21|U11|U13|U14|U15|U16|U17|U18|U19|U20|U21|JEUNES?)\b"
 )
 _RE_REGIONAL = re.compile(r"\b(REGIONAL(?:E|AUX|ES?)?|R[1-4])\b")
 _RE_DEPARTMENTAL = re.compile(r"\b(DEPARTEMENTAL(?:E|AUX|ES?)?|D[1-4])\b")
+
+
+LEVEL_SORT_ORDER = {
+    "LOISIR": 0,
+    "DEP": 1,
+    "DEPARTEMENTAL": 1,
+    "JEUNES CDF": 2,
+    "JEUNES COUPE DE FRANCE": 2,
+    "COUPE DE FRANCE JEUNES": 2,
+    "CDF JEUNES": 2,
+    "PRE REG": 3,
+    "PREREG": 3,
+    "REGIONAL": 4,
+    "PRENAT": 5,
+    "PRE NAT": 5,
+    "NATIONAL": 6,
+    "N3": 7,
+    "N2": 8,
+    "N1": 9,
+    "ELITE AVENIR": 10,
+    "ELITE": 11,
+    "PRO": 12,
+    "PRO B": 13,
+    "PRO A": 14,
+    "CDF": 15,
+    "COUPE DE FRANCE": 15,
+}
+
+
+RANK_REFERENCE_LABELS = {
+    0: "Loisir",
+    1: "Dep",
+    2: "Jeunes CdF",
+    3: "Prereg",
+    4: "Regional",
+    5: "Prenat",
+    6: "National",
+    7: "N3",
+    8: "N2",
+    9: "N1",
+    10: "Elite Avenir",
+    11: "Elite",
+    12: "Pro",
+    13: "Pro B",
+    14: "Pro A",
+    15: "CdF",
+}
+
+
+def niveau_sort_rank(label: str | None) -> int:
+    """Retourne un rang de tri stable pour les niveaux (plus haut = plus fort)."""
+    if not label:
+        return -1
+    norm = _normalize_level_text(label)
+    if norm in {"JEUNES CDF", "CDF JEUNES", "JEUNES COUPE DE FRANCE", "COUPE DE FRANCE JEUNES"}:
+        return LEVEL_SORT_ORDER["JEUNES CDF"]
+    # Retire le préfixe jeunes pour garder l'ordre du niveau sport.
+    norm = re.sub(r"^JEUNES\s+", "", norm)
+    return LEVEL_SORT_ORDER.get(norm, -1)
+
+
+def niveau_sort_key(label: str | None) -> tuple[int, str]:
+    """Clé de tri des labels de niveau."""
+    if not label:
+        return (-1, "")
+    return (niveau_sort_rank(label), _normalize_level_text(label))
+
+
+def niveau_reference_labels() -> list[dict[str, int | str]]:
+    """Liste ordonnee des niveaux de reference utilises pour l'axe du graphique."""
+    return [
+        {"rank": rank, "label": label}
+        for rank, label in sorted(RANK_REFERENCE_LABELS.items(), key=lambda item: item[0])
+    ]
 
 
 def resolve_niveau_badge(
@@ -56,6 +130,8 @@ def resolve_niveau_badge(
 
     # ── 1. Coupe de France ──────────────────────────────────────────
     if "COUPE DE FRANCE" in full_text or re.search(r"\bCDF\b", full_text):
+        if is_youth:
+            return {"label": "Jeunes CdF", "css_class": "badge-cyan"}
         return {"label": "CdF", "css_class": "badge-purple"}
 
     # ── 2. Pro ──────────────────────────────────────────────────────
@@ -70,24 +146,29 @@ def resolve_niveau_badge(
     if not has_lower_context and re.search(r"\bELITE\b", full_text):
         if re.search(r"\bELITE\s*AVENIR\b", full_text):
             return {"label": "Elite Avenir", "css_class": "badge-gold"}
+        # En jeunes, on n'assimile pas automatiquement "Elite" à Elite Avenir.
+        # Cela évite de surclasser des compétitions régionales jeunes.
         if is_youth:
-            return {"label": "Elite Avenir", "css_class": "badge-gold"}
+            return {"label": "Jeunes Elite", "css_class": "badge-gold"}
         return {"label": "Elite", "css_class": "badge-gold"}
 
     # ── 4. Divisions nationales ────────────────────────────────────
     if re.search(r"\bNATIONALE?\s*1\b|\bN1\b", full_text):
-        return {"label": "N1", "css_class": "badge-gold"}
+        return {"label": "Jeunes N1" if is_youth else "N1", "css_class": "badge-gold"}
     if re.search(r"\bNATIONALE?\s*2\b|\bN2\b", full_text):
-        return {"label": "N2", "css_class": "badge-orange"}
+        return {"label": "Jeunes N2" if is_youth else "N2", "css_class": "badge-orange"}
     if re.search(r"\bNATIONALE?\s*3\b|\bN3\b", full_text):
-        return {"label": "N3", "css_class": "badge-teal"}
+        return {"label": "Jeunes N3" if is_youth else "N3", "css_class": "badge-teal"}
     if division_text in {"1", "2", "3"} and re.search(
         r"\bNATIONAL(?:E|AUX|ES?)?\b", full_text
     ):
         css = {"1": "badge-gold", "2": "badge-orange", "3": "badge-teal"}[
             division_text
         ]
-        return {"label": f"N{division_text}", "css_class": css}
+        label = f"N{division_text}"
+        if is_youth:
+            label = f"Jeunes {label}"
+        return {"label": label, "css_class": css}
 
     # ── 5. Prénat ──────────────────────────────────────────────────
     if re.search(
@@ -107,11 +188,11 @@ def resolve_niveau_badge(
 
     # ── 7. Régional ────────────────────────────────────────────────
     if has_regional:
-        return {"label": "Régional", "css_class": "badge-blue"}
+        return {"label": "Jeunes Régional" if is_youth else "Régional", "css_class": "badge-blue"}
 
     # ── 8. Départemental ───────────────────────────────────────────
     if has_departmental:
-        return {"label": "Dép", "css_class": "badge-cyan"}
+        return {"label": "Jeunes Dép" if is_youth else "Dép", "css_class": "badge-cyan"}
 
     # ── 9. Loisir ──────────────────────────────────────────────────
     if re.search(
@@ -121,7 +202,7 @@ def resolve_niveau_badge(
 
     # ── 10. National générique (sans numéro de division) ───────────
     if re.search(r"\bNATIONAL(?:E|AUX|ES?)?\b", full_text):
-        return {"label": "National", "css_class": "badge-green"}
+        return {"label": "Jeunes National" if is_youth else "National", "css_class": "badge-green"}
 
     # ── Fallback : afficher le niveau brut ─────────────────────────
     if niveau_text:

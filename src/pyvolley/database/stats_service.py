@@ -42,6 +42,8 @@ _NIVEAUX_LABELS = {
     6: "N2", 7: "N1", 8: "Élite", 9: "Pro B", 10: "Pro A",
 }
 
+_MIN_MATCHES_FOR_TEAM_WINRATE = 5
+
 
 def _niveau_rank(niveau_str: Optional[str]) -> Optional[int]:
     if not niveau_str:
@@ -167,6 +169,35 @@ class StatsAmusantesService:
         result = list(self.session.scalars(stmt))
         self._match_ids_cache[cache_key] = result
         return result
+
+    def _current_cache_signature(
+        self,
+        filters: StatsFilters,
+    ) -> tuple[int, Optional[datetime.datetime]]:
+        """Retourne la signature courante du jeu de données filtré.
+
+        La signature combine le nombre de matchs joués et le dernier
+        ``updated_at`` des matchs concernés, ce qui évite les faux cache hits
+        lorsque des données changent sans variation du volume.
+        """
+        stmt = (
+            select(
+                func.count(MatchDB.id).label("match_count"),
+                func.max(MatchDB.updated_at).label("last_updated_at"),
+            )
+            .select_from(MatchDB)
+            .where(MatchDB.match_joue == True)
+        )
+        stmt = self._base_match_filter(stmt, filters)
+        row = self.session.execute(stmt).one()
+        return int(row.match_count or 0), row.last_updated_at
+
+    def current_cache_signature(
+        self,
+        filters: StatsFilters,
+    ) -> tuple[int, Optional[datetime.datetime]]:
+        """API publique de récupération de signature de cache."""
+        return self._current_cache_signature(filters)
 
     # ─── Statistiques joueurs ──────────────────────────
 
@@ -307,6 +338,7 @@ class StatsAmusantesService:
             .join(ParticipationMatchDB, ParticipationMatchDB.joueur_id == JoueurDB.id)
             .join(MatchDB, ParticipationMatchDB.match_id == MatchDB.id)
             .where(ParticipationMatchDB.est_capitaine == True)
+            .where(MatchDB.match_joue == True)
         )
         if match_ids is not None:
             stmt = stmt.where(MatchDB.id.in_(match_ids))
@@ -336,6 +368,7 @@ class StatsAmusantesService:
             .join(ParticipationMatchDB, ParticipationMatchDB.joueur_id == JoueurDB.id)
             .join(MatchDB, ParticipationMatchDB.match_id == MatchDB.id)
             .where(ParticipationMatchDB.est_libero == True)
+            .where(MatchDB.match_joue == True)
         )
         if match_ids is not None:
             stmt = stmt.where(MatchDB.id.in_(match_ids))
@@ -958,7 +991,11 @@ class StatsAmusantesService:
 
         results = []
         # Batch-load equipe info for all qualifying IDs
-        qualifying_ids = [eid for eid, st in equipe_stats.items() if st["matchs"] >= 3]
+        qualifying_ids = [
+            eid
+            for eid, st in equipe_stats.items()
+            if st["matchs"] >= _MIN_MATCHES_FOR_TEAM_WINRATE
+        ]
         if qualifying_ids:
             equipes = list(self.session.execute(
                 select(EquipeDB.id, EquipeDB.nom, EquipeDB.niveau, EquipeDB.genre)
@@ -969,7 +1006,7 @@ class StatsAmusantesService:
             equipe_info = {}
 
         for eid, st in equipe_stats.items():
-            if st["matchs"] < 3:
+            if st["matchs"] < _MIN_MATCHES_FOR_TEAM_WINRATE:
                 continue
             equipe = equipe_info.get(eid)
             if not equipe:
@@ -1005,6 +1042,7 @@ class StatsAmusantesService:
             )
             .join(ArbitreMatchDB, ArbitreMatchDB.arbitre_id == ArbitreDB.id)
             .join(MatchDB, ArbitreMatchDB.match_id == MatchDB.id)
+            .where(MatchDB.match_joue == True)
         )
         if match_ids is not None:
             stmt = stmt.where(MatchDB.id.in_(match_ids))
@@ -1138,12 +1176,15 @@ class StatsAmusantesService:
 
         stats_data = self.get_all_stats(filters)
         filter_key = self.build_filter_key(filters)
-        match_count = self.session.scalar(
-            select(func.count()).select_from(MatchDB).where(MatchDB.match_joue == True)
-        ) or 0
+        match_count, last_match_update = self._current_cache_signature(filters)
 
         repo = StatsCacheRepository(self.session)
-        repo.upsert(filter_key, stats_data, match_count)
+        repo.upsert(
+            filter_key,
+            stats_data,
+            match_count,
+            last_match_update=last_match_update,
+        )
         self.session.commit()
         return stats_data
 
@@ -1157,11 +1198,13 @@ class StatsAmusantesService:
 
         filter_key = self.build_filter_key(filters)
         repo = StatsCacheRepository(self.session)
-        current_match_count = self.session.scalar(
-            select(func.count()).select_from(MatchDB).where(MatchDB.match_joue == True)
-        ) or 0
+        current_match_count, last_match_update = self._current_cache_signature(filters)
 
-        if not repo.is_stale(filter_key, current_match_count):
+        if not repo.is_stale(
+            filter_key,
+            current_match_count,
+            current_last_match_update=last_match_update,
+        ):
             entry = repo.get_by_filter_key(filter_key)
             if entry is not None:
                 return entry.stats_data, True

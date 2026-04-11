@@ -21,7 +21,7 @@ Commandes principales :
 import asyncio
 import json
 import time
-from datetime import datetime
+from datetime import datetime, date as dt_date
 from pathlib import Path
 from typing import Optional, List
 
@@ -79,6 +79,69 @@ def _configure_parser_plausibility(
             policy=policy,
             approval=approval,
         )
+
+
+def _is_local_pdf_usable(pdf_path: Path, *, min_size_bytes: int = 1024) -> bool:
+    """Retourne True si un PDF local semble exploitable pour le parsing."""
+    try:
+        if not pdf_path.exists() or not pdf_path.is_file():
+            return False
+
+        size = pdf_path.stat().st_size
+        if size < min_size_bytes:
+            return False
+
+        with open(pdf_path, "rb") as f:
+            if not f.read(5).startswith(b"%PDF"):
+                return False
+
+            # Vérifie la fin du flux PDF sur un petit tail pour éviter
+            # de relire tout le fichier.
+            tail_size = min(size, 1024)
+            f.seek(-tail_size, 2)
+            tail = f.read(tail_size)
+            if b"%%EOF" not in tail:
+                return False
+
+        return True
+    except OSError:
+        return False
+
+
+def _get_pdf_redownload_reason(
+    match_db,
+    pdf_path: Path,
+    *,
+    today: Optional[dt_date] = None,
+) -> Optional[str]:
+    """Retourne la raison d'un retéléchargement nécessaire, sinon None.
+
+    Raisons:
+      - ``invalid-local-pdf``: fichier local corrompu/incomplet.
+      - ``downloaded-before-match-date``: PDF obtenu avant la date du match,
+        potentiellement une feuille vide de pré-match.
+    """
+    if not _is_local_pdf_usable(pdf_path):
+        return "invalid-local-pdf"
+
+    if today is None:
+        today = dt_date.today()
+
+    match_date = getattr(match_db, "date_match", None)
+    if not isinstance(match_date, dt_date):
+        return None
+    if match_date > today:
+        return None
+
+    try:
+        downloaded_on = datetime.fromtimestamp(pdf_path.stat().st_mtime).date()
+    except OSError:
+        return "invalid-local-pdf"
+
+    if downloaded_on < match_date:
+        return "downloaded-before-match-date"
+
+    return None
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -458,14 +521,19 @@ def _import_download(
     """
     from pyvolley.database.connection import DatabaseSession, init_db
     from pyvolley.database.models import MatchDB, SaisonDB, CompetitionDB
-    from sqlalchemy import select
+    from sqlalchemy import or_, select
     from sqlalchemy.orm import joinedload
 
     init_db()
+    today = dt_date.today()
 
     # Phase 1 : préparer les téléchargements
     download_tasks: list[tuple[int, str, Path]] = []
     already_present: list[tuple[int, str]] = []  # (match_id, pdf_path)
+    forced_redownload = {
+        "invalid-local-pdf": 0,
+        "downloaded-before-match-date": 0,
+    }
 
     with DatabaseSession() as session:
         stmt = (
@@ -474,9 +542,13 @@ def _import_download(
             .options(joinedload(MatchDB.competition).joinedload(CompetitionDB.entite))
             .options(joinedload(MatchDB.poule))
             .where(
-                MatchDB.parsing_status == "discovered",
                 MatchDB.match_joue == True,  # noqa: E712
                 MatchDB.source_url.isnot(None),
+                MatchDB.parsing_status.in_(["discovered", "downloaded", "error"]),
+                or_(
+                    MatchDB.date_match.is_(None),
+                    MatchDB.date_match <= today,
+                ),
             )
         )
         stmt, _ = add_saison_filter(session, stmt, saison)
@@ -521,20 +593,35 @@ def _import_download(
                 unique_hint=match_db.id,
             )
 
-            # Vérifier si déjà présent
+            # Vérifier si déjà présent, puis décider s'il faut forcer une
+            # reprise (PDF invalide ou téléchargé avant la date du match).
+            existing = None
             if dest_file.exists():
-                already_present.append((match_db.id, str(dest_file)))
-                continue
+                existing = dest_file
+            else:
+                existing = find_pdf_for_match(
+                    match_db,
+                    pdf_base,
+                    pdf_index,
+                    saison_code=saison_code,
+                )
 
-            existing = find_pdf_for_match(
-                match_db,
-                pdf_base,
-                pdf_index,
-                saison_code=saison_code,
-            )
             if existing:
-                already_present.append((match_db.id, str(existing)))
-                continue
+                redownload_reason = _get_pdf_redownload_reason(
+                    match_db,
+                    existing,
+                    today=today,
+                )
+                if redownload_reason is None:
+                    already_present.append((match_db.id, str(existing)))
+                    continue
+
+                forced_redownload[redownload_reason] += 1
+                try:
+                    existing.unlink()
+                except OSError:
+                    # Non bloquant: le téléchargement écrira la nouvelle cible.
+                    pass
 
             download_tasks.append((match_db.id, match_db.source_url, dest_file))
 
@@ -547,6 +634,19 @@ def _import_download(
                     m.source_pdf = pdf_path
             session.commit()
             console.print(f"[dim]⏭ {len(already_present)} PDFs déjà présents[/dim]")
+
+        forced_total = sum(forced_redownload.values())
+        if forced_total:
+            details = []
+            if forced_redownload["invalid-local-pdf"]:
+                details.append(f"{forced_redownload['invalid-local-pdf']} invalides")
+            if forced_redownload["downloaded-before-match-date"]:
+                details.append(
+                    f"{forced_redownload['downloaded-before-match-date']} antérieurs à la date du match"
+                )
+            console.print(
+                "[dim]↻ Retéléchargement forcé : " + ", ".join(details) + "[/dim]"
+            )
 
     if not download_tasks:
         return
@@ -649,7 +749,7 @@ def _import_parse(
     from pyvolley.parsers.factory import ParserFactory
     from pyvolley.database.connection import DatabaseSession, init_db
     from pyvolley.database.import_service import MatchImportService
-    from pyvolley.database.models import MatchDB, ImportLogDB
+    from pyvolley.database.models import MatchDB, ImportLogDB, CompetitionDB
     from sqlalchemy import select
     from sqlalchemy.orm import joinedload
 
@@ -658,7 +758,7 @@ def _import_parse(
     statuses = (
         ["discovered", "downloaded", "parsed", "error"]
         if force
-        else ["discovered", "downloaded"]
+        else ["discovered", "downloaded", "error"]
     )
 
     parser = ParserFactory.get_default()
@@ -675,7 +775,11 @@ def _import_parse(
     with DatabaseSession() as session:
         stmt = (
             select(MatchDB)
-            .options(joinedload(MatchDB.saison))
+            .options(
+                joinedload(MatchDB.saison),
+                joinedload(MatchDB.competition).joinedload(CompetitionDB.entite),
+                joinedload(MatchDB.poule),
+            )
             .where(
                 MatchDB.parsing_status.in_(statuses),
                 MatchDB.match_joue == True,  # noqa: E712
@@ -702,10 +806,18 @@ def _import_parse(
     pdf_index = build_pdf_index(pdf_base)
 
     match_pdf_pairs = []
+    missing_pdf_count = 0
     for m in matches_db:
         pdf_path = find_pdf_for_match(m, pdf_base, pdf_index)
         if pdf_path:
             match_pdf_pairs.append((m, pdf_path))
+        else:
+            missing_pdf_count += 1
+
+    if missing_pdf_count:
+        console.print(
+            f"[dim]⏭ {missing_pdf_count} match(s) ignoré(s) : PDF introuvable[/dim]"
+        )
 
     if not match_pdf_pairs:
         console.print(
@@ -885,9 +997,10 @@ def _import_stream(
     from pyvolley.database.connection import DatabaseSession, init_db
     from pyvolley.database.import_service import MatchImportService
     from pyvolley.database.models import MatchDB, ImportLogDB
-    from sqlalchemy import select
+    from sqlalchemy import or_, select
 
     init_db()
+    today = dt_date.today()
     parser = ParserFactory.get_default()
     approval_cb = None
     if review_fixes:
@@ -906,6 +1019,10 @@ def _import_stream(
                 MatchDB.parsing_status == "discovered",
                 MatchDB.match_joue == True,  # noqa: E712
                 MatchDB.source_url.isnot(None),
+                or_(
+                    MatchDB.date_match.is_(None),
+                    MatchDB.date_match <= today,
+                ),
             )
         )
         stmt, _ = add_saison_filter(session, stmt, saison)
@@ -1246,7 +1363,7 @@ def status(
         if status_counts["error"] > 0:
             console.print(
                 f"[yellow]💡 {status_counts['error']} matchs en erreur → "
-                f"pyvolley import --only parse --force[/yellow]"
+                f"pyvolley import --only parse[/yellow]"
             )
 
 
@@ -1855,7 +1972,7 @@ def compute_stats(
     """
     from pyvolley.database.connection import get_db, init_db
     from pyvolley.database.repositories import (
-        StatsCacheRepository, MatchRepository, SaisonRepository,
+        StatsCacheRepository, SaisonRepository,
     )
     from pyvolley.database.stats_service import StatsAmusantesService, StatsFilters
 
@@ -1868,8 +1985,9 @@ def compute_stats(
             session.commit()
             console.print(f"[yellow]🗑 Cache vidé ({deleted} entrée(s) supprimée(s))[/yellow]")
 
-        match_count = MatchRepository(session).count()
-        if match_count == 0:
+        service = StatsAmusantesService(session)
+        total_played, _ = service.current_cache_signature(StatsFilters())
+        if total_played == 0:
             console.print("[yellow]⚠ Aucun match en base — rien à calculer.[/yellow]")
             return
 
@@ -1894,7 +2012,6 @@ def compute_stats(
             for s in saisons:
                 filters_to_compute.append(StatsFilters(saison_id=s.id))
 
-        service = StatsAmusantesService(session)
         cache_repo = StatsCacheRepository(session)
 
         computed = 0
@@ -1908,21 +2025,36 @@ def compute_stats(
         for f in filters_to_compute:
             key = service.build_filter_key(f)
             label = key
+            filter_match_count, filter_last_update = service.current_cache_signature(f)
 
-            if not force and not cache_repo.is_stale(key, match_count):
-                table.add_row(label, "[dim]à jour[/dim]", str(match_count))
+            if filter_match_count == 0:
+                table.add_row(label, "[dim]aucun match joué[/dim]", "0")
+                skipped += 1
+                continue
+
+            if not force and not cache_repo.is_stale(
+                key,
+                filter_match_count,
+                current_last_match_update=filter_last_update,
+            ):
+                table.add_row(label, "[dim]à jour[/dim]", str(filter_match_count))
                 skipped += 1
                 continue
 
             try:
                 stats_data = service.get_all_stats(f)
-                cache_repo.upsert(key, stats_data, match_count)
+                cache_repo.upsert(
+                    key,
+                    stats_data,
+                    filter_match_count,
+                    last_match_update=filter_last_update,
+                )
                 session.commit()
-                table.add_row(label, "[green]✓ calculé[/green]", str(match_count))
+                table.add_row(label, "[green]✓ calculé[/green]", str(filter_match_count))
                 computed += 1
             except Exception as exc:
                 session.rollback()
-                table.add_row(label, f"[red]✗ {exc}[/red]", str(match_count))
+                table.add_row(label, f"[red]✗ {exc}[/red]", str(filter_match_count))
 
         console.print(table)
         console.print(
@@ -1936,6 +2068,10 @@ def compute_player_stats(
     saison: Optional[str] = typer.Option(
         None, "--saison", "-s",
         help="Restreindre aux matchs d'une saison (23/24) ou plage (22/25).",
+    ),
+    entity: Optional[str] = typer.Option(
+        None, "--entity", "-e",
+        help="Restreindre aux matchs d'une entité (ex: ABCCS).",
     ),
     match_id: Optional[int] = typer.Option(
         None, "--match-id", help="Recalculer un match précis (ID).",
@@ -1958,7 +2094,7 @@ def compute_player_stats(
     from sqlalchemy import select
 
     from pyvolley.database.connection import get_db, init_db
-    from pyvolley.database.models import MatchDB
+    from pyvolley.database.models import CompetitionDB, EntiteFFVBDB, MatchDB
     from pyvolley.database.player_stats_service import JoueurMatchStatsService
     from pyvolley.database.repositories import JoueurMatchStatsRepository
 
@@ -1994,6 +2130,27 @@ def compute_player_stats(
                 console.print(f"[yellow]Aucune saison trouvée pour '{saison}'[/yellow]")
                 return
             stmt = stmt.where(MatchDB.saison_id.in_(saison_ids))
+        if entity is not None:
+            entity_code = entity.strip().upper()
+            entite_db = session.scalars(
+                select(EntiteFFVBDB).where(EntiteFFVBDB.code == entity_code)
+            ).first()
+            if entite_db is None:
+                console.print(f"[yellow]Entité '{entity}' non trouvée[/yellow]")
+                return
+
+            competition_ids = [
+                c.id
+                for c in session.scalars(
+                    select(CompetitionDB).where(CompetitionDB.entite_id == entite_db.id)
+                ).all()
+            ]
+            if not competition_ids:
+                console.print(
+                    f"[yellow]Aucune compétition trouvée pour l'entité '{entity_code}'[/yellow]"
+                )
+                return
+            stmt = stmt.where(MatchDB.competition_id.in_(competition_ids))
         stmt = stmt.order_by(MatchDB.date_match.desc(), MatchDB.id.desc())
         if limit:
             stmt = stmt.limit(limit)
@@ -2004,7 +2161,12 @@ def compute_player_stats(
             return
 
         service = JoueurMatchStatsService(session)
+        stats_repo = JoueurMatchStatsRepository(session)
         processed = 0
+        skipped_up_to_date = 0
+        skipped_not_played = 0
+        skipped_not_parsed = 0
+        skipped_no_expected_players = 0
         updated_rows = 0
         errors = 0
 
@@ -2018,7 +2180,64 @@ def compute_player_stats(
                         progress.update(task, advance=1)
                         continue
 
-                    count = service.compute_and_store_for_match(m_full, force=force)
+                    if not m_full.match_joue:
+                        skipped_not_played += 1
+                        progress.update(
+                            task,
+                            advance=1,
+                            description=f"[dim]↷ match #{m.id} non joué[/dim]",
+                        )
+                        continue
+
+                    if m_full.parsing_status != "parsed":
+                        skipped_not_parsed += 1
+                        progress.update(
+                            task,
+                            advance=1,
+                            description=(
+                                f"[dim]↷ match #{m.id} non parsé "
+                                f"({m_full.parsing_status})[/dim]"
+                            ),
+                        )
+                        continue
+
+                    participants = list(m_full.participations or [])
+                    valid_participants = [
+                        p
+                        for p in participants
+                        if p.joueur and p.joueur.licence
+                    ]
+                    expected_ids = [p.joueur_id for p in valid_participants]
+
+                    is_stale = True
+                    if not force:
+                        is_stale = stats_repo.is_match_stale(
+                            m_full.id,
+                            expected_joueur_ids=expected_ids,
+                            match_updated_at=m_full.updated_at,
+                        )
+
+                    if not expected_ids and not is_stale and not force:
+                        skipped_no_expected_players += 1
+                        progress.update(
+                            task,
+                            advance=1,
+                            description=(
+                                f"[dim]↷ match #{m.id} sans joueurs exploitables[/dim]"
+                            ),
+                        )
+                        continue
+
+                    if not force and not is_stale:
+                        skipped_up_to_date += 1
+                        progress.update(
+                            task,
+                            advance=1,
+                            description=f"[dim]↷ match #{m.id} déjà à jour[/dim]",
+                        )
+                        continue
+
+                    count = service.compute_and_store_for_match(m_full, force=True)
                     updated_rows += count
                     processed += 1
                     progress.update(
@@ -2043,6 +2262,10 @@ def compute_player_stats(
 
         console.print(Panel(
             f"[green]✓ Matchs traités : {processed}[/green]\n"
+            f"[dim]↷ Matchs ignorés (déjà à jour) : {skipped_up_to_date}[/dim]\n"
+            f"[dim]↷ Matchs ignorés (non joués) : {skipped_not_played}[/dim]\n"
+            f"[dim]↷ Matchs ignorés (non parsés) : {skipped_not_parsed}[/dim]\n"
+            f"[dim]↷ Matchs ignorés (sans joueurs exploitables) : {skipped_no_expected_players}[/dim]\n"
             f"[cyan]👥 Lignes stats écrites : {updated_rows}[/cyan]\n"
             f"[red]✗ Erreurs : {errors}[/red]",
             title="Statistiques joueurs",

@@ -9,8 +9,8 @@ from fastapi import APIRouter, Request, Depends, Query
 from fastapi.responses import HTMLResponse
 
 from pyvolley.web.templateconfig import templates
-from pyvolley.web.helpers.match_utils import build_niveau_evolution
-from pyvolley.shared.helpers import is_winner
+from pyvolley.web.helpers.match_utils import build_match_score_evolution
+from pyvolley.shared.helpers import is_winner, parse_optional_int
 from pyvolley.api.dependencies import (
     get_equipe_repo,
     get_match_repo,
@@ -34,25 +34,35 @@ async def equipes_list(
     genre: Optional[str] = None,
     niveau: Optional[str] = None,
     categorie: Optional[str] = None,
-    saison_id: Optional[int] = None,
+    saison_id: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     repo: EquipeRepository = Depends(get_equipe_repo),
     saison_repo: SaisonRepository = Depends(get_saison_repo),
 ):
+    saison_id_int = parse_optional_int(saison_id)
+
     limit = 50
     offset = (page - 1) * limit
-    if q or genre or niveau or categorie or saison_id:
+    if q or genre or niveau or categorie or saison_id_int:
         equipes = repo.search_by_name(
             q or "%",
             genre=genre,
             niveau=niveau,
             categorie=categorie,
-            saison_id=saison_id,
+            saison_id=saison_id_int,
             limit=limit,
+            offset=offset,
+        )
+        total = repo.count_search(
+            q or "%",
+            genre=genre,
+            niveau=niveau,
+            categorie=categorie,
+            saison_id=saison_id_int,
         )
     else:
         equipes = repo.get_all(limit=limit, offset=offset)
-    total = repo.count()
+        total = repo.count()
     saisons = saison_repo.get_all(limit=20)
     genres = repo.get_distinct_genres()
     niveaux = repo.get_distinct_niveaux()
@@ -68,7 +78,7 @@ async def equipes_list(
             "has_next": offset + limit < total,
             "has_prev": page > 1,
             "saisons": saisons,
-            "current_saison_id": saison_id,
+            "current_saison_id": saison_id_int,
             "genre": genre or "",
             "genres": genres,
             "niveau": niveau or "",
@@ -108,7 +118,7 @@ async def equipe_detail(
             sets_gagnes += m.sets_equipe_b
             sets_perdus += m.sets_equipe_a
 
-    niveau_evolution = build_niveau_evolution(matchs, equipe)
+    score_evolution = build_match_score_evolution(matchs, equipe)
 
     # URL FFVB pour l'équipe
     url_ffvb = None
@@ -139,8 +149,8 @@ async def equipe_detail(
             "roster": roster,
             "sets_gagnes": sets_gagnes,
             "sets_perdus": sets_perdus,
-            "niveau_evolution_json": json.dumps(
-                niveau_evolution, ensure_ascii=False, default=str
+            "score_evolution_json": json.dumps(
+                score_evolution, ensure_ascii=False, default=str
             ),
             "url_ffvb": url_ffvb,
         },

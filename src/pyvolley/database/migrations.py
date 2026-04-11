@@ -45,6 +45,8 @@ def get_alembic_config() -> Config:
         )
 
     alembic_cfg = Config(str(alembic_ini))
+    alembic_cfg.set_main_option("script_location", str(project_root / "alembic"))
+    alembic_cfg.set_main_option("prepend_sys_path", str(project_root))
     alembic_cfg.set_main_option("sqlalchemy.url", settings.database_url)
 
     return alembic_cfg

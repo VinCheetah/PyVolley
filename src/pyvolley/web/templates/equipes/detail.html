@@ -122,24 +122,25 @@
     </div>
     {% endif %}
 
-    <!-- ═══════════════ Évolution du Niveau ═══════════════ -->
-    {% if niveau_evolution_json and niveau_evolution_json != '[]' %}
+    <!-- ═══════════════ Évolution des Scores ═══════════════ -->
+    {% if score_evolution_json and score_evolution_json != '[]' %}
     <div class="card p-6">
-        <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
-            <i data-lucide="trending-up" class="w-4 h-4 inline-block mr-1"></i> Évolution du niveau de compétition
-        </h2>
-        <div style="height: 320px; position: relative;">
-            <canvas id="niveauChart"></canvas>
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                <i data-lucide="bar-chart-3" class="w-4 h-4 inline-block mr-1"></i> Évolution des scores
+            </h2>
         </div>
-        <div class="flex flex-wrap gap-3 mt-3 justify-center">
-            <div class="flex items-center gap-1 text-xs" style="color: var(--accent-green);">
-                <span class="w-3 h-3 rounded-full inline-block" style="background: var(--accent-green);"></span> Victoire
+        <div style="height: 340px; position: relative;">
+            <canvas id="scoreEvolutionChart"></canvas>
+        </div>
+        <div class="flex flex-wrap gap-3 mt-3 justify-center text-xs" style="color: var(--text-secondary);">
+            <div class="flex items-center gap-1" style="color: var(--accent-green);">
+                <span class="w-3 h-3 rounded-sm inline-block" style="background: rgba(34, 197, 94, 0.65); border: 1px solid #22c55e;"></span>
+                V
             </div>
-            <div class="flex items-center gap-1 text-xs" style="color: var(--accent-red);">
-                <span class="w-3 h-3 rounded-full inline-block" style="background: var(--accent-red);"></span> Défaite
-            </div>
-            <div class="flex items-center gap-1 text-xs" style="color: var(--text-muted);">
-                <span class="w-3 h-3 rounded-full inline-block" style="background: var(--accent-blue); opacity: 0.5;"></span> Taille = nombre de matchs à cette date
+            <div class="flex items-center gap-1" style="color: var(--accent-red);">
+                <span class="w-3 h-3 rounded-sm inline-block" style="background: rgba(239, 68, 68, 0.65); border: 1px solid #ef4444;"></span>
+                D
             </div>
         </div>
     </div>
@@ -391,200 +392,282 @@ document.addEventListener('DOMContentLoaded', function() {
 </script>
 {% endif %}
 
-{% if niveau_evolution_json and niveau_evolution_json != '[]' %}
-<!-- Adapter de date pour Chart.js (nécessaire pour l'axe temporel) -->
-<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+{% if score_evolution_json and score_evolution_json != '[]' %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const niveauData = {{ niveau_evolution_json|safe }};
-    if (!niveauData || niveauData.length === 0) return;
+    const scoreData = {{ score_evolution_json|safe }};
+    if (!Array.isArray(scoreData) || scoreData.length === 0) return;
 
-    const ctx = document.getElementById('niveauChart');
-    if (!ctx) return;
+    const canvas = document.getElementById('scoreEvolutionChart');
+    if (!canvas) return;
 
-    // Hiérarchie des niveaux pour l'axe Y
-    const NIVEAU_LABELS = {
-        0: 'Loisir',
-        1: 'Départemental',
-        2: 'Régional',
-        3: 'Prénational',
-        4: 'National',
-        5: 'Élite',
-    };
-
-    // Calculer les rangs min/max pour l'échelle
-    const ranks = niveauData.map(d => d.niveau_rank);
-    const minRank = Math.max(0, Math.min(...ranks) - 1);
-    const maxRank = Math.min(5, Math.max(...ranks) + 1);
-
-    // Grouper les matchs par date pour la taille des bulles
-    const dateGroups = {};
-    niveauData.forEach(d => {
-        const key = d.date + '_' + d.niveau_rank;
-        if (!dateGroups[key]) dateGroups[key] = { count: 0, items: [] };
-        dateGroups[key].count++;
-        dateGroups[key].items.push(d);
+    const sorted = [...scoreData].sort((a, b) => {
+        if ((a.date || '') === (b.date || '')) return (a.match_id || 0) - (b.match_id || 0);
+        return (a.date || '') < (b.date || '') ? -1 : 1;
     });
 
-    // Calculer la taille max des bulles
-    const maxCount = Math.max(...Object.values(dateGroups).map(g => g.count));
-    const minBubble = 6, maxBubble = maxCount > 1 ? 22 : 10;
+    const targets = Array.from(
+        new Set(
+            sorted
+                .map(m => Math.max(Number(m.sets_for || 0), Number(m.sets_against || 0)))
+                .filter(v => Number.isFinite(v) && v > 0)
+        )
+    ).sort((a, b) => a - b);
 
-    // Préparer les données pour un bubble chart
-    const victories = [];
-    const defeats = [];
+    if (targets.length === 0) targets.push(2);
 
-    // Ensemble pour tracker quels groupes on a déjà traités
-    const processed = new Set();
+    const winLabels = [];
+    const lossLabels = [];
 
-    niveauData.forEach(d => {
-        const key = d.date + '_' + d.niveau_rank;
-        if (processed.has(key + '_' + d.resultat)) {
-            // Chercher si déjà ajouté, incrémenter
-            return;
+    targets.forEach(target => {
+        for (let opp = 0; opp < target; opp += 1) {
+            winLabels.push(`${target}-${opp}`);
         }
+    });
 
-        const group = dateGroups[key];
-        const winsInGroup = group.items.filter(i => i.resultat === 'V').length;
-        const lossesInGroup = group.items.filter(i => i.resultat === 'D').length;
+    targets.forEach(target => {
+        for (let own = target - 1; own >= 0; own -= 1) {
+            lossLabels.push(`${own}-${target}`);
+        }
+    });
 
-        const bubbleSize = (sz) => {
-            if (maxCount <= 1) return minBubble;
-            return minBubble + (sz / maxCount) * (maxBubble - minBubble);
+    const winLabelSet = new Set(winLabels);
+    const lossLabelSet = new Set(lossLabels);
+    sorted.forEach(m => {
+        const scoreKey = `${m.sets_for}-${m.sets_against}`;
+        if (m.resultat === 'V' && !winLabelSet.has(scoreKey)) {
+            winLabels.push(scoreKey);
+            winLabelSet.add(scoreKey);
+        }
+        if (m.resultat === 'D' && !lossLabelSet.has(scoreKey)) {
+            lossLabels.push(scoreKey);
+            lossLabelSet.add(scoreKey);
+        }
+    });
+
+    const scoreLabels = [...winLabels, ...lossLabels];
+    const scoreIndexByLabel = {};
+    scoreLabels.forEach((label, idx) => {
+        scoreIndexByLabel[label] = idx;
+    });
+
+    const formattedDates = sorted.map(m => {
+        const d = m.date ? new Date(m.date) : null;
+        if (!d || Number.isNaN(d.getTime())) return m.date || '—';
+        return d.toLocaleDateString('fr-FR', {
+            day: '2-digit',
+            month: '2-digit',
+            year: '2-digit',
+        });
+    });
+
+    const xLabels = formattedDates;
+    const totalBands = scoreLabels.length;
+    const topAnchor = totalBands + 1;
+    const winBandLimit = winLabels.length;
+
+    const bars = new Array(sorted.length).fill(null);
+    const barsMeta = new Array(sorted.length).fill(null);
+
+    sorted.forEach((m, idx) => {
+        const scoreKey = `${m.sets_for}-${m.sets_against}`;
+        const scoreIndex = scoreIndexByLabel[scoreKey];
+        if (scoreIndex === undefined) return;
+
+        const scoreLevel = scoreIndex + 1;
+        const isWin = m.resultat === 'V';
+        const barMeta = {
+            is_win: isWin,
+            score: scoreKey,
+            adversaire: m.adversaire || '?',
+            competition: m.competition || '',
+            resultat: m.resultat || '',
+            date_iso: m.date || '',
+            date_display: formattedDates[idx],
+            match_url: m.match_url || (m.match_id ? `/matchs/${m.match_id}` : null),
         };
 
-        if (winsInGroup > 0 && !processed.has(key + '_V')) {
-            victories.push({
-                x: d.date,
-                y: d.niveau_rank,
-                r: bubbleSize(winsInGroup),
-                count: winsInGroup,
-                adversaires: group.items.filter(i => i.resultat === 'V').map(i => i.adversaire + ' (' + i.score + ')').join(', '),
-                competition: d.competition,
-                niveau: d.niveau,
-            });
-            processed.add(key + '_V');
-        }
-
-        if (lossesInGroup > 0 && !processed.has(key + '_D')) {
-            defeats.push({
-                x: d.date,
-                y: d.niveau_rank,
-                r: bubbleSize(lossesInGroup),
-                count: lossesInGroup,
-                adversaires: group.items.filter(i => i.resultat === 'D').map(i => i.adversaire + ' (' + i.score + ')').join(', '),
-                competition: d.competition,
-                niveau: d.niveau,
-            });
-            processed.add(key + '_D');
-        }
+        bars[idx] = isWin ? [0, scoreLevel] : [scoreLevel, topAnchor];
+        barsMeta[idx] = barMeta;
     });
 
-    // Ligne de tendance (niveau moyen sur une fenêtre glissante)
-    const lineData = [];
-    const sortedByDate = [...niveauData].sort((a, b) => a.date.localeCompare(b.date));
-    const windowSize = Math.max(1, Math.floor(sortedByDate.length / 8));
+    const zonePlugin = {
+        id: 'scoreZones',
+        beforeDraw(chart) {
+            const { ctx, chartArea, scales } = chart;
+            if (!chartArea || !scales || !scales.y) return;
 
-    for (let i = 0; i < sortedByDate.length; i++) {
-        const start = Math.max(0, i - windowSize + 1);
-        const window = sortedByDate.slice(start, i + 1);
-        const avg = window.reduce((sum, d) => sum + d.niveau_rank, 0) / window.length;
-        lineData.push({ x: sortedByDate[i].date, y: avg });
-    }
+            const yScale = scales.y;
+            const topY = yScale.getPixelForValue(topAnchor);
+            const splitY = yScale.getPixelForValue(winBandLimit + 0.5);
+            const bottomY = yScale.getPixelForValue(0);
+            const width = chartArea.right - chartArea.left;
 
-    // Dédupliquer les dates pour la ligne
-    const uniqueLineData = [];
-    const seenDates = new Set();
-    lineData.forEach(d => {
-        if (!seenDates.has(d.x)) {
-            uniqueLineData.push(d);
-            seenDates.add(d.x);
-        } else {
-            // Mettre à jour la dernière entrée pour cette date
-            const last = uniqueLineData[uniqueLineData.length - 1];
-            if (last && last.x === d.x) last.y = d.y;
+            ctx.save();
+            const winZoneGradient = ctx.createLinearGradient(0, splitY, 0, bottomY);
+            winZoneGradient.addColorStop(0, 'rgba(34, 197, 94, 0.06)');
+            winZoneGradient.addColorStop(1, 'rgba(34, 197, 94, 0.18)');
+            ctx.fillStyle = winZoneGradient;
+            ctx.fillRect(chartArea.left, splitY, width, bottomY - splitY);
+
+            const lossZoneGradient = ctx.createLinearGradient(0, topY, 0, splitY);
+            lossZoneGradient.addColorStop(0, 'rgba(239, 68, 68, 0.18)');
+            lossZoneGradient.addColorStop(1, 'rgba(239, 68, 68, 0.06)');
+            ctx.fillStyle = lossZoneGradient;
+            ctx.fillRect(chartArea.left, topY, width, splitY - topY);
+
+            ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(chartArea.left, splitY);
+            ctx.lineTo(chartArea.right, splitY);
+            ctx.stroke();
+            ctx.restore();
         }
-    });
+    };
 
-    // Déterminer l'unité temporelle adaptée
-    const dates = niveauData.map(d => new Date(d.date));
-    const timeSpanDays = (Math.max(...dates) - Math.min(...dates)) / (1000 * 60 * 60 * 24);
-    let timeUnit = 'month';
-    if (timeSpanDays < 60) timeUnit = 'week';
-    else if (timeSpanDays < 14) timeUnit = 'day';
-    else if (timeSpanDays > 365) timeUnit = 'quarter';
+    const hoverBandPlugin = {
+        id: 'scoreHoverBand',
+        beforeDatasetsDraw(chart) {
+            const active = chart.tooltip && chart.tooltip.getActiveElements
+                ? chart.tooltip.getActiveElements()
+                : [];
+            if (!active || active.length === 0) return;
 
-    new Chart(ctx, {
-        type: 'bubble',
+            const { ctx, chartArea } = chart;
+            if (!chartArea) return;
+
+            const idx = active[0].index;
+            const meta = chart.getDatasetMeta(0);
+            if (!meta || !meta.data || !meta.data[idx]) return;
+
+            const bar = meta.data[idx];
+            const props = bar.getProps(['x', 'width'], true);
+            const width = Math.max((props.width || 0) + 10, 18);
+
+            ctx.save();
+            ctx.fillStyle = 'rgba(59, 130, 246, 0.12)';
+            ctx.fillRect(
+                props.x - width / 2,
+                chartArea.top,
+                width,
+                chartArea.bottom - chartArea.top
+            );
+            ctx.restore();
+        }
+    };
+
+    const barThickness = Math.max(18, Math.min(44, Math.floor(900 / Math.max(sorted.length, 12))));
+
+    new Chart(canvas, {
+        type: 'bar',
         data: {
+            labels: xLabels,
             datasets: [
                 {
-                    label: 'Victoires',
-                    data: victories,
-                    backgroundColor: 'rgba(34, 197, 94, 0.6)',
-                    borderColor: '#22c55e',
-                    borderWidth: 1.5,
-                    hoverBackgroundColor: 'rgba(34, 197, 94, 0.9)',
-                    order: 2,
+                    label: 'Matchs',
+                    data: bars,
+                    borderSkipped: false,
+                    borderWidth: function(context) {
+                        return barsMeta[context.dataIndex] ? 1.8 : 0;
+                    },
+                    borderColor: function(context) {
+                        const meta = barsMeta[context.dataIndex];
+                        if (!meta) return 'rgba(0, 0, 0, 0)';
+                        return meta.is_win ? '#22c55e' : '#ef4444';
+                    },
+                    backgroundColor: function(context) {
+                        const meta = barsMeta[context.dataIndex];
+                        if (!meta) return 'rgba(0, 0, 0, 0)';
+                        const { chart } = context;
+                        const { ctx, chartArea } = chart;
+                        if (!chartArea) {
+                            return meta.is_win
+                                ? 'rgba(34, 197, 94, 0.78)'
+                                : 'rgba(239, 68, 68, 0.78)';
+                        }
+
+                        const gradient = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
+                        if (meta.is_win) {
+                            gradient.addColorStop(0.0, 'rgba(22, 163, 74, 0.52)');
+                            gradient.addColorStop(0.85, 'rgba(74, 222, 128, 0.92)');
+                        } else {
+                            gradient.addColorStop(0.15, 'rgba(248, 113, 113, 0.92)');
+                            gradient.addColorStop(1.0, 'rgba(153, 27, 27, 0.50)');
+                        }
+                        return gradient;
+                    },
+                    hoverBackgroundColor: function(context) {
+                        const meta = barsMeta[context.dataIndex];
+                        if (!meta) return 'rgba(0, 0, 0, 0)';
+                        return meta.is_win
+                            ? 'rgba(74, 222, 128, 0.98)'
+                            : 'rgba(248, 113, 113, 0.98)';
+                    },
+                    borderRadius: function(context) {
+                        const meta = barsMeta[context.dataIndex];
+                        if (!meta) return 0;
+                        if (meta.is_win) {
+                            return {
+                                topLeft: 10,
+                                topRight: 10,
+                                bottomLeft: 1,
+                                bottomRight: 1,
+                            };
+                        }
+                        return {
+                            topLeft: 1,
+                            topRight: 1,
+                            bottomLeft: 10,
+                            bottomRight: 10,
+                        };
+                    },
+                    categoryPercentage: 0.98,
+                    barPercentage: 0.98,
+                    grouped: false,
+                    barThickness: barThickness,
+                    maxBarThickness: 44,
                 },
-                {
-                    label: 'Défaites',
-                    data: defeats,
-                    backgroundColor: 'rgba(239, 68, 68, 0.6)',
-                    borderColor: '#ef4444',
-                    borderWidth: 1.5,
-                    hoverBackgroundColor: 'rgba(239, 68, 68, 0.9)',
-                    order: 2,
-                },
-                {
-                    label: 'Tendance',
-                    data: uniqueLineData,
-                    type: 'line',
-                    borderColor: 'rgba(59, 130, 246, 0.5)',
-                    borderWidth: 2,
-                    borderDash: [6, 3],
-                    pointRadius: 0,
-                    pointHoverRadius: 0,
-                    fill: false,
-                    tension: 0.4,
-                    order: 1,
-                }
-            ]
+            ],
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            animation: {
+                duration: 700,
+                easing: 'easeOutQuart',
+            },
+            interaction: {
+                mode: 'nearest',
+                intersect: true,
+            },
             scales: {
                 x: {
-                    type: 'time',
-                    time: {
-                        unit: timeUnit,
-                        displayFormats: {
-                            day: 'dd/MM',
-                            week: 'dd/MM',
-                            month: 'MMM yyyy',
-                            quarter: 'MMM yyyy',
-                        },
-                        tooltipFormat: 'dd/MM/yyyy',
+                    grid: {
+                        display: false,
                     },
-                    grid: { color: 'rgba(42, 48, 80, 0.5)' },
-                    ticks: { color: '#5a6178', font: { size: 11 }, maxRotation: 45 },
-                    title: { display: true, text: 'Date', color: '#8b92a8' },
-                },
-                y: {
-                    min: minRank,
-                    max: maxRank,
-                    grid: { color: 'rgba(42, 48, 80, 0.3)' },
                     ticks: {
                         color: '#8b92a8',
-                        font: { size: 11, weight: '600' },
-                        stepSize: 1,
-                        callback: function(value) {
-                            return NIVEAU_LABELS[value] || '';
-                        }
+                        maxRotation: 55,
+                        minRotation: 45,
+                        maxTicksLimit: 14,
                     },
-                    title: { display: true, text: 'Niveau', color: '#8b92a8' },
-                }
+                },
+                y: {
+                    min: 0,
+                    max: topAnchor,
+                    grid: { color: 'rgba(42, 48, 80, 0.35)' },
+                    ticks: {
+                        stepSize: 1,
+                        color: '#8b92a8',
+                        font: { size: 11, weight: '600' },
+                        callback: function(value) {
+                            const iv = Number(value);
+                            if (!Number.isInteger(iv) || iv < 1 || iv > totalBands) return '';
+                            return scoreLabels[iv - 1] || '';
+                        },
+                    },
+                },
             },
             plugins: {
                 legend: { display: false },
@@ -597,27 +680,44 @@ document.addEventListener('DOMContentLoaded', function() {
                     callbacks: {
                         title: function(items) {
                             if (!items.length) return '';
-                            const d = items[0].raw;
-                            return d.x;
+                            const item = items[0];
+                            const meta = barsMeta[item.dataIndex];
+                            if (!meta) return '';
+                            const d = meta;
+                            const prefix = d.resultat === 'V' ? 'Victoire' : 'Défaite';
+                            return `${prefix} · ${d.date_display || ''}`;
                         },
                         label: function(ctx) {
-                            const d = ctx.raw;
-                            if (d.r === undefined) return ''; // Ligne de tendance
-                            const lines = [];
-                            lines.push((ctx.dataset.label || '') + ' — ' + d.niveau);
-                            if (d.count > 1) lines.push(d.count + ' matchs');
-                            if (d.adversaires) lines.push('vs ' + d.adversaires);
-                            if (d.competition) lines.push(d.competition);
-                            return lines;
-                        }
-                    }
+                            const meta = barsMeta[ctx.dataIndex];
+                            if (!meta) return '';
+                            const d = meta;
+                            return [
+                                `Score: ${d.score}`,
+                                `Adversaire: ${d.adversaire}`,
+                            ];
+                        },
+                        afterLabel: function(ctx) {
+                            const d = barsMeta[ctx.dataIndex];
+                            return d && d.competition ? `Compétition: ${d.competition}` : '';
+                        },
+                    },
+                },
+            },
+            onClick: function(_event, elements) {
+                if (!elements || elements.length === 0) return;
+                const hit = elements[0];
+                const meta = barsMeta[hit.index];
+                if (meta && meta.match_url) {
+                    window.location.href = meta.match_url;
                 }
             },
-            interaction: {
-                intersect: true,
-                mode: 'point',
+            onHover: function(event, elements) {
+                const target = event && event.native ? event.native.target : null;
+                if (!target) return;
+                target.style.cursor = elements && elements.length ? 'pointer' : 'default';
             },
-        }
+        },
+        plugins: [zonePlugin, hoverBandPlugin],
     });
 });
 </script>

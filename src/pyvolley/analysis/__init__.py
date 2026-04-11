@@ -1,44 +1,40 @@
-"""
-Module Analysis – Analyse de matchs, joueurs, équipes et compétitions.
+"""API publique du package ``pyvolley.analysis``.
 
-Fonctions principales :
-    analyze_match:       Analyse complète d'un match unique.
-    analyze_joueur_over_matches: Bilan d'un joueur sur plusieurs matchs.
-    analyze_equipe:      Bilan d'une équipe sur une série de matchs.
-    analyze_competition: Classement et statistiques d'une compétition/ligue.
+Le package expose uniquement les modules d'analyse actifs utilisés
+par l'API/web actuelle :
 
-Tous les résultats sont retournés sous forme de modèles Pydantic
-définis dans ``analysis.models``.
+- classement FFVB strict
+- statistiques détaillées joueur
 """
 
-from .match import analyze_match
-from .joueur import analyze_joueur_over_matches
-from .equipe import analyze_equipe
-from .competition import analyze_competition
+from .classement import (
+    MatchData,
+    LigneClassement,
+    EvolutionJournee,
+    ClassementComplet,
+    calculer_classement,
+    calculer_classement_complet,
+)
+from .joueur_stats import analyze_joueur_match, aggregate_joueur_stats, build_set_timeline
 from .models import (
-    MatchAnalysis,
-    SetAnalysis,
-    JoueurMatchAnalysis,
     PresenceSet,
-    ServiceStats,
-    EquipeSeasonRecord,
-    JoueurSeasonRecord,
-    CompetitionAnalysis,
+    ServiceSetDetail,
+    JoueurMatchDetailedStats,
+    JoueurStatsAggregated,
 )
 
 __all__ = [
-    # Fonctions d'analyse
-    "analyze_match",
-    "analyze_joueur_over_matches",
-    "analyze_equipe",
-    "analyze_competition",
-    # Modèles de résultats
-    "MatchAnalysis",
-    "SetAnalysis",
-    "JoueurMatchAnalysis",
+    "MatchData",
+    "LigneClassement",
+    "EvolutionJournee",
+    "ClassementComplet",
+    "calculer_classement",
+    "calculer_classement_complet",
+    "analyze_joueur_match",
+    "aggregate_joueur_stats",
+    "build_set_timeline",
     "PresenceSet",
-    "ServiceStats",
-    "EquipeSeasonRecord",
-    "JoueurSeasonRecord",
-    "CompetitionAnalysis",
+    "ServiceSetDetail",
+    "JoueurMatchDetailedStats",
+    "JoueurStatsAggregated",
 ]

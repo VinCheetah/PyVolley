@@ -78,23 +78,21 @@ async def competitions_list(
     saison_id_int = parse_optional_int(saison_id)
 
     limit = 50
-    if saison_id_int:
-        competitions = repo.get_by_saison(
-            saison_id_int,
-            genre=genre,
-            categorie=categorie,
-            exclude_code_only=True,
-        )
-    else:
-        offset = (page - 1) * limit
-        competitions = repo.get_all(
-            limit=limit,
-            offset=offset,
-            genre=genre,
-            categorie=categorie,
-            exclude_code_only=True,
-        )
-    total = repo.count()
+    offset = (page - 1) * limit
+    competitions = repo.get_all(
+        limit=limit,
+        offset=offset,
+        saison_id=saison_id_int,
+        genre=genre,
+        categorie=categorie,
+        exclude_code_only=True,
+    )
+    total = repo.count_filtered(
+        saison_id=saison_id_int,
+        genre=genre,
+        categorie=categorie,
+        exclude_code_only=True,
+    )
     saisons = saison_repo.get_all(limit=20)
     genres = repo.get_distinct_genres()
     categories = repo.get_distinct_categories()
@@ -105,7 +103,7 @@ async def competitions_list(
             "competitions": competitions,
             "total": total,
             "page": page,
-            "has_next": False,
+            "has_next": offset + limit < total,
             "has_prev": page > 1,
             "saisons": saisons,
             "current_saison_id": saison_id_int,

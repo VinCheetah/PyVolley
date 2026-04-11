@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, joinedload
 
 from pyvolley.api.dependencies import get_session
-from pyvolley.database.models import ClubDB, SalleClubDB, MatchDB, CompetitionDB, EquipeDB
+from pyvolley.database.models import ClubDB, SalleClubDB, MatchDB, EquipeDB, ParticipationMatchDB
 from pyvolley.core.geo_data import get_department_for_city
 
 router = APIRouter(prefix="/map", tags=["map"])
@@ -23,7 +23,7 @@ class MapMarker(BaseModel):
     lat: float
     lng: float
     label: str
-    entity_type: str  # "club", "salle", "match", "competition"
+    entity_type: str  # "club", "salle", "match"
     entity_id: int
     popup_html: str
     icon_color: str = "blue"
@@ -148,7 +148,7 @@ def _match_popup(match: MatchDB) -> str:
 @router.get("/locations", response_model=MapResponse)
 async def get_map_locations(
     entity_type: Optional[str] = Query(
-        None, description="Filter by entity type: club, salle, match, competition"
+        None, description="Filter by entity type: club, salle, match"
     ),
     club_id: Optional[int] = Query(None, description="Filter by club ID"),
     competition_id: Optional[int] = Query(None, description="Filter by competition ID"),
@@ -236,6 +236,11 @@ async def get_map_locations(
                 (MatchDB.equipe_a_id == equipe_id)
                 | (MatchDB.equipe_b_id == equipe_id)
             )
+        if joueur_id is not None:
+            query = query.join(
+                ParticipationMatchDB,
+                ParticipationMatchDB.match_id == MatchDB.id,
+            ).filter(ParticipationMatchDB.joueur_id == joueur_id)
         if saison_id is not None:
             query = query.filter(MatchDB.saison_id == saison_id)
         if club_id is not None:

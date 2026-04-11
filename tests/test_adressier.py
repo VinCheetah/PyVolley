@@ -770,6 +770,77 @@ class TestImportMatchWithSourceUrl:
         assert match.parsing_status == "discovered"
         assert match.score_source == "export"
 
+    def test_source_url_change_requeues_already_parsed_match(self, adressier_session):
+        """Un changement d'URL source remet proprement le match dans la file parse."""
+        from datetime import datetime
+
+        from pyvolley.scrapers.ffvb.export_scraper import ExportMatchInfo
+        from pyvolley.database.models import MatchDB
+
+        service = ExportImportService(adressier_session)
+        initial_url = (
+            "https://www.ffvbbeach.org/ffvbapp/resu/ffvolley_fdme.php?"
+            "saison=2025%2F2026&codent=ABCCS&codmatch=EMA010"
+        )
+        updated_url = f"{initial_url}&rev=2"
+
+        first_batch = [
+            ExportMatchInfo(
+                code_match="EMA010",
+                entite_code="ABCCS",
+                poule_code="EMA",
+                saison="2025/2026",
+                equipe_a_nom="GRENOBLE VUC",
+                equipe_b_nom="HARNES VB",
+                club_a_code_ffvb="0382201",
+                club_b_code_ffvb="0622126",
+                match_joue=True,
+                score_sets="3/1",
+                vainqueur="GRENOBLE VUC",
+                feuille_match_url=initial_url,
+            )
+        ]
+
+        stats_first = service.import_matches(first_batch, "ABCCS", "2025/2026")
+        assert stats_first["imported"] == 1
+
+        match = adressier_session.execute(
+            select(MatchDB).where(MatchDB.code_match == "EMA010")
+        ).scalar_one()
+        match.parsing_status = "parsed"
+        match.has_details = True
+        match.source_pdf = "data/pdfs/2025-2026/ABCCS/EMA/EMA010.pdf"
+        match.parsed_at = datetime(2026, 1, 3, 10, 30, 0)
+        adressier_session.flush()
+
+        second_batch = [
+            ExportMatchInfo(
+                code_match="EMA010",
+                entite_code="ABCCS",
+                poule_code="EMA",
+                saison="2025/2026",
+                equipe_a_nom="GRENOBLE VUC",
+                equipe_b_nom="HARNES VB",
+                club_a_code_ffvb="0382201",
+                club_b_code_ffvb="0622126",
+                match_joue=True,
+                score_sets="3/1",
+                vainqueur="GRENOBLE VUC",
+                feuille_match_url=updated_url,
+            )
+        ]
+
+        stats_second = service.import_matches(second_batch, "ABCCS", "2025/2026")
+        assert stats_second["updated"] == 1
+
+        refreshed = adressier_session.execute(
+            select(MatchDB).where(MatchDB.code_match == "EMA010")
+        ).scalar_one()
+        assert refreshed.source_url == updated_url
+        assert refreshed.parsing_status == "discovered"
+        assert refreshed.source_pdf is None
+        assert refreshed.parsed_at is None
+
     def test_import_creates_clubs_and_equipes(self, adressier_session):
         """L'import crée automatiquement les clubs et équipes."""
         from pyvolley.scrapers.ffvb.export_scraper import ExportMatchInfo

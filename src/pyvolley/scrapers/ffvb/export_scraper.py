@@ -36,6 +36,11 @@ from pyvolley.scrapers.ffvb.plausibility import (
     ScrapePlausibilityEngine,
     summarize_scrape_issues,
 )
+from pyvolley.shared.match_status import (
+    compute_match_played,
+    normalize_score_sets,
+    score_sets_indicates_played,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -323,18 +328,8 @@ def _is_played_set_result(set_result: Optional[tuple[str, str]]) -> bool:
     if not set_result:
         return False
 
-    left_raw, right_raw = set_result
-    left = (left_raw or "").strip().upper()
-    right = (right_raw or "").strip().upper()
-
-    # Forfait explicite (3/P, P/3)
-    if left == "P" or right == "P":
-        return True
-
-    if left.isdigit() and right.isdigit():
-        return (int(left) + int(right)) > 0
-
-    return False
+    canonical = normalize_score_sets(f"{set_result[0]}/{set_result[1]}")
+    return score_sets_indicates_played(canonical)
 
 
 def _parse_date(date_str: str) -> Optional[date]:
@@ -475,6 +470,9 @@ def parse_export_csv(
     reader = csv.reader(io.StringIO(content), delimiter=";")
     matches: list[ExportMatchInfo] = []
     plausibility_engine = ScrapePlausibilityEngine()
+    skipped_short_rows = 0
+    skipped_missing_code = 0
+    skipped_placeholders = 0
 
     header_skipped = False
     for row_idx, row in enumerate(reader):
@@ -484,10 +482,12 @@ def parse_export_csv(
             continue
 
         if len(row) < MIN_COLUMNS:
+            skipped_short_rows += 1
             continue
 
         code_match = _clean_str(row[COL_MATCH])
         if not code_match:
+            skipped_missing_code += 1
             continue
 
         # Poule déduite du code match
@@ -506,6 +506,7 @@ def parse_export_csv(
                 "Match vide ignoré: %s (%s vs %s)",
                 code_match, equipe_a_nom, equipe_b_nom,
             )
+            skipped_placeholders += 1
             continue
 
         club_a_code = _clean_str(row[COL_EQA_NO])
@@ -580,15 +581,21 @@ def parse_export_csv(
                 forfait = True
 
         # Déterminer si le match est joué
+        sets_have_scores = any((score_a + score_b) > 0 for score_a, score_b in sets)
         has_set_result = _is_played_set_result(set_result)
-        match_joue = bool(sets) or has_set_result or forfait
+        score_sets = normalize_score_sets(
+            score_sets,
+            replace_forfeit_with_zero=forfait,
+        )
+        match_joue = compute_match_played(
+            score_sets=score_sets,
+            sets=sets,
+            forfait=forfait,
+            has_set_scores=sets_have_scores,
+        )
 
         # Score sets nettoyé pour les forfaits
-        if forfait and score_sets:
-            # Garder le score_sets tel quel pour traçabilité, mais
-            # normaliser le "P" en "0" pour le calcul
-            score_sets = score_sets.replace("P", "0").replace("p", "0")
-        elif score_sets and not has_set_result and not sets:
+        if score_sets and not match_joue:
             # Cas FFVB fréquent sur matchs à venir: "0/0"
             score_sets = None
 
@@ -652,12 +659,16 @@ def parse_export_csv(
         matches.append(match_info)
 
     logger.info(
-        "Export %s: %d matchs trouvés (%d joués, %d forfaits, %d poules uniques)",
+        "Export %s: %d matchs trouvés (%d joués, %d forfaits, %d poules uniques, "
+        "%d lignes courtes ignorées, %d sans code, %d placeholders)",
         entite_code,
         len(matches),
         sum(1 for m in matches if m.match_joue),
         sum(1 for m in matches if m.forfait),
         len({m.poule_code for m in matches}),
+        skipped_short_rows,
+        skipped_missing_code,
+        skipped_placeholders,
     )
 
     return matches

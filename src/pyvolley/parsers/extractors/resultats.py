@@ -18,6 +18,10 @@ from pyvolley.parsers.constants import ROLE_ARBITRE_MAP
 from pyvolley.parsers.utils import (
     split_nom_prenom, normalize_name, clean_team_name,
 )
+from pyvolley.shared.match_status import (
+    compute_match_played,
+    normalize_score_sets,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -97,20 +101,22 @@ def extract_resultat(lines: list[str], tidx: dict) -> dict:
 
 
 def is_match_played(resultat: dict) -> bool:
-    """Un match est considéré comme joué si un vainqueur est renseigné."""
-    return bool(resultat.get("vainqueur"))
+    """Détermine si un match est joué à partir du résultat global."""
+    return compute_match_played(
+        vainqueur=resultat.get("vainqueur"),
+        score_sets=resultat.get("score_final"),
+    )
 
 
 def has_detailed_scores(resultat: dict) -> bool:
     """True si la feuille contient un score de sets non nul (ex: 3/1)."""
-    sf = resultat.get("score_final", "0/0")
-    if not sf:
+    canonical = normalize_score_sets(resultat.get("score_final", "0/0"))
+    if not canonical:
         return False
-    try:
-        a, b = sf.split("/")
-        return int(a) + int(b) > 0
-    except (ValueError, AttributeError):
+    left, right = canonical.split("/", 1)
+    if not left.isdigit() or not right.isdigit():
         return False
+    return int(left) + int(right) > 0
 
 
 def detect_set_target_score(

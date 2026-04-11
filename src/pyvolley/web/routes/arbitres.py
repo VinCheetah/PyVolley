@@ -25,10 +25,11 @@ async def arbitres_list(
     limit = 50
     offset = (page - 1) * limit
     if q:
-        arbitres = repo.search_by_name(q, ligue=ligue, limit=limit)
+        arbitres = repo.search_by_name(q, ligue=ligue, limit=limit, offset=offset)
+        total = repo.count_search(q, ligue=ligue)
     else:
         arbitres = repo.get_all(limit=limit, offset=offset)
-    total = repo.count()
+        total = repo.count()
     ligues = repo.get_distinct_ligues()
     return templates.TemplateResponse(
         "arbitres/list.html",

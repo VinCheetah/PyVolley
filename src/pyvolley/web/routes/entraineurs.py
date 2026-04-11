@@ -24,10 +24,11 @@ async def entraineurs_list(
     limit = 50
     offset = (page - 1) * limit
     if q:
-        entraineurs = repo.search_by_name(q, limit=limit)
+        entraineurs = repo.search_by_name(q, limit=limit, offset=offset)
+        total = repo.count_search(q)
     else:
         entraineurs = repo.get_all(limit=limit, offset=offset)
-    total = repo.count()
+        total = repo.count()
     return templates.TemplateResponse(
         "entraineurs/list.html",
         {

@@ -27,21 +27,28 @@
    base_url: the page URL without query params (e.g. '/joueurs')
    guard: if true, only show when no search query is active (for list pages with search) #}
 {% macro pagination(page, has_prev, has_next, base_url, guard=false) %}
-{% if not guard or not query %}
+{% set preserved = [] %}
+{% if request is defined and request.query_params is defined %}
+{% for key, value in request.query_params.multi_items() %}
+{% if key != 'page' and value is not none and value != '' %}
+{% set _ = preserved.append((key|urlencode) ~ '=' ~ (value|urlencode)) %}
+{% endif %}
+{% endfor %}
+{% endif %}
+{% set prefix = '?' ~ ('&'.join(preserved) ~ '&' if preserved else '') %}
 <div class="flex justify-center gap-2">
     {% if has_prev %}
-    <a href="{{ base_url }}?page={{ page - 1 }}" class="pagination-btn">
+    <a href="{{ base_url }}{{ prefix }}page={{ page - 1 }}" class="pagination-btn">
         <i data-lucide="chevron-left" class="w-4 h-4"></i> Précédent
     </a>
     {% endif %}
     <span class="pagination-btn opacity-60">Page {{ page }}</span>
     {% if has_next %}
-    <a href="{{ base_url }}?page={{ page + 1 }}" class="pagination-btn">
+    <a href="{{ base_url }}{{ prefix }}page={{ page + 1 }}" class="pagination-btn">
         Suivant <i data-lucide="chevron-right" class="w-4 h-4"></i>
     </a>
     {% endif %}
 </div>
-{% endif %}
 {% endmacro %}
 
 

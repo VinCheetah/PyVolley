@@ -1,6 +1,6 @@
 """Tests ciblés pour l'analyse détaillée des stats joueur."""
 
-from pyvolley.analysis.joueur_stats import analyze_joueur_match
+from pyvolley.analysis.joueur_stats import analyze_joueur_match, aggregate_joueur_stats
 from pyvolley.core.models import Match, Equipe, Joueur, Set, SetTeamData, Formation
 
 
@@ -73,3 +73,24 @@ def test_service_series_metrics_are_exposed_with_clear_names():
     # Champs de compatibilité
     assert stats.nb_services == stats.services
     assert stats.meilleure_serie == stats.max_serie
+
+    # Nouveaux indicateurs côté service/side-out
+    assert stats.points_gagnes_sideout == max(0, stats.points_gagnes - stats.points_gagnes_service)
+    if stats.services > 0:
+        assert stats.break_point_ratio == round(stats.points_gagnes_service / stats.services, 3)
+    if stats.points_gagnes > 0:
+        assert stats.sideout_contribution_ratio == round(stats.points_gagnes_sideout / stats.points_gagnes, 3)
+
+    aggregated = aggregate_joueur_stats([stats])
+    assert aggregated is not None
+    assert aggregated.total_points_gagnes_sideout == stats.points_gagnes_sideout
+    if aggregated.total_services > 0:
+        assert aggregated.break_point_ratio_global == round(
+            aggregated.total_points_gagnes_service / aggregated.total_services,
+            3,
+        )
+    if aggregated.total_points_gagnes > 0:
+        assert aggregated.ratio_points_gagnes_sideout_global == round(
+            aggregated.total_points_gagnes_sideout / aggregated.total_points_gagnes,
+            3,
+        )

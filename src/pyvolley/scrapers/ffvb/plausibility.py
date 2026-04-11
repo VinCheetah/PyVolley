@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Optional
 
+from pyvolley.shared.match_status import compute_match_played, score_sets_indicates_played
+
 
 @dataclass
 class ScrapePlausibilityIssue:
@@ -44,24 +46,8 @@ def _parse_season_bounds(saison: str) -> tuple[Optional[int], Optional[int]]:
 
 
 def _score_sets_indicates_played(score_sets: Optional[str]) -> bool:
-    """True si ``score_sets`` correspond à un résultat réellement joué.
-
-    ``0/0`` (ou équivalent) n'est pas un résultat joué.
-    """
-    if not score_sets or "/" not in score_sets:
-        return False
-
-    left_raw, right_raw = score_sets.split("/", 1)
-    left = left_raw.strip().upper()
-    right = right_raw.strip().upper()
-
-    if left == "P" or right == "P":
-        return True
-
-    if left.isdigit() and right.isdigit():
-        return (int(left) + int(right)) > 0
-
-    return False
+    """True si ``score_sets`` correspond à un résultat réellement joué."""
+    return score_sets_indicates_played(score_sets)
 
 
 class ScrapePlausibilityEngine:
@@ -284,10 +270,10 @@ class ScrapePlausibilityEngine:
                     )
                 )
 
-        should_be_played = bool(
-            match.forfait
-            or match.sets
-            or _score_sets_indicates_played(match.score_sets)
+        should_be_played = compute_match_played(
+            score_sets=match.score_sets,
+            sets=match.sets,
+            forfait=match.forfait,
         )
         if should_be_played and not match.match_joue:
             match.match_joue = True

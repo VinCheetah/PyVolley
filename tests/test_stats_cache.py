@@ -7,8 +7,10 @@ Couvre :
 """
 
 import json
+from datetime import timedelta
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 
@@ -187,6 +189,30 @@ class TestGetCachedOrCompute:
 
         # Add a new match — cache becomes stale
         _add_played_match(session, "NEW-002")
+        session.commit()
+
+        service2 = StatsAmusantesService(session)
+        result, from_cache = service2.get_cached_or_compute(filters)
+        assert from_cache is False
+        assert "top_matchs" in result
+
+    def test_bypasses_cache_when_match_data_changed_but_count_stable(self, session: Session):
+        _add_played_match(session, "UNCHANGED-COUNT-001")
+        session.commit()
+
+        service = StatsAmusantesService(session)
+        filters = StatsFilters()
+        service.compute_and_store(filters)
+
+        match = session.scalar(
+            select(MatchDB).where(MatchDB.code_match == "UNCHANGED-COUNT-001")
+        )
+        assert match is not None
+        match.sets_equipe_b = 2
+        match.score_sets = "3/2"
+        # Force une valeur clairement postérieure au cache pour éviter toute ambiguïté temporelle.
+        assert match.updated_at is not None
+        match.updated_at = match.updated_at + timedelta(minutes=10)
         session.commit()
 
         service2 = StatsAmusantesService(session)

@@ -59,6 +59,7 @@ from pyvolley.parsers.plausibility import (
     issues_to_diagnostics,
     ApprovalCallback,
 )
+from pyvolley.shared.match_status import compute_match_played
 
 logger = logging.getLogger(__name__)
 
@@ -263,6 +264,12 @@ class MatchSheetParser(BaseParser):
                     for r in res_data
                 )
 
+                match_joue = compute_match_played(
+                    vainqueur=resultat.get("vainqueur"),
+                    score_sets=resultat.get("score_final"),
+                    has_set_scores=has_set_scores,
+                )
+
                 if match_joue and not has_detail_score and not has_set_scores:
                     tables_fallback = page.extract_tables(
                         table_settings=_FALLBACK_TABLE_SETTINGS,
@@ -280,6 +287,12 @@ class MatchSheetParser(BaseParser):
                         has_set_scores = True
                         if fallback_duree and not resultat.get("duree_totale"):
                             resultat["duree_totale"] = fallback_duree
+
+                match_joue = compute_match_played(
+                    vainqueur=resultat.get("vainqueur"),
+                    score_sets=resultat.get("score_final"),
+                    has_set_scores=has_set_scores,
+                )
 
                 # ── Phase 4 : Détails des sets ──
                 sets_detailed: list[dict] = []
@@ -391,6 +404,24 @@ class MatchSheetParser(BaseParser):
                     )
                     result.plausibility_report = plausibility_report
                     diag.extend(issues_to_diagnostics(plausibility_report.issues))
+
+                # Synchroniser match_joue avec les champs réellement exploitable
+                synced_played = compute_match_played(
+                    vainqueur=match.vainqueur_nom,
+                    score_sets=match.score_final,
+                    sets=match.sets,
+                    sets_a=match.sets_a,
+                    sets_b=match.sets_b,
+                    declared_played=match.match_joue,
+                )
+                if synced_played != match.match_joue:
+                    diag.data_info(
+                        Cat.MATCH_STATUS,
+                        f"match_joue synchronisé: {match.match_joue} -> {synced_played}",
+                    )
+                    match.match_joue = synced_played
+
+                match_joue = match.match_joue
 
                 # ── Warnings contextuels ──
                 if not match_joue:

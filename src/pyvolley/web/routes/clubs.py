@@ -152,12 +152,12 @@ async def clubs_list(
 ):
     limit = 50
     offset = (page - 1) * limit
-    clubs = (
-        repo.search_by_name(q, limit=limit)
-        if q
-        else repo.get_all(limit=limit, offset=offset)
-    )
-    total = repo.count()
+    if q:
+        clubs = repo.search_by_name(q, limit=limit, offset=offset)
+        total = repo.count_search(q)
+    else:
+        clubs = repo.get_all(limit=limit, offset=offset)
+        total = repo.count()
     return templates.TemplateResponse(
         "clubs/list.html",
         {

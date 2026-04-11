@@ -513,26 +513,4 @@
     };
   };
 
-  // ══════════════════════════════════════════════════════════════════
-  // URL helpers (also usable by other filters on the page)
-  // ══════════════════════════════════════════════════════════════════
-
-  window.updateFilter = function (key, value) {
-    var params = new URLSearchParams(window.location.search);
-    if (value) {
-      params.set(key, value);
-    } else {
-      params.delete(key);
-    }
-    params.delete('page');
-    var qs = params.toString();
-    window.location.href = window.location.pathname + (qs ? '?' + qs : '');
-  };
-
-  window.goToPage = function (page) {
-    var params = new URLSearchParams(window.location.search);
-    params.set('page', page);
-    window.location.href = window.location.pathname + '?' + params.toString();
-  };
-
 })();

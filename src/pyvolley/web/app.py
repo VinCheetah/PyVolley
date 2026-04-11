@@ -32,8 +32,8 @@ def create_web_app() -> FastAPI:
         description="Application web pour la consultation des données volleyball FFVB",
         version="2.0.0",
         lifespan=lifespan,
-        docs_url=None,
-        redoc_url=None,
+        docs_url="/api/docs",
+        redoc_url="/api/redoc",
     )
 
     # Créer le dossier static s'il n'existe pas

@@ -38,12 +38,30 @@ from .models import (
     PresenceSet,
     ServiceSetDetail,
 )
-from .match import _norm, _is_in_formation, _position_in_formation
+def _norm(numero: Optional[str]) -> str:
+    """Normalise un numéro de maillot pour comparaison robuste."""
+    if numero is None:
+        return ""
+    return numero.lstrip("0") or "0"
 
 
-# ── Constantes ───────────────────────────────────────────────────
+def _is_in_formation(td: SetTeamData, numero: str) -> bool:
+    """Vérifie si un joueur est dans la formation de départ."""
+    if not td.formation:
+        return False
+    n = _norm(numero)
+    return any(_norm(p) == n for p in td.formation.as_list())
 
-_BACK_ROW_POSITIONS = {1, 5, 6}
+
+def _position_in_formation(td: SetTeamData, numero: str) -> Optional[int]:
+    """Retourne la position (1-6) d'un joueur dans la formation."""
+    if not td.formation:
+        return None
+    n = _norm(numero)
+    for i, p in enumerate(td.formation.as_list()):
+        if _norm(p) == n:
+            return i + 1
+    return None
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -527,7 +545,10 @@ def analyze_joueur_match(
     victoire = match.vainqueur == side
 
     pts_service_total = sum(d.points_marques for d in detail_services)
+    pts_sideout_total = max(0, total_points_gagnes - pts_service_total)
     ratio_points_gagnes = round(total_points_gagnes / total_points_joues, 3) if total_points_joues > 0 else 0.0
+    break_point_ratio = round(pts_service_total / total_nb_services, 3) if total_nb_services > 0 else 0.0
+    sideout_contribution_ratio = round(pts_sideout_total / total_points_gagnes, 3) if total_points_gagnes > 0 else 0.0
     moyenne_services_par_serie = round(total_nb_services / total_nb_series, 2) if total_nb_series > 0 else 0.0
     sanctions = _collect_sanctions(match, joueur, side)
 
@@ -544,9 +565,12 @@ def analyze_joueur_match(
         score_match=match.score_sets,
         points_gagnes=total_points_gagnes,
         points_gagnes_service=pts_service_total,
+        points_gagnes_sideout=pts_sideout_total,
         points_perdus=total_points_perdus,
         points_joues=total_points_joues,
         ratio_points_gagnes=ratio_points_gagnes,
+        break_point_ratio=break_point_ratio,
+        sideout_contribution_ratio=sideout_contribution_ratio,
         services=total_nb_services,
         serie=total_nb_series,
         max_serie=max_serie_match,
@@ -582,6 +606,12 @@ def aggregate_joueur_stats(
         return None
 
     first = stats_list[0]
+    total_tours_service = sum(
+        detail.nb_tours
+        for stats in stats_list
+        for detail in stats.detail_services_par_set
+    )
+
     result = JoueurStatsAggregated(
         nom=first.nom,
         prenom=first.prenom,
@@ -593,12 +623,13 @@ def aggregate_joueur_stats(
         total_sets_titulaire=sum(s.sets_titulaire for s in stats_list),
         total_points_gagnes=sum(s.points_gagnes for s in stats_list),
         total_points_gagnes_service=sum(s.points_gagnes_service for s in stats_list),
+        total_points_gagnes_sideout=sum(s.points_gagnes_sideout for s in stats_list),
         total_points_perdus=sum(s.points_perdus for s in stats_list),
         total_points_joues=sum(s.points_joues for s in stats_list),
         total_services=sum(s.services for s in stats_list),
         total_series_service=sum(s.serie for s in stats_list),
         max_serie_service=max((s.max_serie for s in stats_list), default=0),
-        total_tours_service=sum(s.serie for s in stats_list),
+        total_tours_service=total_tours_service,
         meilleure_serie_service=max(
             (s.meilleure_serie for s in stats_list), default=0
         ),
@@ -613,16 +644,25 @@ def aggregate_joueur_stats(
         total_sanctions=sum(len(s.sanctions) for s in stats_list),
     )
 
-    if result.total_series_service > 0:
+    if result.total_tours_service > 0:
         result.moyenne_points_par_tour = round(
-            result.total_points_gagnes_service / result.total_series_service, 2,
+            result.total_points_gagnes_service / result.total_tours_service, 2,
         )
+    if result.total_series_service > 0:
         result.moyenne_services_par_serie = round(
             result.total_services / result.total_series_service, 2,
         )
     if result.total_points_joues > 0:
         result.ratio_points_gagnes_global = round(
             result.total_points_gagnes / result.total_points_joues, 3,
+        )
+    if result.total_services > 0:
+        result.break_point_ratio_global = round(
+            result.total_points_gagnes_service / result.total_services, 3,
+        )
+    if result.total_points_gagnes > 0:
+        result.ratio_points_gagnes_sideout_global = round(
+            result.total_points_gagnes_sideout / result.total_points_gagnes, 3,
         )
     if result.matchs_joues > 0:
         result.moyenne_temps_par_match = round(

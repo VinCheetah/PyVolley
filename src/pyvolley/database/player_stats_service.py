@@ -29,6 +29,11 @@ class JoueurMatchStatsService:
 
         participants = list(match_db.participations or [])
         if not participants:
+            self.repo.replace_for_match(
+                match_db.id,
+                [],
+                match_updated_at=match_db.updated_at,
+            )
             return 0
 
         valid_participants = [
@@ -37,6 +42,11 @@ class JoueurMatchStatsService:
             if p.joueur and p.joueur.licence
         ]
         if not valid_participants:
+            self.repo.replace_for_match(
+                match_db.id,
+                [],
+                match_updated_at=match_db.updated_at,
+            )
             return 0
 
         expected_ids = [p.joueur_id for p in valid_participants]
@@ -84,6 +94,11 @@ class JoueurMatchStatsService:
 
         for entry in entries:
             side = entry.stats_data.get("side")
+            if side not in {"A", "B"}:
+                if entry.equipe_id is not None and entry.equipe_id == match_db.equipe_a_id:
+                    side = "A"
+                elif entry.equipe_id is not None and entry.equipe_id == match_db.equipe_b_id:
+                    side = "B"
             payload = {"joueur_id": entry.joueur_id, "stats": entry.stats_data}
             if side == "A":
                 stats_a.append(payload)

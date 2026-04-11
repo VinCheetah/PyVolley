@@ -24,6 +24,11 @@ from sqlalchemy import select
 
 from pyvolley.scrapers.ffvb.export_scraper import ExportMatchInfo, ArbitreInfo
 from pyvolley.scrapers.ffvb.adressier_scraper import AdressierClubInfo, SalleInfo
+from pyvolley.shared.match_status import (
+    compute_match_played,
+    normalize_score_sets,
+    sets_indicate_played,
+)
 from pyvolley.database.club_matching import normalize_club_name
 from pyvolley.database.models import (
     SaisonDB, EntiteFFVBDB, CompetitionDB, PouleDB,
@@ -211,6 +216,7 @@ class ExportImportService:
                     "Erreur import match %s: %s",
                     match_info.code_match, e,
                 )
+                self.clear_caches()
                 stats["errors"] += 1
 
         # Finaliser l'audit
@@ -220,7 +226,8 @@ class ExportImportService:
         log_entry.duplicates = stats["duplicates"]
         log_entry.errors = stats["errors"]
         plausibility_stats = self._collect_plausibility_stats(matches)
-        if plausibility_stats["matches_with_issues"] > 0:
+        matches_with_issues = plausibility_stats.get("matches_with_issues")
+        if isinstance(matches_with_issues, (int, float)) and matches_with_issues > 0:
             log_entry.summary = json.dumps(
                 {"scrape_plausibility": plausibility_stats},
                 ensure_ascii=False,
@@ -322,6 +329,22 @@ class ExportImportService:
             match_info=match_info,
         )
 
+        normalized_score_sets = normalize_score_sets(
+            match_info.score_sets,
+            replace_forfeit_with_zero=match_info.forfait,
+        ) or match_info.score_sets
+        computed_played = compute_match_played(
+            vainqueur=match_info.vainqueur,
+            score_sets=normalized_score_sets,
+            sets=match_info.sets,
+            sets_a=match_info.sets_equipe_a,
+            sets_b=match_info.sets_equipe_b,
+            forfait=match_info.forfait,
+            declared_played=match_info.match_joue,
+            trust_declared=True,
+        )
+        has_details = sets_indicate_played(match_info.sets)
+
         match_db = MatchDB(
             code_match=match_info.code_match,
             date_match=match_info.date_match,
@@ -336,12 +359,13 @@ class ExportImportService:
             club_a_code_ffvb=match_info.club_a_code_ffvb,
             club_b_code_ffvb=match_info.club_b_code_ffvb,
             vainqueur=match_info.vainqueur,
-            score_sets=match_info.score_sets,
+            score_sets=normalized_score_sets,
             sets_equipe_a=match_info.sets_equipe_a,
             sets_equipe_b=match_info.sets_equipe_b,
-            match_joue=match_info.match_joue,
+            match_joue=computed_played,
             forfait=match_info.forfait,
-            score_source="export" if match_info.match_joue else None,
+            has_details=has_details,
+            score_source="export" if computed_played else None,
             parsing_status="discovered",
             source_url=match_info.feuille_match_url,
         )
@@ -350,7 +374,7 @@ class ExportImportService:
         self.session.flush()
 
         # Scores détaillés de sets depuis l'export CSV (phase scraping)
-        if match_info.sets:
+        if match_info.sets and has_details:
             self._replace_match_sets_from_export(match_db, match_info)
             match_db.has_details = True
             match_db.score_source = "export"
@@ -368,10 +392,32 @@ class ExportImportService:
     ) -> str:
         """Met à jour un match existant si les nouvelles données sont plus riches."""
         updated = False
+        parsed_locked = existing.parsing_status == "parsed"
+        normalized_score_sets = normalize_score_sets(
+            match_info.score_sets,
+            replace_forfeit_with_zero=match_info.forfait,
+        ) or match_info.score_sets
+        computed_played = compute_match_played(
+            vainqueur=match_info.vainqueur,
+            score_sets=normalized_score_sets,
+            sets=match_info.sets,
+            sets_a=match_info.sets_equipe_a,
+            sets_b=match_info.sets_equipe_b,
+            forfait=match_info.forfait,
+            declared_played=match_info.match_joue,
+            trust_declared=True,
+        )
 
-        # Ne pas écraser les données PDF par des données export
-        if existing.parsing_status == "parsed":
-            return "duplicates"
+        # Si l'URL source change, reprogrammer un passage download+parse propre.
+        new_source_url = (match_info.feuille_match_url or "").strip() or None
+        if new_source_url and existing.source_url != new_source_url:
+            existing.source_url = new_source_url
+            updated = True
+
+            if existing.parsing_status in {"downloaded", "parsed", "error"}:
+                existing.parsing_status = "discovered"
+                existing.source_pdf = None
+                existing.parsed_at = None
 
         # Mettre à jour les champs manquants
         if not existing.date_match and match_info.date_match:
@@ -390,46 +436,64 @@ class ExportImportService:
             existing.club_b_code_ffvb = match_info.club_b_code_ffvb
             updated = True
 
-        # Mettre à jour le score si le match est maintenant joué
-        if match_info.match_joue and not existing.match_joue:
-            existing.match_joue = True
-            existing.vainqueur = match_info.vainqueur
-            existing.score_sets = match_info.score_sets
-            existing.sets_equipe_a = match_info.sets_equipe_a
-            existing.sets_equipe_b = match_info.sets_equipe_b
-            existing.forfait = match_info.forfait
-            existing.score_source = "export"
-            updated = True
+        # Ne pas écraser les données PDF détaillées avec l'export CSV.
+        if not parsed_locked:
+            can_overwrite_score = (existing.score_source in {None, "export"}) or (not existing.match_joue)
 
-        # Corriger les faux positifs (match marqué joué sans résultat réel)
-        if (
-            (not match_info.match_joue)
-            and existing.match_joue
-            and existing.parsing_status != "parsed"
-        ):
-            existing.match_joue = False
-            existing.vainqueur = None
-            existing.score_sets = None
-            existing.sets_equipe_a = 0
-            existing.sets_equipe_b = 0
-            existing.forfait = False
-            if existing.score_source == "export":
-                existing.score_source = None
+            # Mettre à jour le score export si le match est joué et que les données changent.
+            if computed_played and can_overwrite_score:
+                score_changed = (
+                    (not existing.match_joue)
+                    or existing.vainqueur != match_info.vainqueur
+                    or existing.score_sets != normalized_score_sets
+                    or (existing.sets_equipe_a or 0) != (match_info.sets_equipe_a or 0)
+                    or (existing.sets_equipe_b or 0) != (match_info.sets_equipe_b or 0)
+                    or bool(existing.forfait) != bool(match_info.forfait)
+                    or existing.score_source != "export"
+                )
+                if score_changed:
+                    existing.match_joue = True
+                    existing.vainqueur = match_info.vainqueur
+                    existing.score_sets = normalized_score_sets
+                    existing.sets_equipe_a = match_info.sets_equipe_a
+                    existing.sets_equipe_b = match_info.sets_equipe_b
+                    existing.forfait = match_info.forfait
+                    existing.score_source = "export"
+                    updated = True
 
-            # Supprimer les sets injectés par export (si présents)
-            for old_set in list(existing.sets):
-                self.session.delete(old_set)
-            existing.has_details = False
-            updated = True
+            # Corriger les faux positifs (match marqué joué sans résultat réel)
+            if (not computed_played) and existing.match_joue and existing.score_source in {None, "export"}:
+                existing.match_joue = False
+                existing.vainqueur = None
+                existing.score_sets = None
+                existing.sets_equipe_a = 0
+                existing.sets_equipe_b = 0
+                existing.forfait = False
+                if existing.score_source == "export":
+                    existing.score_source = None
 
-        # Ajouter/rafraîchir les sets détaillés si disponibles en export
-        if match_info.sets and existing.parsing_status != "parsed":
-            old_scores = [(s.score_a, s.score_b) for s in existing.sets if s.score_a is not None and s.score_b is not None]
-            if old_scores != match_info.sets:
-                self._replace_match_sets_from_export(existing, match_info)
-                existing.has_details = True
-                existing.score_source = "export"
+                # Supprimer les sets injectés par export (si présents)
+                for old_set in list(existing.sets):
+                    self.session.delete(old_set)
+                existing.has_details = False
                 updated = True
+
+            # Ajouter/rafraîchir les sets détaillés si disponibles en export
+            if (
+                match_info.sets
+                and sets_indicate_played(match_info.sets)
+                and (existing.score_source in {None, "export"} or not existing.has_details)
+            ):
+                old_scores = [
+                    (s.score_a, s.score_b)
+                    for s in existing.sets
+                    if s.score_a is not None and s.score_b is not None
+                ]
+                if old_scores != match_info.sets:
+                    self._replace_match_sets_from_export(existing, match_info)
+                    existing.has_details = True
+                    existing.score_source = "export"
+                    updated = True
 
         if updated:
             existing.updated_at = datetime.now()

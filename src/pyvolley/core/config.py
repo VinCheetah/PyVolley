@@ -79,14 +79,15 @@ class Settings(BaseSettings):
         self.pdfs_dir.mkdir(parents=True, exist_ok=True)
         self.logs_dir.mkdir(parents=True, exist_ok=True)
         
-        # Construire l'URL de base de données
-        if self.postgres_host and self.postgres_user:
-            # PostgreSQL
-            self.database_url = self._build_postgres_url()
-        else:
-            # SQLite avec chemin absolu
-            db_path = self.data_dir / "pyvolley.db"
-            self.database_url = f"sqlite:///{db_path}"
+        # Construire l'URL de base de données (si non fournie explicitement)
+        if not self.database_url:
+            if self.postgres_host and self.postgres_user:
+                # PostgreSQL
+                self.database_url = self._build_postgres_url()
+            else:
+                # SQLite avec chemin absolu
+                db_path = self.data_dir / "pyvolley.db"
+                self.database_url = f"sqlite:///{db_path}"
     
     def _build_postgres_url(self) -> str:
         """Construit l'URL PostgreSQL depuis les variables individuelles."""

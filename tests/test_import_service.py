@@ -50,7 +50,7 @@ class TestBasicImport:
         assert result.match_joue is True
         assert result.has_details is True
         assert result.vainqueur == "AS Volley Paris"
-        assert result.score_sets == "3-0"
+        assert result.score_sets == "3/0"
         assert result.sets_equipe_a == 3
         assert result.sets_equipe_b == 0
         assert result.duree_totale == "1h15"
@@ -309,6 +309,51 @@ class TestJoueurImport:
         assert len(stats_rows) >= 10
         assert all("side" in r.stats_data for r in stats_rows)
         assert all("points_gagnes" in r.stats_data for r in stats_rows)
+
+    def test_compute_player_stats_clears_orphan_rows_when_no_participants(self, test_session):
+        """Le calcul purge les stats existantes si le match n'a plus de participants exploitables."""
+        from pyvolley.database.player_stats_service import JoueurMatchStatsService
+
+        saison = SaisonDB(code="2025-2026", nom="Saison 2025-2026")
+        competition = CompetitionDB(nom="Comp test", saison=saison)
+        joueur = JoueurDB(licence="L-ORPHAN", nom="ORPHAN", prenom="Row")
+        match = MatchDB(
+            code_match="ORPHAN-001",
+            saison=saison,
+            competition=competition,
+            has_details=True,
+        )
+        test_session.add_all([saison, competition, joueur, match])
+        test_session.flush()
+
+        stale_row = JoueurMatchStatsDB(
+            match_id=match.id,
+            joueur_id=joueur.id,
+            equipe_id=None,
+            stats_data={"side": "A", "points_gagnes": 1},
+            points_gagnes=1,
+            points_perdus=0,
+            points_joues=1,
+            points_gagnes_service=0,
+            services=0,
+            series=0,
+            max_serie=0,
+            moyenne_services_par_serie=0.0,
+            ratio_points_gagnes=1.0,
+            match_updated_at=match.updated_at,
+        )
+        test_session.add(stale_row)
+        test_session.commit()
+
+        service = JoueurMatchStatsService(test_session)
+        written = service.compute_and_store_for_match(match, force=True)
+        test_session.flush()
+
+        rows_after = test_session.scalars(
+            select(JoueurMatchStatsDB).where(JoueurMatchStatsDB.match_id == match.id)
+        ).all()
+        assert written == 0
+        assert rows_after == []
 
 
 # ============== Tests d'officiels et arbitres ==============

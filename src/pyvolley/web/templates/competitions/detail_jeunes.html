@@ -728,12 +728,6 @@
                             <i data-lucide="swords" class="w-4 h-4 inline-block mr-1"></i>
                             Tous les matchs ({{ matchs|length }})
                         </h2>
-                        <div x-data="{ filterPoule: '' }" class="flex items-center gap-2">
-                            <input type="text" placeholder="Filtrer par code poule..."
-                                   x-model="filterPoule"
-                                   class="px-3 py-1 rounded-lg text-xs"
-                                   style="background: var(--bg-card-hover); color: var(--text-primary); border: 1px solid var(--border-color);">
-                        </div>
                     </div>
                 </div>
                 <div class="overflow-x-auto" style="max-height: 600px; overflow-y: auto;">

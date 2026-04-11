@@ -79,6 +79,7 @@ class JoueurRepository(BaseRepository[JoueurDB]):
         genre: Optional[str] = None,
         saison_id: Optional[int] = None,
         limit: int = 20,
+        offset: int = 0,
     ) -> List[JoueurDB]:
         pattern = f"%{query}%"
         stmt = (
@@ -103,8 +104,38 @@ class JoueurRepository(BaseRepository[JoueurDB]):
             if saison_id:
                 stmt = stmt.where(EquipeDB.saison_id == saison_id)
             stmt = stmt.distinct()
-        stmt = stmt.limit(limit)
+        stmt = stmt.order_by(JoueurDB.nom, JoueurDB.prenom).limit(limit).offset(offset)
         return list(self.session.scalars(stmt))
+
+    def count_search(
+        self,
+        query: str,
+        genre: Optional[str] = None,
+        saison_id: Optional[int] = None,
+    ) -> int:
+        pattern = f"%{query}%"
+        stmt = (
+            select(func.count(distinct(JoueurDB.id)))
+            .select_from(JoueurDB)
+            .where(
+                or_(
+                    JoueurDB.nom.ilike(pattern),
+                    JoueurDB.prenom.ilike(pattern),
+                    (
+                        func.coalesce(JoueurDB.nom, "")
+                        + " "
+                        + func.coalesce(JoueurDB.prenom, "")
+                    ).ilike(pattern),
+                )
+            )
+        )
+        if genre or saison_id:
+            stmt = stmt.join(ParticipationMatchDB).join(EquipeDB)
+            if genre:
+                stmt = stmt.where(EquipeDB.genre == genre)
+            if saison_id:
+                stmt = stmt.where(EquipeDB.saison_id == saison_id)
+        return self.session.scalar(stmt) or 0
 
     def get_or_create(self, licence: str, nom: str, prenom: str) -> tuple[JoueurDB, bool]:
         existing = self.get_by_licence(licence)
@@ -403,7 +434,12 @@ class ClubRepository(BaseRepository[ClubDB]):
     def __init__(self, session: Session):
         super().__init__(session, ClubDB)
 
-    def search_by_name(self, query: str, limit: int = 20) -> List[ClubDB]:
+    def search_by_name(
+        self,
+        query: str,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> List[ClubDB]:
         pattern = f"%{query}%"
         stmt = (
             select(ClubDB)
@@ -418,8 +454,26 @@ class ClubRepository(BaseRepository[ClubDB]):
             )
             .order_by(ClubDB.nom)
             .limit(limit)
+            .offset(offset)
         )
         return list(self.session.scalars(stmt))
+
+    def count_search(self, query: str) -> int:
+        pattern = f"%{query}%"
+        stmt = (
+            select(func.count(distinct(ClubDB.id)))
+            .select_from(ClubDB)
+            .where(
+                or_(
+                    ClubDB.nom.ilike(pattern),
+                    ClubDB.nom_court.ilike(pattern),
+                    ClubDB.ville.ilike(pattern),
+                    ClubDB.departement.ilike(pattern),
+                    ClubDB.code_ffvb.ilike(pattern),
+                )
+            )
+        )
+        return self.session.scalar(stmt) or 0
 
     def get_or_create(self, nom: str) -> tuple[ClubDB, bool]:
         existing = self.session.scalar(select(ClubDB).where(ClubDB.nom == nom))
@@ -464,6 +518,7 @@ class EquipeRepository(BaseRepository[EquipeDB]):
         niveau: Optional[str] = None,
         saison_id: Optional[int] = None,
         limit: int = 20,
+        offset: int = 0,
     ) -> List[EquipeDB]:
         pattern = f"%{query}%"
         stmt = (
@@ -479,8 +534,32 @@ class EquipeRepository(BaseRepository[EquipeDB]):
             stmt = stmt.where(EquipeDB.niveau == niveau)
         if saison_id:
             stmt = stmt.where(EquipeDB.saison_id == saison_id)
-        stmt = stmt.limit(limit)
+        stmt = stmt.order_by(EquipeDB.nom).limit(limit).offset(offset)
         return list(self.session.scalars(stmt).unique())
+
+    def count_search(
+        self,
+        query: str,
+        genre: Optional[str] = None,
+        categorie: Optional[str] = None,
+        niveau: Optional[str] = None,
+        saison_id: Optional[int] = None,
+    ) -> int:
+        pattern = f"%{query}%"
+        stmt = (
+            select(func.count(distinct(EquipeDB.id)))
+            .select_from(EquipeDB)
+            .where(EquipeDB.nom.ilike(pattern))
+        )
+        if genre:
+            stmt = stmt.where(EquipeDB.genre == genre)
+        if categorie:
+            stmt = stmt.where(EquipeDB.categorie == categorie)
+        if niveau:
+            stmt = stmt.where(EquipeDB.niveau == niveau)
+        if saison_id:
+            stmt = stmt.where(EquipeDB.saison_id == saison_id)
+        return self.session.scalar(stmt) or 0
 
     def get_or_create(
         self, nom: str, saison_id: Optional[int] = None, club_id: Optional[int] = None,
@@ -602,6 +681,7 @@ class MatchRepository(BaseRepository[MatchDB]):
         date_to: Optional[dt_date] = None,
         departements: Optional[List[str]] = None,
         limit: int = 50,
+        offset: int = 0,
     ) -> List[MatchDB]:
         stmt = (
             select(MatchDB)
@@ -683,8 +763,88 @@ class MatchRepository(BaseRepository[MatchDB]):
                 stmt = stmt.where(or_(*conditions))
             else:
                 return []
-        stmt = stmt.order_by(MatchDB.date_match.desc()).limit(limit)
+        stmt = stmt.order_by(MatchDB.date_match.desc()).limit(limit).offset(offset)
         return list(self.session.scalars(stmt).unique())
+
+    def count_search(
+        self,
+        equipe_nom: Optional[str] = None,
+        competition_id: Optional[int] = None,
+        poule_id: Optional[int] = None,
+        saison_id: Optional[int] = None,
+        saison_ids: Optional[List[int]] = None,
+        date_from: Optional[dt_date] = None,
+        date_to: Optional[dt_date] = None,
+        departements: Optional[List[str]] = None,
+    ) -> int:
+        stmt = select(func.count(distinct(MatchDB.id))).select_from(MatchDB)
+        if competition_id:
+            stmt = stmt.where(MatchDB.competition_id == competition_id)
+        if poule_id:
+            stmt = stmt.where(MatchDB.poule_id == poule_id)
+        if saison_id:
+            stmt = stmt.where(MatchDB.saison_id == saison_id)
+        if saison_ids:
+            stmt = stmt.where(MatchDB.saison_id.in_(saison_ids))
+        if date_from:
+            stmt = stmt.where(MatchDB.date_match >= date_from)
+        if date_to:
+            stmt = stmt.where(MatchDB.date_match <= date_to)
+        if equipe_nom:
+            equipe_ids = self.session.scalars(
+                select(EquipeDB.id).where(EquipeDB.nom.ilike(f"%{equipe_nom}%"))
+            ).all()
+            if equipe_ids:
+                stmt = stmt.where(
+                    or_(
+                        MatchDB.equipe_a_id.in_(equipe_ids),
+                        MatchDB.equipe_b_id.in_(equipe_ids),
+                    )
+                )
+            else:
+                return 0
+        if departements:
+            from pyvolley.core.geo_data import get_cities_for_departments, get_departments_for_entite
+
+            conditions = []
+            club_equipe_ids = list(self.session.scalars(
+                select(EquipeDB.id)
+                .join(ClubDB, EquipeDB.club_id == ClubDB.id)
+                .where(ClubDB.departement.in_(departements))
+            ))
+            if club_equipe_ids:
+                conditions.append(
+                    or_(
+                        MatchDB.equipe_a_id.in_(club_equipe_ids),
+                        MatchDB.equipe_b_id.in_(club_equipe_ids),
+                    )
+                )
+
+            cities = get_cities_for_departments(departements)
+            if cities:
+                conditions.append(MatchDB.salle.in_(cities))
+
+            dept_set = set(departements)
+            matching_entite_ids = []
+            all_entites = list(self.session.scalars(select(EntiteFFVBDB)))
+            for entite in all_entites:
+                entite_depts = get_departments_for_entite(entite.code)
+                if entite_depts and dept_set.intersection(entite_depts):
+                    matching_entite_ids.append(entite.id)
+            if matching_entite_ids:
+                comp_ids = list(self.session.scalars(
+                    select(CompetitionDB.id)
+                    .where(CompetitionDB.entite_id.in_(matching_entite_ids))
+                ))
+                if comp_ids:
+                    conditions.append(MatchDB.competition_id.in_(comp_ids))
+
+            if conditions:
+                stmt = stmt.where(or_(*conditions))
+            else:
+                return 0
+
+        return self.session.scalar(stmt) or 0
 
     def get_by_joueur(self, joueur_id: int, limit: int = 50) -> List[MatchDB]:
         stmt = (
@@ -831,6 +991,7 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
         return list(self.session.scalars(stmt).unique())
 
     def get_all(self, limit: int = 100, offset: int = 0,
+                saison_id: Optional[int] = None,
                 genre: Optional[str] = None,
                 categorie: Optional[str] = None,
                 exclude_code_only: bool = False) -> List[CompetitionDB]:
@@ -838,6 +999,8 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
             select(CompetitionDB)
             .options(joinedload(CompetitionDB.saison))
         )
+        if saison_id:
+            stmt = stmt.where(CompetitionDB.saison_id == saison_id)
         if genre:
             stmt = stmt.where(CompetitionDB.genre == genre)
         if categorie:
@@ -877,6 +1040,24 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
             .where(CompetitionDB.categorie.isnot(None))
             .order_by(CompetitionDB.categorie)
         ))
+
+    def count_filtered(
+        self,
+        saison_id: Optional[int] = None,
+        genre: Optional[str] = None,
+        categorie: Optional[str] = None,
+        exclude_code_only: bool = False,
+    ) -> int:
+        stmt = select(func.count(distinct(CompetitionDB.id))).select_from(CompetitionDB)
+        if saison_id:
+            stmt = stmt.where(CompetitionDB.saison_id == saison_id)
+        if genre:
+            stmt = stmt.where(CompetitionDB.genre == genre)
+        if categorie:
+            stmt = stmt.where(CompetitionDB.categorie == categorie)
+        if exclude_code_only:
+            stmt = stmt.where(CompetitionDB.nom != CompetitionDB.code_competition)
+        return self.session.scalar(stmt) or 0
 
     def get_with_details(self, competition_id: int) -> Optional[CompetitionDB]:
         """Charge une compétition avec ses relations (saison, entité, poules + matchs)."""
@@ -1098,6 +1279,7 @@ class ArbitreRepository(BaseRepository[ArbitreDB]):
         query: str,
         ligue: Optional[str] = None,
         limit: int = 20,
+        offset: int = 0,
     ) -> List[ArbitreDB]:
         pattern = f"%{query}%"
         stmt = (
@@ -1116,8 +1298,33 @@ class ArbitreRepository(BaseRepository[ArbitreDB]):
         )
         if ligue:
             stmt = stmt.where(ArbitreDB.ligue == ligue)
-        stmt = stmt.limit(limit)
+        stmt = stmt.order_by(ArbitreDB.nom, ArbitreDB.prenom).limit(limit).offset(offset)
         return list(self.session.scalars(stmt))
+
+    def count_search(
+        self,
+        query: str,
+        ligue: Optional[str] = None,
+    ) -> int:
+        pattern = f"%{query}%"
+        stmt = (
+            select(func.count(distinct(ArbitreDB.id)))
+            .select_from(ArbitreDB)
+            .where(
+                or_(
+                    ArbitreDB.nom.ilike(pattern),
+                    ArbitreDB.prenom.ilike(pattern),
+                    (
+                        func.coalesce(ArbitreDB.nom, "")
+                        + " "
+                        + func.coalesce(ArbitreDB.prenom, "")
+                    ).ilike(pattern),
+                )
+            )
+        )
+        if ligue:
+            stmt = stmt.where(ArbitreDB.ligue == ligue)
+        return self.session.scalar(stmt) or 0
 
     def get_distinct_ligues(self) -> List[str]:
         """Retourne toutes les ligues distinctes."""
@@ -1206,31 +1413,65 @@ class StatsCacheRepository(BaseRepository[StatsCacheDB]):
             select(StatsCacheDB).where(StatsCacheDB.filter_key == filter_key)
         )
 
-    def upsert(self, filter_key: str, stats_data: dict, match_count: int) -> StatsCacheDB:
+    def upsert(
+        self,
+        filter_key: str,
+        stats_data: dict,
+        match_count: int,
+        *,
+        last_match_update: Optional[datetime] = None,
+    ) -> StatsCacheDB:
         """Crée ou met à jour une entrée de cache pour la clé donnée."""
-        from datetime import datetime
+        from datetime import datetime as dt_now
+
         entry = self.get_by_filter_key(filter_key)
+        computed_at = dt_now.now()
+        if last_match_update and last_match_update > computed_at:
+            computed_at = last_match_update
+
         if entry is None:
             entry = StatsCacheDB(
                 filter_key=filter_key,
                 stats_data=stats_data,
                 match_count=match_count,
-                computed_at=datetime.now(),
+                computed_at=computed_at,
             )
             self.session.add(entry)
         else:
             entry.stats_data = stats_data
             entry.match_count = match_count
-            entry.computed_at = datetime.now()
+            entry.computed_at = computed_at
         self.session.flush()
         return entry
 
-    def is_stale(self, filter_key: str, current_match_count: int) -> bool:
-        """Retourne True si le cache est absent ou que le nombre de matchs a changé."""
+    def is_stale(
+        self,
+        filter_key: str,
+        current_match_count: int,
+        *,
+        current_last_match_update: Optional[datetime] = None,
+    ) -> bool:
+        """Retourne True si le cache est absent ou obsolète.
+
+        Le cache est considéré obsolète si :
+        - le nombre de matchs a changé,
+        - ou si un match concerné a été modifié après ``computed_at``.
+        """
         entry = self.get_by_filter_key(filter_key)
         if entry is None:
             return True
-        return entry.match_count != current_match_count
+        if entry.match_count != current_match_count:
+            return True
+
+        if current_match_count == 0:
+            return False
+
+        if current_last_match_update is None:
+            return True
+        if entry.computed_at is None:
+            return True
+
+        return current_last_match_update > entry.computed_at
 
     def delete_all(self) -> int:
         """Supprime toutes les entrées de cache. Retourne le nombre de lignes supprimées."""
@@ -1474,7 +1715,7 @@ class EntraineurRepository:
         )
         return self.session.scalar(stmt) or 0
 
-    def search_by_name(self, query: str, limit: int = 20) -> List[dict]:
+    def search_by_name(self, query: str, limit: int = 20, offset: int = 0) -> List[dict]:
         """Recherche d'entraîneurs par nom."""
         pattern = f"%{query}%"
         stmt = (
@@ -1499,6 +1740,7 @@ class EntraineurRepository:
             .group_by(OfficielMatchDB.nom, OfficielMatchDB.prenom, OfficielMatchDB.licence)
             .order_by(desc("matchs_count"))
             .limit(limit)
+            .offset(offset)
         )
         rows = self.session.execute(stmt).all()
         return [
@@ -1511,6 +1753,27 @@ class EntraineurRepository:
             }
             for nom, prenom, licence, count in rows
         ]
+
+    def count_search(self, query: str) -> int:
+        pattern = f"%{query}%"
+        subq = (
+            select(OfficielMatchDB.nom, OfficielMatchDB.prenom, OfficielMatchDB.licence)
+            .where(OfficielMatchDB.role.in_(self._COACH_ROLES))
+            .where(
+                or_(
+                    OfficielMatchDB.nom.ilike(pattern),
+                    OfficielMatchDB.prenom.ilike(pattern),
+                    (
+                        func.coalesce(OfficielMatchDB.nom, "")
+                        + " "
+                        + func.coalesce(OfficielMatchDB.prenom, "")
+                    ).ilike(pattern),
+                )
+            )
+            .group_by(OfficielMatchDB.nom, OfficielMatchDB.prenom, OfficielMatchDB.licence)
+            .subquery()
+        )
+        return self.session.scalar(select(func.count()).select_from(subq)) or 0
 
     def get_by_id(self, entraineur_id: str) -> Optional[dict]:
         """Récupère un entraîneur par son identifiant construit."""

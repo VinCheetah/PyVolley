@@ -5,11 +5,17 @@ Routes API — Joueurs.
 from typing import Optional, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select, func
 
 from pyvolley.api.dependencies import get_joueur_repo, get_match_repo
 from pyvolley.api.schemas import JoueurResponse, JoueurDetail, MatchResponse
 from pyvolley.api.converters import match_to_response
-from pyvolley.database.repositories import JoueurRepository, MatchRepository
+from pyvolley.database.repositories import (
+    JoueurRepository,
+    MatchRepository,
+    JoueurStatsCacheRepository,
+)
+from pyvolley.database.models import ParticipationMatchDB
 from pyvolley.analysis.joueur_stats import aggregate_joueur_stats
 from pyvolley.database.player_stats_service import JoueurMatchStatsService
 
@@ -166,9 +172,35 @@ async def get_joueur_aggregated_stats(
     if not joueur:
         raise HTTPException(status_code=404, detail="Joueur non trouvé")
 
+    cache_repo = JoueurStatsCacheRepository(match_repo.session)
+    current_match_count = match_repo.session.scalar(
+        select(func.count())
+        .select_from(ParticipationMatchDB)
+        .where(ParticipationMatchDB.joueur_id == joueur_id)
+    ) or 0
+
+    cache_entry = cache_repo.get_by_joueur(joueur_id)
+    if (
+        cache_entry
+        and cache_entry.match_count == current_match_count
+        and cache_entry.aggregated_stats
+    ):
+        return cache_entry.aggregated_stats
+
     stats_service = JoueurMatchStatsService(match_repo.session)
-    all_stats = stats_service.get_joueur_all_stats(joueur_id, limit=500)
+    all_stats = stats_service.get_joueur_all_stats(
+        joueur_id,
+        limit=max(500, current_match_count + 50),
+    )
     aggregated = aggregate_joueur_stats(all_stats)
+
+    cache_repo.upsert(
+        joueur_id=joueur_id,
+        aggregated_stats=aggregated.model_dump(mode="json") if aggregated else None,
+        per_match_stats=None,
+        match_count=current_match_count,
+    )
+
     if not aggregated:
         return {"message": "Aucune statistique disponible"}
 

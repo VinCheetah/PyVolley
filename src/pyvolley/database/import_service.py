@@ -17,7 +17,12 @@ from sqlalchemy import select
 
 from ..core.models import Match, Joueur, Equipe, Set, Arbitre, Sanction, Officiel
 from ..core.geo_data import extract_entite_code_from_path, get_departments_for_entite
-from .club_matching import normalize_club_name, extract_club_core_name, club_names_match
+from pyvolley.shared.match_status import (
+    compute_match_played,
+    normalize_score_sets,
+    sets_indicate_played,
+)
+from .club_matching import normalize_club_name
 from .models import (
     ClubDB, ClubAliasDB, EquipeDB, JoueurDB, MatchDB, SetDB,
     FormationDB, ChangementDB, TimeoutDB,
@@ -28,15 +33,6 @@ from .models import (
 from .player_stats_service import JoueurMatchStatsService
 
 logger = logging.getLogger(__name__)
-
-
-# Ré-export pour compatibilité (les fonctions sont dans club_matching.py)
-# normalize_club_name, extract_club_core_name, club_names_match importés ci-dessus
-
-
-def _club_names_match(name_a: str, name_b: str) -> bool:
-    """Wrapper de compatibilité pour le nom privé."""
-    return club_names_match(name_a, name_b)
 
 
 class MatchImportService:
@@ -111,6 +107,25 @@ class MatchImportService:
 
         # 5. Créer le match
         heure_str = self._time_to_string(match_data.heure) if match_data.heure else None
+        has_details = bool(
+            getattr(match_data, "has_details", False)
+            or sets_indicate_played(match_data.sets)
+        )
+        score_sets = normalize_score_sets(match_data.score_final) or match_data.score_final
+        computed_played = compute_match_played(
+            vainqueur=match_data.vainqueur_nom,
+            score_sets=score_sets,
+            sets=match_data.sets,
+            sets_a=match_data.sets_a,
+            sets_b=match_data.sets_b,
+            declared_played=getattr(match_data, "match_joue", None),
+            trust_declared=True,
+        )
+        score_source = getattr(match_data, "score_source", None)
+        if not computed_played:
+            score_source = None
+        elif not score_source and (has_details or (match_data.sets_a + match_data.sets_b > 0)):
+            score_source = "pdf"
 
         match_db = MatchDB(
             code_match=match_data.code_match,
@@ -124,13 +139,13 @@ class MatchImportService:
             equipe_a_id=equipe_a_db.id if equipe_a_db else None,
             equipe_b_id=equipe_b_db.id if equipe_b_db else None,
             vainqueur=match_data.vainqueur_nom,
-            score_sets=match_data.score_final,
+            score_sets=score_sets,
             sets_equipe_a=match_data.sets_a,
             sets_equipe_b=match_data.sets_b,
             duree_totale=match_data.duree_totale,
-            match_joue=getattr(match_data, 'match_joue', False),
-            has_details=getattr(match_data, 'has_details', False),
-            score_source=getattr(match_data, 'score_source', 'pdf'),
+            match_joue=computed_played,
+            has_details=has_details,
+            score_source=score_source,
             parsing_status="parsed",
             remarques=match_data.remarques,
             source_pdf=match_data.source_pdf,
@@ -161,6 +176,10 @@ class MatchImportService:
             self._import_officiels(match_db, match_data.equipe_a.officiels, "A")
         if match_data.equipe_b:
             self._import_officiels(match_db, match_data.equipe_b.officiels, "B")
+
+        # Synchroniser score_sets/match_joue une fois toutes les données liées importées.
+        if self._sync_match_status(match_db):
+            self.session.flush()
 
         # 11. Statistiques détaillées joueur (persistées en base)
         if match_db.has_details:
@@ -682,27 +701,12 @@ class MatchImportService:
             self._club_cache[normalized] = existing
             return existing
 
-        # 3. Matching souple : comparer avec tous les clubs existants
-        #    D'abord regarder dans le cache mémoire
-        for cached_name, cached_club in self._club_cache.items():
-            if _club_names_match(nom, cached_club.nom):
-                # Créer un alias pour ce nouveau nom
-                self._create_alias_safe(normalized, cached_club.id)
-                self._club_cache[normalized] = cached_club
-                logger.info(
-                    f"Club fuzzy-match: '{nom}' → '{cached_club.nom}' (cache)"
-                )
-                return cached_club
-
-        #    Puis chercher en BDD (limité pour les performances)
+        # 3. Matching déterministe par normalisation stricte
         all_clubs = list(self.session.scalars(select(ClubDB)))
         for existing_club in all_clubs:
-            if _club_names_match(nom, existing_club.nom):
+            if normalize_club_name(existing_club.nom) == normalized:
                 self._create_alias_safe(normalized, existing_club.id)
                 self._club_cache[normalized] = existing_club
-                logger.info(
-                    f"Club fuzzy-match: '{nom}' → '{existing_club.nom}' (DB)"
-                )
                 return existing_club
 
         # 4. Créer le club
@@ -854,6 +858,8 @@ class MatchImportService:
                 joueur_data.licence,
                 joueur_data.nom,
                 joueur_data.prenom,
+                equipe_db=equipe_db,
+                numero_maillot=joueur_data.numero,
             )
 
             # Vérifier via le set en mémoire (fiable même sans autoflush)
@@ -888,8 +894,19 @@ class MatchImportService:
             self.session.add(participation)
             self._participation_seen.add(part_key)
 
-    def _build_no_licence_key(self, nom: str, prenom: str) -> str:
-        normalized = f"{nom.strip().upper()}|{prenom.strip().upper()}"
+    def _build_no_licence_key(
+        self,
+        nom: str,
+        prenom: str,
+        *,
+        club_id: Optional[int],
+        saison_id: Optional[int],
+        numero_maillot: Optional[str],
+    ) -> str:
+        normalized = (
+            f"{nom.strip().upper()}|{prenom.strip().upper()}|"
+            f"C{club_id or 0}|S{saison_id or 0}|N{(numero_maillot or '').strip()}"
+        )
         # Le modèle core impose une licence numérique de 10 caractères max.
         # Licence synthétique stable : préfixe '9' + 9 chiffres dérivés du hash.
         hash_int = int(hashlib.sha1(normalized.encode("utf-8")).hexdigest(), 16)
@@ -903,6 +920,7 @@ class MatchImportService:
         nom: str,
         prenom: Optional[str],
         categorie: str,
+        scope: Optional[str] = None,
     ) -> PersonneDB:
         licence_norm = (licence or "").strip()
         prenom_norm = (prenom or "").strip() or None
@@ -932,20 +950,27 @@ class MatchImportService:
             self._personne_cache[cache_key] = personne
             return personne
 
-        cache_key = f"NAME:{nom.strip().upper()}|{(prenom_norm or '').upper()}|{categorie}"
+        scope_token = scope or "GLOBAL"
+        cache_key = (
+            f"NAME:{nom.strip().upper()}|{(prenom_norm or '').upper()}|"
+            f"{categorie}|{scope_token}"
+        )
         if cache_key in self._personne_cache:
             return self._personne_cache[cache_key]
 
-        existing = self.session.scalar(
-            select(PersonneDB).where(
-                PersonneDB.nom == nom.strip().upper(),
-                PersonneDB.prenom == prenom_norm,
-                PersonneDB.categorie == categorie,
+        # Ne pas fusionner globalement les joueurs sans licence:
+        # trop de collisions d'homonymes inter-clubs/inter-saisons.
+        if categorie != "joueur":
+            existing = self.session.scalar(
+                select(PersonneDB).where(
+                    PersonneDB.nom == nom.strip().upper(),
+                    PersonneDB.prenom == prenom_norm,
+                    PersonneDB.categorie == categorie,
+                )
             )
-        )
-        if existing:
-            self._personne_cache[cache_key] = existing
-            return existing
+            if existing:
+                self._personne_cache[cache_key] = existing
+                return existing
 
         personne = PersonneDB(
             licence=None,
@@ -958,7 +983,15 @@ class MatchImportService:
         self._personne_cache[cache_key] = personne
         return personne
 
-    def _get_or_create_joueur(self, licence: Optional[str], nom: str, prenom: str) -> JoueurDB:
+    def _get_or_create_joueur(
+        self,
+        licence: Optional[str],
+        nom: str,
+        prenom: str,
+        *,
+        equipe_db: Optional[EquipeDB] = None,
+        numero_maillot: Optional[str] = None,
+    ) -> JoueurDB:
         """Crée ou récupère un joueur en évitant les collisions sur licence 0/manquante."""
         licence_norm = (licence or "").strip()
         has_real_licence = bool(licence_norm and licence_norm != "0")
@@ -992,7 +1025,13 @@ class MatchImportService:
             self._joueur_cache[cache_key] = joueur
             return joueur
 
-        fallback_licence = self._build_no_licence_key(nom, prenom)
+        fallback_licence = self._build_no_licence_key(
+            nom,
+            prenom,
+            club_id=equipe_db.club_id if equipe_db else None,
+            saison_id=equipe_db.saison_id if equipe_db else None,
+            numero_maillot=numero_maillot,
+        )
         cache_key = f"NO_LIC:{fallback_licence}"
         if cache_key in self._joueur_cache:
             return self._joueur_cache[cache_key]
@@ -1009,6 +1048,10 @@ class MatchImportService:
             nom=nom,
             prenom=prenom,
             categorie="joueur",
+            scope=(
+                f"club:{equipe_db.club_id or 0}|saison:{equipe_db.saison_id or 0}"
+                if equipe_db else None
+            ),
         )
         joueur = JoueurDB(
             licence=fallback_licence,
@@ -1124,6 +1167,47 @@ class MatchImportService:
     # Helpers
     # =================================================================
 
+    def _sync_match_status(self, match_db: MatchDB) -> bool:
+        """Synchronise score_sets, match_joue et score_source de manière cohérente."""
+        changed = False
+
+        normalized_score = normalize_score_sets(
+            match_db.score_sets,
+            replace_forfeit_with_zero=bool(match_db.forfait),
+        )
+        if normalized_score != match_db.score_sets:
+            match_db.score_sets = normalized_score
+            changed = True
+
+        computed_played = compute_match_played(
+            vainqueur=match_db.vainqueur,
+            score_sets=match_db.score_sets,
+            sets=match_db.sets,
+            sets_a=match_db.sets_equipe_a,
+            sets_b=match_db.sets_equipe_b,
+            forfait=bool(match_db.forfait),
+        )
+
+        if match_db.match_joue != computed_played:
+            match_db.match_joue = computed_played
+            changed = True
+
+        if not computed_played:
+            if match_db.score_source is not None:
+                match_db.score_source = None
+                changed = True
+            if match_db.has_details:
+                match_db.has_details = False
+                changed = True
+        elif not match_db.score_source and (
+            match_db.has_details
+            or (match_db.sets_equipe_a or 0) + (match_db.sets_equipe_b or 0) > 0
+        ):
+            match_db.score_source = "pdf"
+            changed = True
+
+        return changed
+
     def _get_match_by_code(self, code_match: str, saison_id: Optional[int]) -> Optional[MatchDB]:
         """Cherche un match existant par code + saison.
 
@@ -1192,10 +1276,10 @@ class MatchImportService:
             return None
 
         # Mettre à jour le résultat global
-        match_db.score_sets = score_sets
+        normalized_score_sets = normalize_score_sets(score_sets) or score_sets
+        match_db.score_sets = normalized_score_sets
         match_db.sets_equipe_a = sets_a
         match_db.sets_equipe_b = sets_b
-        match_db.match_joue = True
         match_db.has_details = bool(set_scores)
         match_db.score_source = source
 
@@ -1218,6 +1302,8 @@ class MatchImportService:
                 score_b=sb,
             )
             self.session.add(set_db)
+
+        self._sync_match_status(match_db)
 
         match_db.updated_at = datetime.now()
         self.session.flush()
@@ -1278,21 +1364,35 @@ class MatchImportService:
             match_db.salle = parsed.salle
             updated = True
         if parsed.lieu and (not match_db.salle or force):
-            match_db.salle = match_db.salle or parsed.lieu
+            match_db.salle = parsed.lieu
             updated = True
         if parsed.journee and (not match_db.journee or force):
             match_db.journee = parsed.journee
             updated = True
 
         # ── Résultat (mettre à jour si plus riche ou si forcé) ──
-        if parsed.match_joue and (not match_db.match_joue or force):
+        parsed_score_sets = normalize_score_sets(parsed.score_final) or parsed.score_final
+        parsed_played = compute_match_played(
+            vainqueur=parsed.vainqueur_nom,
+            score_sets=parsed_score_sets,
+            sets=parsed.sets,
+            sets_a=parsed.sets_a,
+            sets_b=parsed.sets_b,
+            declared_played=parsed.match_joue,
+            trust_declared=True,
+        )
+
+        if force and match_db.match_joue != parsed_played:
+            match_db.match_joue = parsed_played
+            updated = True
+        elif parsed_played and not match_db.match_joue:
             match_db.match_joue = True
             updated = True
         if parsed.vainqueur_nom and (not match_db.vainqueur or force):
             match_db.vainqueur = parsed.vainqueur_nom
             updated = True
-        if parsed.score_final and (not match_db.score_sets or force):
-            match_db.score_sets = parsed.score_final
+        if parsed_score_sets and (not match_db.score_sets or force):
+            match_db.score_sets = parsed_score_sets
             updated = True
         if (parsed.sets_a or parsed.sets_b) and (
             (match_db.sets_equipe_a == 0 and match_db.sets_equipe_b == 0) or force
@@ -1383,6 +1483,9 @@ class MatchImportService:
             self._import_officiels(match_db, parsed.equipe_b.officiels, "B")
             updated = True
 
+        if self._sync_match_status(match_db):
+            updated = True
+
         # ── Statut et métadonnées ──
         if updated:
             match_db.parsing_status = "parsed"
@@ -1461,12 +1564,13 @@ class MatchImportService:
         """Récupère les matchs qui n'ont pas de scores détaillés.
 
         Utile pour le système de complétion en ligne : on cherche les matchs
-        dont ``has_details`` est False mais qui ont un vainqueur (donc jouables).
+        joués (``match_joue=True``) dont ``has_details`` est False.
         """
         stmt = (
             select(MatchDB)
             .where(
                 MatchDB.has_details == False,  # noqa: E712
+                MatchDB.match_joue == True,  # noqa: E712
             )
         )
         if saison_id is not None:

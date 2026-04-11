@@ -1,7 +1,9 @@
 """Tests de régression pour l'association match ↔ PDF dans le CLI."""
 
 import importlib
-from datetime import date
+import os
+from contextlib import contextmanager
+from datetime import date, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -109,6 +111,64 @@ def test_expand_saison_inputs_rejects_invalid_token():
         expand_saison_inputs(["2024"])
 
 
+def test_pdf_redownload_reason_invalid_local_pdf(tmp_path):
+    cli_main = importlib.import_module("pyvolley.cli.main")
+
+    bad_pdf = tmp_path / "bad.pdf"
+    bad_pdf.write_bytes(b"not-a-pdf")
+
+    match = SimpleNamespace(date_match=date(2025, 2, 10))
+    reason = cli_main._get_pdf_redownload_reason(
+        match,
+        bad_pdf,
+        today=date(2025, 2, 12),
+    )
+
+    assert reason == "invalid-local-pdf"
+
+
+def test_pdf_redownload_reason_downloaded_before_match_date(tmp_path):
+    cli_main = importlib.import_module("pyvolley.cli.main")
+
+    old_pdf = tmp_path / "old.pdf"
+    old_pdf.write_bytes(b"%PDF-1.4\n" + (b"A" * 1100) + b"\n%%EOF\n")
+
+    downloaded_before = date(2025, 2, 10)
+    match_date = date(2025, 2, 12)
+    ts = datetime.combine(downloaded_before, datetime.min.time()).timestamp()
+    os.utime(old_pdf, (ts, ts))
+
+    match = SimpleNamespace(date_match=match_date)
+    reason = cli_main._get_pdf_redownload_reason(
+        match,
+        old_pdf,
+        today=date(2025, 2, 13),
+    )
+
+    assert reason == "downloaded-before-match-date"
+
+
+def test_pdf_redownload_reason_none_for_pdf_downloaded_on_match_day(tmp_path):
+    cli_main = importlib.import_module("pyvolley.cli.main")
+
+    fresh_pdf = tmp_path / "fresh.pdf"
+    fresh_pdf.write_bytes(b"%PDF-1.4\n" + (b"B" * 1100) + b"\n%%EOF\n")
+
+    downloaded_on = date(2025, 2, 12)
+    match_date = date(2025, 2, 12)
+    ts = datetime.combine(downloaded_on, datetime.min.time()).timestamp()
+    os.utime(fresh_pdf, (ts, ts))
+
+    match = SimpleNamespace(date_match=match_date)
+    reason = cli_main._get_pdf_redownload_reason(
+        match,
+        fresh_pdf,
+        today=date(2025, 2, 13),
+    )
+
+    assert reason is None
+
+
 def test_import_only_download_passes_entity_filter(monkeypatch):
     cli_main = importlib.import_module("pyvolley.cli.main")
 
@@ -169,3 +229,269 @@ def test_list_matches_uses_export_match_info_fields(monkeypatch):
     assert result.exit_code == 0, result.stdout
     assert "EMA001" in result.stdout
     assert "3/1" in result.stdout
+
+
+def test_compute_player_stats_filters_on_entity(monkeypatch, test_session):
+    cli_main = importlib.import_module("pyvolley.cli.main")
+
+    from pyvolley.database.models import EntiteFFVBDB, SaisonDB, CompetitionDB, MatchDB
+
+    saison = SaisonDB(code="2025-2026", nom="Saison 2025-2026")
+    entite_a = EntiteFFVBDB(code="ABCCS", nom="Entité A", type="ligue")
+    entite_b = EntiteFFVBDB(code="LIRA", nom="Entité B", type="ligue")
+    test_session.add_all([saison, entite_a, entite_b])
+    test_session.flush()
+
+    comp_a = CompetitionDB(nom="Comp A", saison_id=saison.id, entite_id=entite_a.id)
+    comp_b = CompetitionDB(nom="Comp B", saison_id=saison.id, entite_id=entite_b.id)
+    test_session.add_all([comp_a, comp_b])
+    test_session.flush()
+
+    test_session.add_all(
+        [
+            MatchDB(
+                code_match="M-A",
+                has_details=True,
+                match_joue=True,
+                parsing_status="parsed",
+                competition_id=comp_a.id,
+                saison_id=saison.id,
+            ),
+            MatchDB(
+                code_match="M-B",
+                has_details=True,
+                match_joue=True,
+                parsing_status="parsed",
+                competition_id=comp_b.id,
+                saison_id=saison.id,
+            ),
+        ]
+    )
+    test_session.commit()
+
+    import pyvolley.database.connection as db_connection
+    import pyvolley.database.player_stats_service as player_stats_service
+    import pyvolley.database.repositories as repositories_module
+
+    @contextmanager
+    def fake_get_db():
+        yield test_session
+
+    monkeypatch.setattr(db_connection, "init_db", lambda: None)
+    monkeypatch.setattr(db_connection, "get_db", fake_get_db)
+
+    called_match_ids: list[int] = []
+
+    class DummyService:
+        def __init__(self, session):
+            self.session = session
+
+        def compute_and_store_for_match(self, match_db, *, force=False):
+            called_match_ids.append(match_db.id)
+            return 1
+
+    class DummyRepo:
+        def __init__(self, session):
+            self.session = session
+
+        def is_match_stale(self, match_id, expected_joueur_ids, match_updated_at):
+            return True
+
+    class DummyProgress:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def add_task(self, *args, **kwargs):
+            return 1
+
+        def update(self, *args, **kwargs):
+            return None
+
+    monkeypatch.setattr(player_stats_service, "JoueurMatchStatsService", DummyService)
+    monkeypatch.setattr(repositories_module, "JoueurMatchStatsRepository", DummyRepo)
+    monkeypatch.setattr(cli_main, "make_progress", lambda _console: DummyProgress())
+
+    runner = CliRunner()
+    result = runner.invoke(cli_main.app, ["compute-player-stats", "--entity", "ABCCS"])
+
+    assert result.exit_code == 0, result.stdout
+    assert len(called_match_ids) == 1
+
+
+def test_compute_player_stats_skips_up_to_date_without_force(monkeypatch, test_session):
+    cli_main = importlib.import_module("pyvolley.cli.main")
+
+    from pyvolley.database.models import (
+        EntiteFFVBDB,
+        SaisonDB,
+        CompetitionDB,
+        MatchDB,
+        EquipeDB,
+        JoueurDB,
+        ParticipationMatchDB,
+    )
+
+    saison = SaisonDB(code="2024-2025", nom="Saison 2024-2025")
+    entite = EntiteFFVBDB(code="ABCCS", nom="Entité A", type="ligue")
+    test_session.add_all([saison, entite])
+    test_session.flush()
+
+    competition = CompetitionDB(nom="Comp", saison_id=saison.id, entite_id=entite.id)
+    equipe = EquipeDB(nom="Equipe A", saison_id=saison.id, competition_id=None)
+    joueur = JoueurDB(licence="LIC-001", nom="DUPONT", prenom="Jean")
+    test_session.add_all([competition, equipe, joueur])
+    test_session.flush()
+
+    match = MatchDB(
+        code_match="MATCH-001",
+        has_details=True,
+        match_joue=True,
+        parsing_status="parsed",
+        competition_id=competition.id,
+        saison_id=saison.id,
+        equipe_a_id=equipe.id,
+    )
+    test_session.add(match)
+    test_session.flush()
+
+    participation = ParticipationMatchDB(
+        match_id=match.id,
+        joueur_id=joueur.id,
+        equipe_id=equipe.id,
+    )
+    test_session.add(participation)
+    test_session.commit()
+
+    import pyvolley.database.connection as db_connection
+    import pyvolley.database.player_stats_service as player_stats_service
+    import pyvolley.database.repositories as repositories_module
+
+    @contextmanager
+    def fake_get_db():
+        yield test_session
+
+    monkeypatch.setattr(db_connection, "init_db", lambda: None)
+    monkeypatch.setattr(db_connection, "get_db", fake_get_db)
+
+    compute_calls: list[int] = []
+
+    class DummyService:
+        def __init__(self, session):
+            self.session = session
+
+        def compute_and_store_for_match(self, match_db, *, force=False):
+            compute_calls.append(match_db.id)
+            return 1
+
+    class DummyRepo:
+        def __init__(self, session):
+            self.session = session
+
+        def delete_all(self):
+            return 0
+
+        def is_match_stale(self, match_id, expected_joueur_ids, match_updated_at):
+            return False
+
+    class DummyProgress:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def add_task(self, *args, **kwargs):
+            return 1
+
+        def update(self, *args, **kwargs):
+            return None
+
+    monkeypatch.setattr(player_stats_service, "JoueurMatchStatsService", DummyService)
+    monkeypatch.setattr(repositories_module, "JoueurMatchStatsRepository", DummyRepo)
+    monkeypatch.setattr(cli_main, "make_progress", lambda _console: DummyProgress())
+
+    runner = CliRunner()
+    result = runner.invoke(cli_main.app, ["compute-player-stats", "--entity", "ABCCS"])
+
+    assert result.exit_code == 0, result.stdout
+    assert compute_calls == []
+
+
+def test_compute_player_stats_skips_when_no_expected_players(monkeypatch, test_session):
+    cli_main = importlib.import_module("pyvolley.cli.main")
+
+    from pyvolley.database.models import EntiteFFVBDB, SaisonDB, CompetitionDB, MatchDB
+
+    saison = SaisonDB(code="2024-2025", nom="Saison 2024-2025")
+    entite = EntiteFFVBDB(code="ABCCS", nom="Entité A", type="ligue")
+    test_session.add_all([saison, entite])
+    test_session.flush()
+
+    competition = CompetitionDB(nom="Comp", saison_id=saison.id, entite_id=entite.id)
+    test_session.add(competition)
+    test_session.flush()
+
+    match = MatchDB(
+        code_match="MATCH-EMPTY-001",
+        has_details=True,
+        match_joue=True,
+        parsing_status="parsed",
+        competition_id=competition.id,
+        saison_id=saison.id,
+    )
+    test_session.add(match)
+    test_session.commit()
+
+    import pyvolley.database.connection as db_connection
+    import pyvolley.database.player_stats_service as player_stats_service
+    import pyvolley.database.repositories as repositories_module
+
+    @contextmanager
+    def fake_get_db():
+        yield test_session
+
+    monkeypatch.setattr(db_connection, "init_db", lambda: None)
+    monkeypatch.setattr(db_connection, "get_db", fake_get_db)
+
+    compute_calls: list[int] = []
+
+    class DummyService:
+        def __init__(self, session):
+            self.session = session
+
+        def compute_and_store_for_match(self, match_db, *, force=False):
+            compute_calls.append(match_db.id)
+            return 0
+
+    class DummyRepo:
+        def __init__(self, session):
+            self.session = session
+
+        def is_match_stale(self, match_id, expected_joueur_ids, match_updated_at):
+            return False
+
+    class DummyProgress:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def add_task(self, *args, **kwargs):
+            return 1
+
+        def update(self, *args, **kwargs):
+            return None
+
+    monkeypatch.setattr(player_stats_service, "JoueurMatchStatsService", DummyService)
+    monkeypatch.setattr(repositories_module, "JoueurMatchStatsRepository", DummyRepo)
+    monkeypatch.setattr(cli_main, "make_progress", lambda _console: DummyProgress())
+
+    runner = CliRunner()
+    result = runner.invoke(cli_main.app, ["compute-player-stats", "--entity", "ABCCS"])
+
+    assert result.exit_code == 0, result.stdout
+    assert compute_calls == []
