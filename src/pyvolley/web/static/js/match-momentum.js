@@ -59,31 +59,20 @@
         renderDebugPanels();
     }
 
-    if (typeof Chart === 'undefined') {
-        pushCheck('Chart.js loaded', false, 'Chart is undefined');
-        setHealthMessage('Visuel non disponible: Chart.js non chargé.', true);
-        publishDiag('skipped', 'chart_missing');
-        return;
-    }
-    pushCheck('Chart.js loaded', true);
+    const chartAvailable = typeof Chart !== 'undefined';
+    pushCheck('Chart.js loaded', chartAvailable, chartAvailable ? '' : 'Chart is undefined');
 
-    if (!window.PYVOLLEY_HAS_POINT_TIMELINE) {
-        pushCheck('has_point_timeline', false, 'Flag false');
-        setHealthMessage('Visuel non disponible: détails de points non détectés.', true);
-        publishDiag('skipped', 'flag_false');
-        return;
-    }
-    pushCheck('has_point_timeline', true);
+    const hasTimelineFlag = Boolean(window.PYVOLLEY_HAS_POINT_TIMELINE);
+    pushCheck('has_point_timeline', hasTimelineFlag, hasTimelineFlag ? '' : 'Flag false');
 
     const match = window.PYVOLLEY_MATCH_DATA;
     const momentumData = window.PYVOLLEY_MOMENTUM_DATA;
-    if (!momentumData || !Array.isArray(momentumData.sets) || momentumData.sets.length === 0) {
-        pushCheck('momentum data', false, 'No backend momentum sets');
-        setHealthMessage('Visuel non disponible: données momentum absentes.', true);
-        publishDiag('skipped', 'no_momentum_data');
-        return;
-    }
-    pushCheck('momentum data', true, `sets=${momentumData.sets.length}`);
+    const coachAnalysis = momentumData && momentumData.coach_analysis ? momentumData.coach_analysis : null;
+    const momentumSets = momentumData && Array.isArray(momentumData.sets) ? momentumData.sets : [];
+    const hasMomentumSets = momentumSets.length > 0;
+    pushCheck('momentum data', hasMomentumSets, hasMomentumSets ? `sets=${momentumSets.length}` : 'No backend momentum sets');
+
+    const shouldRenderMomentum = chartAvailable && hasTimelineFlag && hasMomentumSets;
 
     const teamNames = {
         A: (momentumData.teams && momentumData.teams.A) || (match && match.equipe_a && match.equipe_a.nom) || 'Équipe A',
@@ -109,6 +98,34 @@
     function toInt(value) {
         const n = Number(value);
         return Number.isFinite(n) ? n : null;
+    }
+
+    function toNumber(value) {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : null;
+    }
+
+    function signed(value, digits = 1) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return '0.0';
+        const fixed = n.toFixed(digits);
+        return n > 0 ? `+${fixed}` : fixed;
+    }
+
+    function escapeHtml(value) {
+        return String(value || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function coachImpactClass(score) {
+        const n = Number(score || 0);
+        if (n >= 12) return 'coach-impact-positive';
+        if (n <= -12) return 'coach-impact-negative';
+        return 'coach-impact-neutral';
     }
 
     function shorten(text, maxLen) {
@@ -171,6 +188,11 @@
                     scoreB,
                     x: scoreA + scoreB,
                     y: scoreA - scoreB,
+                    decisionId: item.decision_id || null,
+                    impactScore: toNumber(item.impact_score),
+                    impactLabel: item.impact_label || null,
+                    trendDeltaWinRatePct: toNumber(item.trend_delta_win_rate_pct),
+                    confidencePct: toNumber(item.confidence_pct),
                 });
             });
         }
@@ -262,6 +284,11 @@
                 team: evt.team,
                 scoreA: evt.scoreA,
                 scoreB: evt.scoreB,
+                decisionId: evt.decisionId || null,
+                impactScore: toNumber(evt.impactScore),
+                impactLabel: evt.impactLabel || null,
+                trendDeltaWinRatePct: toNumber(evt.trendDeltaWinRatePct),
+                confidencePct: toNumber(evt.confidencePct),
             };
 
             if (evt.team === 'A' && evt.kind === 'timeout') grouped.aTimeout.push(point);
@@ -470,7 +497,20 @@
                                 if (context.dataset.momentumEvent) {
                                     const raw = context.raw;
                                     const label = raw.eventKind === 'timeout' ? 'Temps mort' : 'Changement';
-                                    return `${label} à ${raw.scoreA}-${raw.scoreB}`;
+                                    const lines = [`${label} à ${raw.scoreA}-${raw.scoreB}`];
+                                    if (raw.decisionId) {
+                                        lines.push(`Décision: ${raw.decisionId}`);
+                                    }
+                                    if (raw.impactScore !== null && raw.impactScore !== undefined) {
+                                        lines.push(`Impact: ${signed(raw.impactScore, 1)}`);
+                                    }
+                                    if (raw.trendDeltaWinRatePct !== null && raw.trendDeltaWinRatePct !== undefined) {
+                                        lines.push(`Δ tendance: ${signed(raw.trendDeltaWinRatePct, 1)} pts`);
+                                    }
+                                    if (raw.confidencePct !== null && raw.confidencePct !== undefined) {
+                                        lines.push(`Confiance: ${Number(raw.confidencePct).toFixed(1)}%`);
+                                    }
+                                    return lines;
                                 }
                                 const raw = context.raw;
                                 const score = `${raw.scoreA}-${raw.scoreB}`;
@@ -612,6 +652,273 @@
         );
     }
 
+    function renderCoachDecisionInsights() {
+        const card = document.getElementById('coach-decisions-card');
+        if (!card) return;
+
+        const emptyNode = document.getElementById('coach-decisions-empty');
+        const contentNode = document.getElementById('coach-decisions-content');
+        const tbody = document.getElementById('coach-decisions-body');
+
+        const analysis = coachAnalysis && typeof coachAnalysis === 'object' ? coachAnalysis : null;
+        const decisions = analysis && Array.isArray(analysis.decisions) ? analysis.decisions : [];
+
+        const showEmpty = (message) => {
+            if (emptyNode) {
+                emptyNode.textContent = message;
+                emptyNode.style.display = 'block';
+            }
+            if (contentNode) {
+                contentNode.style.display = 'none';
+            }
+        };
+
+        if (!analysis || decisions.length === 0) {
+            pushCheck('coach decisions', false, 'No decision payload');
+            showEmpty('Aucune décision exploitable pour l\'analyse avant/après.');
+            return;
+        }
+
+        pushCheck('coach decisions', true, `count=${decisions.length}`);
+
+        const setText = (id, value) => {
+            const node = document.getElementById(id);
+            if (node) node.textContent = String(value);
+        };
+
+        setText('coach-decisions-total', analysis.total_decisions || decisions.length);
+        setText('coach-decisions-subs', analysis.total_substitutions || 0);
+        setText('coach-decisions-timeouts', analysis.total_timeouts || 0);
+        setText('coach-decisions-average', signed(analysis.average_impact_score || 0, 1));
+
+        const byTeam = analysis.by_team || {};
+        const summarizeTeam = (side) => {
+            const bucket = byTeam[side] || {};
+            const count = Number(bucket.count || 0);
+            const positive = Number(bucket.positive || 0);
+            const negative = Number(bucket.negative || 0);
+            const average = signed(bucket.average_impact_score || 0, 1);
+            return `${count} décision(s) · +${positive} / -${negative} · Impact moyen ${average}`;
+        };
+
+        setText('coach-team-a-summary', summarizeTeam('A'));
+        setText('coach-team-b-summary', summarizeTeam('B'));
+
+        if (tbody) {
+            tbody.innerHTML = decisions.map((decision) => {
+                const isSub = decision.type === 'sub';
+                const beforeRate = Number(decision.trend_before && decision.trend_before.win_rate_pct || 0);
+                const afterRate = Number(decision.trend_after && decision.trend_after.win_rate_pct || 0);
+                const deltaRate = Number(decision.trend_delta && decision.trend_delta.win_rate_pct || 0);
+                const confidence = Number(decision.confidence_pct || 0);
+                const impactScore = Number(decision.impact_score || 0);
+
+                const decisionMeta = isSub
+                    ? `↑ ${escapeHtml(decision.entrant || '?')} / ↓ ${escapeHtml(decision.sortant || '?')}`
+                    : 'Temps mort';
+
+                return `
+                    <tr>
+                        <td>
+                            <div class="coach-decision-id">${escapeHtml(decision.id || '')}</div>
+                            <div class="coach-decision-type ${isSub ? 'sub' : 'timeout'}">${isSub ? 'Changement' : 'Temps mort'} · ${escapeHtml(decision.team_name || decision.team || '')}</div>
+                            <div class="text-xs mt-1" style="color: var(--text-secondary);">${decisionMeta}</div>
+                        </td>
+                        <td class="text-center">${escapeHtml(decision.set_numero || '')}</td>
+                        <td class="text-center font-mono">${escapeHtml(`${decision.score_a || 0}-${decision.score_b || 0}`)}</td>
+                        <td class="text-center">${beforeRate.toFixed(1)}%</td>
+                        <td class="text-center">${afterRate.toFixed(1)}%</td>
+                        <td class="text-center ${deltaRate >= 0 ? 'coach-impact-positive' : 'coach-impact-negative'}">${signed(deltaRate, 1)} pts</td>
+                        <td class="text-center coach-impact-cell ${coachImpactClass(impactScore)}">${signed(impactScore, 1)}</td>
+                        <td class="text-center">${confidence.toFixed(1)}%</td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        if (emptyNode) {
+            emptyNode.style.display = 'none';
+        }
+        if (contentNode) {
+            contentNode.style.display = 'block';
+        }
+
+        if (!chartAvailable) {
+            pushCheck('coach charts', false, 'Chart.js unavailable for coach charts');
+            return;
+        }
+
+        const labels = decisions.map((_, idx) => `D${idx + 1}`);
+        const decisionTitles = decisions.map((decision) => `${decision.id || ''} (${decision.type === 'sub' ? 'Changement' : 'Temps mort'})`);
+
+        const impactCtx = document.getElementById('coach-impact-chart');
+        if (impactCtx) {
+            const impactScores = decisions.map((decision) => Number(decision.impact_score || 0));
+            const impactChart = new Chart(impactCtx, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: 'Impact',
+                            data: impactScores,
+                            borderWidth: 1,
+                            borderRadius: 7,
+                            backgroundColor: impactScores.map((value) => {
+                                if (value >= 12) return 'rgba(34, 197, 94, 0.62)';
+                                if (value <= -12) return 'rgba(239, 68, 68, 0.62)';
+                                return 'rgba(245, 158, 11, 0.62)';
+                            }),
+                            borderColor: impactScores.map((value) => {
+                                if (value >= 12) return '#22c55e';
+                                if (value <= -12) return '#ef4444';
+                                return '#f59e0b';
+                            }),
+                        },
+                    ],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            min: -100,
+                            max: 100,
+                            grid: {
+                                color(ctx) {
+                                    return Number(ctx.tick.value) === 0 ? 'rgba(245, 158, 11, 0.45)' : colors.grid;
+                                },
+                            },
+                            ticks: {
+                                color: colors.textMuted,
+                                callback(value) {
+                                    return signed(value, 0);
+                                },
+                            },
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: colors.textMuted },
+                        },
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                title(items) {
+                                    if (!items.length) return '';
+                                    const idx = items[0].dataIndex;
+                                    return decisionTitles[idx] || labels[idx];
+                                },
+                                label(context) {
+                                    const d = decisions[context.dataIndex] || {};
+                                    const trendDelta = Number(d.trend_delta && d.trend_delta.win_rate_pct || 0);
+                                    const confidence = Number(d.confidence_pct || 0);
+                                    return [
+                                        `Impact: ${signed(context.raw, 1)}`,
+                                        `Δ tendance: ${signed(trendDelta, 1)} pts`,
+                                        `Confiance: ${confidence.toFixed(1)}%`,
+                                    ];
+                                },
+                            },
+                        },
+                    },
+                },
+            });
+            charts.push(impactChart);
+            diag.chartsBuilt += 1;
+        }
+
+        const trendCtx = document.getElementById('coach-trend-chart');
+        if (trendCtx) {
+            const trendChart = new Chart(trendCtx, {
+                type: 'line',
+                data: {
+                    labels,
+                    datasets: [
+                        {
+                            label: 'Avant (win rate %)',
+                            data: decisions.map((decision) => Number(decision.trend_before && decision.trend_before.win_rate_pct || 0)),
+                            borderColor: '#38bdf8',
+                            backgroundColor: 'rgba(56, 189, 248, 0.16)',
+                            tension: 0.3,
+                            pointRadius: 3,
+                            yAxisID: 'y',
+                        },
+                        {
+                            label: 'Après (win rate %)',
+                            data: decisions.map((decision) => Number(decision.trend_after && decision.trend_after.win_rate_pct || 0)),
+                            borderColor: '#22c55e',
+                            backgroundColor: 'rgba(34, 197, 94, 0.16)',
+                            tension: 0.3,
+                            pointRadius: 3,
+                            yAxisID: 'y',
+                        },
+                        {
+                            type: 'bar',
+                            label: 'Δ tendance (pts)',
+                            data: decisions.map((decision) => Number(decision.trend_delta && decision.trend_delta.win_rate_pct || 0)),
+                            borderColor: '#a855f7',
+                            backgroundColor: 'rgba(168, 85, 247, 0.22)',
+                            borderWidth: 1,
+                            borderRadius: 6,
+                            yAxisID: 'y1',
+                        },
+                    ],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            min: 0,
+                            max: 100,
+                            ticks: {
+                                color: colors.textMuted,
+                                callback(value) {
+                                    return `${value}%`;
+                                },
+                            },
+                            grid: { color: colors.grid },
+                        },
+                        y1: {
+                            min: -100,
+                            max: 100,
+                            position: 'right',
+                            ticks: {
+                                color: colors.textMuted,
+                                callback(value) {
+                                    return `${signed(value, 0)} pts`;
+                                },
+                            },
+                            grid: { drawOnChartArea: false },
+                        },
+                        x: {
+                            ticks: { color: colors.textMuted },
+                            grid: { display: false },
+                        },
+                    },
+                    plugins: {
+                        legend: {
+                            labels: { color: colors.text },
+                        },
+                        tooltip: {
+                            callbacks: {
+                                title(items) {
+                                    if (!items.length) return '';
+                                    const idx = items[0].dataIndex;
+                                    return decisionTitles[idx] || labels[idx];
+                                },
+                            },
+                        },
+                    },
+                },
+            });
+            charts.push(trendChart);
+            diag.chartsBuilt += 1;
+        }
+    }
+
     function installResizeHooks() {
         const scheduleResize = () => {
             setTimeout(() => {
@@ -625,7 +932,13 @@
 
         document.querySelectorAll('button').forEach((btn) => {
             const text = (btn.textContent || '').trim().toLowerCase();
-            if (text.includes('sets') || text.includes('résumé')) {
+            if (
+                text.includes('sets')
+                || text.includes('résumé')
+                || text.includes('statistiques')
+                || text.includes('équipes')
+                || text.includes('joueurs')
+            ) {
                 btn.addEventListener('click', scheduleResize);
             }
         });
@@ -635,10 +948,27 @@
 
     function init() {
         try {
+            renderCoachDecisionInsights();
+            installResizeHooks();
+
+            if (!shouldRenderMomentum) {
+                if (!chartAvailable) {
+                    setHealthMessage('Visuel momentum non disponible: Chart.js non chargé.', true);
+                    publishDiag('ready', 'chart_missing');
+                } else if (!hasTimelineFlag) {
+                    setHealthMessage('Visuel momentum non disponible: détails de points non détectés.', true);
+                    publishDiag('ready', 'flag_false');
+                } else {
+                    setHealthMessage('Visuel momentum non disponible: données momentum absentes.', true);
+                    publishDiag('ready', 'no_momentum_data');
+                }
+                return;
+            }
+
             const setTimelines = [];
             const setTimelinesByNumero = {};
 
-            momentumData.sets.forEach((setData) => {
+            momentumSets.forEach((setData) => {
                 const timeline = normalizeSetTimeline(setData);
                 if (!timeline) return;
                 setTimelines.push(timeline);
@@ -654,7 +984,6 @@
 
             renderSetCharts(setTimelinesByNumero);
             renderMatchChart(setTimelines);
-            installResizeHooks();
 
             setHealthMessage(`Visuel construit (${diag.chartsBuilt} graphique(s)).`, false);
             publishDiag('ready', 'ok');

@@ -371,6 +371,7 @@
                 Axe horizontal : points joués cumulés sur tout le match (sans remise à zéro entre les sets). Axe vertical : écart de points (A − B).
             </div>
         </div>
+
         {% endif %}
     </div>
 
@@ -685,7 +686,7 @@
             <div>
                 <p class="stats-kicker">Match Intelligence</p>
                 <h3 class="stats-title">Statistiques équipes & joueurs</h3>
-                <p class="stats-subtitle">Face-to-face complet, efficacité side-out, first side-out, break point ratio, rotation P1..P6 et focus joueur.</p>
+                <p class="stats-subtitle">Face-to-face ciblé, side-out, first side-out, conversion de break, rotation P1..P6 et focus joueur.</p>
             </div>
             <div class="stats-hero-tabs">
                 <button @click="section='teams'; queueTeamCharts()" class="tab-btn" :class="section === 'teams' ? 'tab-active' : ''">
@@ -704,44 +705,75 @@
                 <button class="tab-btn" :class="teamPage === 'B' ? 'tab-active' : ''" @click="teamPage='B'; queueTeamCharts()" style="border-color: rgba(239,68,68,0.4); color: var(--team-b-light);">{{ match.equipe_b.nom if match.equipe_b else 'Équipe B' }}</button>
             </div>
 
-            <div x-show="teamPage === 'face'" class="card overflow-hidden">
-                <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
+            <div x-show="teamPage === 'face'" class="card p-4 space-y-4">
+                <div>
                     <h4 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
                         <i data-lucide="split" class="w-4 h-4 inline-block mr-1"></i> Duel statistique
                     </h4>
+                    <p class="text-xs mt-1" style="color: var(--text-secondary);">
+                        Lecture instantanée: plus la barre est longue, plus l'avantage est marqué sur l'indicateur.
+                    </p>
                 </div>
-                <div class="overflow-x-auto">
-                    <table class="data-table stats-face-table">
-                        <thead>
-                            <tr>
-                                <th class="text-center" style="color: var(--team-a-light);">{{ match.equipe_a.nom|truncate_name(26) if match.equipe_a else 'Équipe A' }}</th>
-                                <th class="text-center">Indicateur</th>
-                                <th class="text-center" style="color: var(--team-b-light);">{{ match.equipe_b.nom|truncate_name(26) if match.equipe_b else 'Équipe B' }}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <template x-for="row in (data.face_to_face || [])" :key="row.label">
-                                <tr>
-                                    <td class="text-center font-bold" :style="winnerClass(row, 'a')" x-text="formatFaceValue(row, 'a')"></td>
-                                    <td class="text-center" style="color: var(--text-secondary);" x-text="row.label"></td>
-                                    <td class="text-center font-bold" :style="winnerClass(row, 'b')" x-text="formatFaceValue(row, 'b')"></td>
-                                </tr>
-                            </template>
-                            <tr x-show="(data.face_to_face || []).length === 0">
-                                <td colspan="3" class="text-center py-6" style="color: var(--text-muted);">Aucune donnée comparative disponible.</td>
-                            </tr>
-                        </tbody>
-                    </table>
+
+                <div class="stats-team-highlights">
+                    <div class="stats-team-chip">
+                        <span x-text="teamName('A')"></span>
+                        <strong x-text="teamSnapshot('A')"></strong>
+                    </div>
+                    <div class="stats-team-chip">
+                        <span x-text="teamName('B')"></span>
+                        <strong x-text="teamSnapshot('B')"></strong>
+                    </div>
+                </div>
+
+                <div class="stats-duel-list">
+                    <template x-for="row in faceRows()" :key="row.label">
+                        <div class="stats-duel-row">
+                            <div class="stats-duel-top">
+                                <div class="stats-duel-value stats-duel-value-a"
+                                     :class="{ 'stats-duel-value-winner': isFaceWinner(row, 'a'), 'stats-duel-value-loser': isFaceLoser(row, 'a') }">
+                                    <span x-text="formatFaceValue(row, 'a')"></span>
+                                    <span class="stats-duel-crown" x-show="isFaceWinner(row, 'a')">▲</span>
+                                </div>
+                                <div class="stats-duel-title" x-text="row.label"></div>
+                                <div class="stats-duel-value stats-duel-value-b"
+                                     :class="{ 'stats-duel-value-winner': isFaceWinner(row, 'b'), 'stats-duel-value-loser': isFaceLoser(row, 'b') }">
+                                    <span x-text="formatFaceValue(row, 'b')"></span>
+                                    <span class="stats-duel-crown" x-show="isFaceWinner(row, 'b')">▲</span>
+                                </div>
+                            </div>
+
+                            <div class="stats-duel-track">
+                                <div class="stats-duel-track-half left">
+                                    <div class="stats-duel-bar stats-duel-bar-a"
+                                         :class="{ 'winner': isFaceWinner(row, 'a'), 'loser': isFaceLoser(row, 'a') }"
+                                         :style="`width: ${normalizedFacePct(row, 'a')}%`"></div>
+                                </div>
+                                <div class="stats-duel-track-half right">
+                                    <div class="stats-duel-bar stats-duel-bar-b"
+                                         :class="{ 'winner': isFaceWinner(row, 'b'), 'loser': isFaceLoser(row, 'b') }"
+                                         :style="`width: ${normalizedFacePct(row, 'b')}%`"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+
+                    <div x-show="faceRows().length === 0" class="text-center py-6" style="color: var(--text-muted);">
+                        Aucune donnée comparative disponible.
+                    </div>
                 </div>
             </div>
 
             <div x-show="teamPage === 'A' || teamPage === 'B'" class="space-y-5">
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <template x-for="card in currentTeamCards()" :key="card.label">
-                        <div class="card p-4">
+                        <div class="card p-4 stats-metric-card" :class="`tone-${card.tone}`">
                             <div class="text-xs uppercase tracking-wider" style="color: var(--text-muted);" x-text="card.label"></div>
                             <div class="text-xl font-black mt-1" :style="card.color" x-text="card.value"></div>
                             <div class="text-xs mt-1" style="color: var(--text-secondary);" x-text="card.hint"></div>
+                            <div class="stats-mini-meter">
+                                <span :class="`tone-${card.tone}`" :style="`width: ${card.meter}%`"></span>
+                            </div>
                         </div>
                     </template>
                 </div>
@@ -787,6 +819,145 @@
                             </tbody>
                         </table>
                     </div>
+                </div>
+
+                <div class="card p-5">
+                    <h5 class="text-xs uppercase tracking-wider mb-3" style="color: var(--text-muted);">Niveaux particuliers des joueurs présents</h5>
+                    <div class="overflow-x-auto">
+                        <table class="data-table text-sm">
+                            <thead>
+                                <tr>
+                                    <th>Joueur</th>
+                                    <th class="text-center">Niveaux saison</th>
+                                    <th class="text-center">Meilleur niveau</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="player in currentTeamLevelRows()" :key="`level-player-${player.joueur_id}`">
+                                    <tr>
+                                        <td class="font-medium whitespace-nowrap">
+                                            <span x-text="player.display_name"></span>
+                                            <span class="font-mono" style="color: var(--text-muted);" x-text="`#${player.numero || '?'}`"></span>
+                                        </td>
+                                        <td class="text-center">
+                                            <div class="flex flex-wrap gap-1 justify-center" x-show="(player.season_levels || []).length > 0">
+                                                <template x-for="level in (player.season_levels || [])" :key="`${player.joueur_id}-${level}`">
+                                                    <span class="badge badge-cyan" x-text="level"></span>
+                                                </template>
+                                            </div>
+                                            <span x-show="(player.season_levels || []).length === 0" style="color: var(--text-muted);">-</span>
+                                        </td>
+                                        <td class="text-center">
+                                            <span class="badge badge-gold" x-show="player.best_level_label" x-text="player.best_level_label"></span>
+                                            <span x-show="!player.best_level_label" style="color: var(--text-muted);">-</span>
+                                        </td>
+                                    </tr>
+                                </template>
+                                <tr x-show="currentTeamLevelRows().length === 0">
+                                    <td colspan="3" class="text-center py-6" style="color: var(--text-muted);">Aucun niveau particulier à afficher.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div x-show="section === 'teams'" x-cloak class="card p-6" id="coach-decisions-card">
+            {% set coach = coach_analysis or {} %}
+            {% set coach_decisions = coach.get('decisions', []) %}
+            {% set coach_has_data = (coach_decisions|length) > 0 %}
+            <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
+                <div>
+                    <h3 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                        <i data-lucide="clipboard-list" class="w-4 h-4 inline-block mr-1"></i> Analyse des décisions coach
+                    </h3>
+                </div>
+                <div class="coach-decision-kpis">
+                    <span class="coach-kpi-chip">Décisions: <strong id="coach-decisions-total">{{ coach.get('total_decisions', 0) }}</strong></span>
+                    <span class="coach-kpi-chip">Changements: <strong id="coach-decisions-subs">{{ coach.get('total_substitutions', 0) }}</strong></span>
+                    <span class="coach-kpi-chip">Temps morts: <strong id="coach-decisions-timeouts">{{ coach.get('total_timeouts', 0) }}</strong></span>
+                    <span class="coach-kpi-chip">Impact moyen: <strong id="coach-decisions-average">{{ '%+.1f'|format(coach.get('average_impact_score', 0.0)) }}</strong></span>
+                </div>
+            </div>
+
+            <div id="coach-decisions-empty" class="text-sm py-6 text-center" style="color: var(--text-muted);{% if coach_has_data %} display: none;{% endif %}">
+                Aucune décision exploitable pour l'analyse avant/après.
+            </div>
+
+            <div id="coach-decisions-content" class="space-y-5" style="{% if coach_has_data %}display: block;{% else %}display: none;{% endif %}">
+                <div class="coach-team-summary-grid">
+                    <div class="coach-team-summary coach-team-a">
+                        <div class="coach-team-title">Équipe A</div>
+                        <div class="coach-team-body" id="coach-team-a-summary">
+                            {% set bucket_a = coach.get('by_team', {}).get('A', {}) %}
+                            {{ bucket_a.get('count', 0) }} décision(s) · +{{ bucket_a.get('positive', 0) }} / -{{ bucket_a.get('negative', 0) }} · Impact moyen {{ '%+.1f'|format(bucket_a.get('average_impact_score', 0.0)) }}
+                        </div>
+                    </div>
+                    <div class="coach-team-summary coach-team-b">
+                        <div class="coach-team-title">Équipe B</div>
+                        <div class="coach-team-body" id="coach-team-b-summary">
+                            {% set bucket_b = coach.get('by_team', {}).get('B', {}) %}
+                            {{ bucket_b.get('count', 0) }} décision(s) · +{{ bucket_b.get('positive', 0) }} / -{{ bucket_b.get('negative', 0) }} · Impact moyen {{ '%+.1f'|format(bucket_b.get('average_impact_score', 0.0)) }}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                    <div class="card p-4">
+                        <h4 class="text-xs uppercase tracking-wider mb-3" style="color: var(--text-muted);">Score d'impact par décision</h4>
+                        <div style="height: 260px;"><canvas id="coach-impact-chart"></canvas></div>
+                    </div>
+                    <div class="card p-4">
+                        <h4 class="text-xs uppercase tracking-wider mb-3" style="color: var(--text-muted);">Tendance avant/après (win rate)</h4>
+                        <div style="height: 260px;"><canvas id="coach-trend-chart"></canvas></div>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="data-table text-sm">
+                        <thead>
+                            <tr>
+                                <th>Décision</th>
+                                <th class="text-center">Set</th>
+                                <th class="text-center">Score</th>
+                                <th class="text-center">Avant</th>
+                                <th class="text-center">Après</th>
+                                <th class="text-center">Variation</th>
+                                <th class="text-center">Impact</th>
+                                <th class="text-center">Confiance</th>
+                            </tr>
+                        </thead>
+                        <tbody id="coach-decisions-body">
+                            {% for decision in coach_decisions %}
+                            {% set decision_is_sub = decision.get('type') == 'sub' %}
+                            {% set trend_delta = decision.get('trend_delta', {}).get('win_rate_pct', 0.0) %}
+                            {% set impact_score = decision.get('impact_score', 0.0) %}
+                            <tr>
+                                <td>
+                                    <div class="coach-decision-id">{{ decision.get('id', '') }}</div>
+                                    <div class="coach-decision-type {% if decision_is_sub %}sub{% else %}timeout{% endif %}">
+                                        {% if decision_is_sub %}Changement{% else %}Temps mort{% endif %} · {{ decision.get('team_name', decision.get('team', '')) }}
+                                    </div>
+                                    <div class="text-xs mt-1" style="color: var(--text-secondary);">
+                                        {% if decision_is_sub %}
+                                        ↑ {{ decision.get('entrant', '?') }} / ↓ {{ decision.get('sortant', '?') }}
+                                        {% else %}
+                                        Temps mort
+                                        {% endif %}
+                                    </div>
+                                </td>
+                                <td class="text-center">{{ decision.get('set_numero', '') }}</td>
+                                <td class="text-center font-mono">{{ decision.get('score_a', 0) }}-{{ decision.get('score_b', 0) }}</td>
+                                <td class="text-center">{{ '%.1f'|format(decision.get('trend_before', {}).get('win_rate_pct', 0.0)) }}%</td>
+                                <td class="text-center">{{ '%.1f'|format(decision.get('trend_after', {}).get('win_rate_pct', 0.0)) }}%</td>
+                                <td class="text-center {% if trend_delta >= 0 %}coach-impact-positive{% else %}coach-impact-negative{% endif %}">{{ '%+.1f'|format(trend_delta) }} pts</td>
+                                <td class="text-center coach-impact-cell {% if impact_score >= 12 %}coach-impact-positive{% elif impact_score <= -12 %}coach-impact-negative{% else %}coach-impact-neutral{% endif %}">{{ '%+.1f'|format(impact_score) }}</td>
+                                <td class="text-center">{{ '%.1f'|format(decision.get('confidence_pct', 0.0)) }}%</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
@@ -1116,6 +1287,64 @@ function matchStatsHub(payload) {
             setTimeout(() => this.renderPlayerCharts(), 0);
         },
 
+        faceRows() {
+            return this.data && Array.isArray(this.data.face_to_face) ? this.data.face_to_face : [];
+        },
+
+        clampPct(value) {
+            const n = Number(value);
+            if (!Number.isFinite(n)) return 0;
+            return Math.max(0, Math.min(100, Math.round(n)));
+        },
+
+        normalizedFacePct(row, sideKey) {
+            const a = Math.abs(Number(row.a || 0));
+            const b = Math.abs(Number(row.b || 0));
+            const total = a + b;
+            if (total <= 0) return 0;
+            const raw = sideKey === 'a' ? a : b;
+            const pct = (raw / total) * 100;
+            return Math.max(5, this.clampPct(pct));
+        },
+
+        faceCompareMode(row) {
+            if (row && row.comparison) return row.comparison;
+            return 'higher';
+        },
+
+        hasComparableWinner(row) {
+            const mode = this.faceCompareMode(row);
+            const a = Number(row.a || 0);
+            const b = Number(row.b || 0);
+            if (mode === 'none') return false;
+            return a !== b;
+        },
+
+        isFaceWinner(row, sideKey) {
+            if (!this.hasComparableWinner(row)) return false;
+            const mode = this.faceCompareMode(row);
+            const a = Number(row.a || 0);
+            const b = Number(row.b || 0);
+            if (mode === 'lower') {
+                return sideKey === 'a' ? a < b : b < a;
+            }
+            return sideKey === 'a' ? a > b : b > a;
+        },
+
+        isFaceLoser(row, sideKey) {
+            if (!this.hasComparableWinner(row)) return false;
+            return !this.isFaceWinner(row, sideKey);
+        },
+
+        teamSnapshot(side) {
+            const team = (this.data.teams || {})[side] || {};
+            const s = team.summary || {};
+            const sideout = Number(s.sideout_efficacite_pct || 0);
+            const breakRatio = Number(s.break_point_ratio_pct || 0);
+            const maxSerie = Number(s.max_serie || 0);
+            return `Side-out ${sideout.toFixed(1)}% · Break ${breakRatio.toFixed(1)}% · Série max ${maxSerie}`;
+        },
+
         formatFaceValue(row, sideKey) {
             const key = sideKey === 'a' ? 'a' : 'b';
             const raw = row[key];
@@ -1123,12 +1352,6 @@ function matchStatsHub(payload) {
             if (row.unit === ' min') return `${raw} min`;
             if (row.unit === ' joueurs') return `${raw} j.`;
             return `${raw}`;
-        },
-
-        winnerClass(row, sideKey) {
-            if (row.a === row.b) return 'color: var(--text-primary);';
-            const sideWins = sideKey === 'a' ? row.a > row.b : row.b > row.a;
-            return sideWins ? 'color: var(--accent-green-light);' : 'color: var(--text-secondary); opacity: 0.75;';
         },
 
         currentTeamData() {
@@ -1140,17 +1363,82 @@ function matchStatsHub(payload) {
             return team && team.positions ? team.positions : [];
         },
 
+        currentTeamLevels() {
+            const team = this.currentTeamData();
+            return (team && team.levels) || { competition_level: null, season_groups: [], best_groups: [], player_rows: [] };
+        },
+
+        currentTeamLevelRows() {
+            const levels = this.currentTeamLevels();
+            const rows = Array.isArray(levels.player_rows) ? levels.player_rows : [];
+            return rows.filter((player) => {
+                const season = Array.isArray(player.season_levels) ? player.season_levels : [];
+                return season.length > 0 || Boolean(player.best_level_label);
+            });
+        },
+
         currentTeamCards() {
             const team = this.currentTeamData();
             const s = (team && team.summary) || {};
+
+            const toneFromPct = (value) => {
+                const pct = Number(value || 0);
+                if (pct >= 65) return 'positive';
+                if (pct >= 45) return 'warning';
+                return 'risk';
+            };
+
+            const services = Number(s.services || 0);
+            const maxSerie = Number(s.max_serie || 0);
             return [
-                { label: 'Efficacité terrain', value: `${s.efficacite_pct || 0}%`, hint: 'Pts gagnés / pts joués', color: 'color: var(--accent-green);' },
-                { label: 'Efficacité side-out', value: `${s.sideout_efficacite_pct || 0}%`, hint: `${s.sideout_successes || 0}/${s.sideout_attempts || 0} side-outs`, color: 'color: var(--accent-blue);' },
-                { label: 'Efficacité first side-out', value: `${s.first_sideout_efficacite_pct || 0}%`, hint: `${s.first_sideout_successes || 0}/${s.first_sideout_attempts || 0} side-outs immédiats`, color: 'color: var(--accent-cyan);' },
-                { label: 'Break point ratio', value: `${s.break_point_ratio_pct || 0}%`, hint: `${s.break_points || 0}/${s.break_opportunities || 0} points au service`, color: 'color: var(--accent-purple);' },
-                { label: 'Services', value: s.services || 0, hint: 'Volume de mise en jeu', color: 'color: var(--accent-cyan);' },
-                { label: 'Meilleure série', value: s.max_serie || 0, hint: 'Rallyes consécutifs au service', color: 'color: var(--accent-gold);' },
-                { label: 'Couverture données', value: `${s.phase_coverage_pct || 0}%`, hint: `${s.sets_with_timeline || 0}/${s.sets_total || 0} sets détaillés`, color: 'color: var(--text-primary);' },
+                {
+                    label: 'Efficacité globale',
+                    value: `${s.efficacite_pct || 0}%`,
+                    hint: 'Pts gagnés / pts joués',
+                    color: 'color: var(--accent-green);',
+                    tone: toneFromPct(s.efficacite_pct),
+                    meter: this.clampPct(s.efficacite_pct),
+                },
+                {
+                    label: 'Efficacité side-out',
+                    value: `${s.sideout_efficacite_pct || 0}%`,
+                    hint: `${s.sideout_successes || 0}/${s.sideout_attempts || 0} side-outs`,
+                    color: 'color: var(--accent-blue);',
+                    tone: toneFromPct(s.sideout_efficacite_pct),
+                    meter: this.clampPct(s.sideout_efficacite_pct),
+                },
+                {
+                    label: 'Efficacité 1er side-out',
+                    value: `${s.first_sideout_efficacite_pct || 0}%`,
+                    hint: `${s.first_sideout_successes || 0}/${s.first_sideout_attempts || 0} side-outs immédiats`,
+                    color: 'color: var(--accent-cyan);',
+                    tone: toneFromPct(s.first_sideout_efficacite_pct),
+                    meter: this.clampPct(s.first_sideout_efficacite_pct),
+                },
+                {
+                    label: 'Conversion de break',
+                    value: `${s.break_point_ratio_pct || 0}%`,
+                    hint: `${s.break_points || 0}/${s.break_opportunities || 0} points au service`,
+                    color: 'color: var(--accent-purple);',
+                    tone: toneFromPct(s.break_point_ratio_pct),
+                    meter: this.clampPct(s.break_point_ratio_pct),
+                },
+                {
+                    label: 'Mises en jeu',
+                    value: services,
+                    hint: 'Volume de mise en jeu',
+                    color: 'color: var(--accent-cyan);',
+                    tone: 'neutral',
+                    meter: this.clampPct((services / 40) * 100),
+                },
+                {
+                    label: 'Série max au service',
+                    value: maxSerie,
+                    hint: 'Rallyes consécutifs au service',
+                    color: 'color: var(--accent-gold);',
+                    tone: maxSerie >= 5 ? 'positive' : 'warning',
+                    meter: this.clampPct(maxSerie * 12),
+                },
             ];
         },
 
@@ -1215,8 +1503,8 @@ function matchStatsHub(payload) {
                         labels: history.map((h) => h.label),
                         datasets: [
                             {
-                                label: 'Points joués',
-                                data: history.map((h) => h.points_joues || 0),
+                                label: 'Points marqués',
+                                data: history.map((h) => h.points_marques || 0),
                                 borderColor: sideColor,
                                 backgroundColor: 'transparent',
                                 tension: 0.35,
@@ -1235,6 +1523,15 @@ function matchStatsHub(payload) {
                                 borderColor: '#60a5fa',
                                 backgroundColor: 'transparent',
                                 borderDash: [5, 3],
+                                tension: 0.35,
+                                yAxisID: 'y1',
+                            },
+                            {
+                                label: '1er side-out %',
+                                data: history.map((h) => h.first_sideout_efficacite_pct || 0),
+                                borderColor: '#06b6d4',
+                                backgroundColor: 'transparent',
+                                borderDash: [7, 4],
                                 tension: 0.35,
                                 yAxisID: 'y1',
                             },
@@ -1392,7 +1689,7 @@ window.PYVOLLEY_HAS_POINT_TIMELINE = {{ has_point_timeline|default(false)|tojson
 window.PYVOLLEY_MOMENTUM_DEBUG = {{ (request.query_params.get('momentum_debug') == '1')|tojson }};
 window.PYVOLLEY_MATCH_STATS_DASHBOARD = {{ match_stats_dashboard_json|safe }};
 </script>
-{% if has_point_timeline|default(false) %}
+{% if match.has_details %}
 <script src="/static/js/match-momentum.js"></script>
 {% endif %}
 {% if match.has_details %}

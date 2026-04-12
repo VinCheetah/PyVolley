@@ -16,9 +16,11 @@ from .classement import (
     calculer_classement_complet,
 )
 from .joueur_stats import analyze_joueur_match, aggregate_joueur_stats, build_set_timeline
+from .role_inference import infer_team_roles
 from .models import (
     PresenceSet,
     ServiceSetDetail,
+    RoleInference,
     JoueurMatchDetailedStats,
     JoueurStatsAggregated,
 )
@@ -33,8 +35,10 @@ __all__ = [
     "analyze_joueur_match",
     "aggregate_joueur_stats",
     "build_set_timeline",
+    "infer_team_roles",
     "PresenceSet",
     "ServiceSetDetail",
+    "RoleInference",
     "JoueurMatchDetailedStats",
     "JoueurStatsAggregated",
 ]

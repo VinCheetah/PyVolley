@@ -3,6 +3,8 @@
 {% block title %}{{ equipe.nom }} - PyVolley{% endblock %}
 
 {% block content %}
+{% set roster_role_groups = roster_role_groups|default([], true) %}
+{% set role_detection_coverage = role_detection_coverage|default({'players_with_role_data': 0, 'players_total': 0, 'pct': 0}, true) %}
 <div class="space-y-6">
 
     {{ breadcrumb([('Accueil', '/'), ('Équipes', '/equipes'), (equipe.nom, '')]) }}
@@ -150,71 +152,118 @@
     {% if roster %}
     <div class="card overflow-hidden">
         <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
-            <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
-                <i data-lucide="users" class="w-4 h-4 inline-block mr-1"></i>
-                Effectif complet ({{ roster|length }} joueurs)
-            </h2>
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+                <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                    <i data-lucide="users" class="w-4 h-4 inline-block mr-1"></i>
+                    Effectif complet ({{ roster|length }} joueurs)
+                </h2>
+                <span class="badge badge-blue">
+                    Rôles détectés: {{ role_detection_coverage.pct|round(0)|int }}%
+                </span>
+            </div>
         </div>
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th class="text-center w-12">#</th>
-                    <th>Joueur</th>
-                    <th class="text-center">Présences</th>
-                    <th class="text-center">Capitaine</th>
-                    <th class="text-center">Libéro</th>
-                    <th class="text-right">Profil</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for entry in roster %}
-                {% set j = entry.joueur %}
-                <tr>
-                    <td class="text-center">
-                        {% if entry.numero_maillot %}
-                        <span class="player-number team-a {% if entry.libero_count > 0 %}libero{% endif %}"
-                              style="width: 28px; height: 28px; font-size: 0.7rem; display: inline-flex;">
-                            {{ entry.numero_maillot }}
-                        </span>
-                        {% else %}
-                        <span style="color: var(--text-muted);">—</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        <a href="{{ path_for_entity('joueur', j.id) }}" class="font-medium hover:text-white transition"
-                           style="color: var(--text-primary);">
-                            {{ j.nom }} <span style="color: var(--text-secondary);">{{ j.prenom }}</span>
-                        </a>
-                    </td>
-                    <td class="text-center">
-                        <span class="font-bold" style="color: var(--accent-blue);">{{ entry.matchs_joues }}</span>
-                        <span class="text-xs" style="color: var(--text-muted);">/ {{ matchs|length }}</span>
-                    </td>
-                    <td class="text-center">
-                        {% if entry.capitaine_count > 0 %}
-                        <span class="badge badge-gold" title="{{ entry.capitaine_count }} fois capitaine">
-                            C × {{ entry.capitaine_count }}
-                        </span>
-                        {% else %}
-                        <span style="color: var(--text-muted);">—</span>
-                        {% endif %}
-                    </td>
-                    <td class="text-center">
-                        {% if entry.libero_count > 0 %}
-                        <span class="badge badge-green" title="{{ entry.libero_count }} fois libéro">
-                            L × {{ entry.libero_count }}
-                        </span>
-                        {% else %}
-                        <span style="color: var(--text-muted);">—</span>
-                        {% endif %}
-                    </td>
-                    <td class="text-right">
-                        <a href="{{ path_for_entity('joueur', j.id) }}" class="badge badge-blue text-xs">Voir</a>
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+
+        <div class="p-4 space-y-5">
+            {% for group in roster_role_groups %}
+            <section class="overflow-hidden rounded-xl" style="border: 1px solid var(--border-color); background: rgba(13, 18, 31, 0.45);">
+                <div class="px-3 py-2 flex flex-wrap items-center justify-between gap-2" style="border-bottom: 1px solid var(--border-color); background: rgba(23, 30, 52, 0.5);">
+                    <div>
+                        <h3 class="text-xs font-semibold uppercase tracking-wider" style="color: var(--accent-cyan);">{{ group.label }}</h3>
+                        <p class="text-xs" style="color: var(--text-secondary);">{{ group.count }} joueur{% if group.count > 1 %}s{% endif %} · {{ group.total_matches }} participations</p>
+                    </div>
+                    <span class="badge">Couverture stats: {{ group.coverage_avg_pct|round(0)|int }}%</span>
+                </div>
+
+                <table class="data-table text-sm">
+                    <thead>
+                        <tr>
+                            <th class="text-center w-12">#</th>
+                            <th>Joueur</th>
+                            <th class="text-center">Présences</th>
+                            <th class="text-center">Rôle principal</th>
+                            <th>Rôles plausibles</th>
+                            <th class="text-center">Capitaine</th>
+                            <th class="text-center">Libéro</th>
+                            <th class="text-right">Profil</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for entry in group.players %}
+                        {% set j = entry.joueur %}
+                        {% set role = entry.role_profile %}
+                        <tr>
+                            <td class="text-center">
+                                {% if entry.numero_maillot %}
+                                <span class="player-number team-a {% if entry.libero_count > 0 %}libero{% endif %}"
+                                      style="width: 28px; height: 28px; font-size: 0.7rem; display: inline-flex;">
+                                    {{ entry.numero_maillot }}
+                                </span>
+                                {% else %}
+                                <span style="color: var(--text-muted);">—</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <a href="{{ path_for_entity('joueur', j.id) }}" class="font-medium hover:text-white transition"
+                                   style="color: var(--text-primary);">
+                                    {{ j.nom }} <span style="color: var(--text-secondary);">{{ j.prenom }}</span>
+                                </a>
+                            </td>
+                            <td class="text-center">
+                                <span class="font-bold" style="color: var(--accent-blue);">{{ entry.matchs_joues }}</span>
+                                <span class="text-xs" style="color: var(--text-muted);">/ {{ matchs|length }}</span>
+                            </td>
+                            <td class="text-center">
+                                {% if role.primary_code %}
+                                <span class="badge badge-blue text-xs">{{ role.primary_label }}</span>
+                                {% if role.is_multi_role %}
+                                <span class="badge badge-gold text-xs">Polyvalent</span>
+                                {% endif %}
+                                {% else %}
+                                <span style="color: var(--text-muted);">—</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if role.plausible_labels %}
+                                <div class="flex flex-wrap gap-1.5">
+                                    {% for role_label in role.plausible_labels %}
+                                    <span class="badge text-xs">{{ role_label }}</span>
+                                    {% endfor %}
+                                </div>
+                                <div class="text-[11px] mt-1" style="color: var(--text-muted);">
+                                    Fiabilité {{ role.confidence_pct|round(1) }}% · Couverture {{ role.coverage_pct|round(0)|int }}%
+                                </div>
+                                {% else %}
+                                <span style="color: var(--text-muted);">—</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if entry.capitaine_count > 0 %}
+                                <span class="badge badge-gold" title="{{ entry.capitaine_count }} fois capitaine">
+                                    C × {{ entry.capitaine_count }}
+                                </span>
+                                {% else %}
+                                <span style="color: var(--text-muted);">—</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if entry.libero_count > 0 %}
+                                <span class="badge badge-green" title="{{ entry.libero_count }} fois libéro">
+                                    L × {{ entry.libero_count }}
+                                </span>
+                                {% else %}
+                                <span style="color: var(--text-muted);">—</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-right">
+                                <a href="{{ path_for_entity('joueur', j.id) }}" class="badge badge-blue text-xs">Voir</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </section>
+            {% endfor %}
+        </div>
     </div>
     {% endif %}
 

@@ -30,6 +30,16 @@ class ServiceSetDetail(BaseModel):
     scores_perte: list[int] = Field(default_factory=list)
 
 
+class RoleInference(BaseModel):
+    """Role inference result for one player in one match context."""
+
+    role_principal: Optional[str] = None
+    roles_possibles: list[str] = Field(default_factory=list)
+    role_scores: dict[str, float] = Field(default_factory=dict)
+    role_confiance: float = 0.0
+    indices: list[str] = Field(default_factory=list)
+
+
 class JoueurMatchDetailedStats(BaseModel):
     """Statistiques détaillées d'un joueur pour un match."""
 
@@ -41,6 +51,27 @@ class JoueurMatchDetailedStats(BaseModel):
     side: str
     est_libero: bool = False
     est_capitaine: bool = False
+
+    role_principal: Optional[str] = Field(
+        None,
+        description="Role principal infere sur ce match",
+    )
+    roles_possibles: list[str] = Field(
+        default_factory=list,
+        description="Roles potentiels classes par probabilite decroissante",
+    )
+    role_scores: dict[str, float] = Field(
+        default_factory=dict,
+        description="Scores normalises par role (somme ~= 1)",
+    )
+    role_confiance: float = Field(
+        0.0,
+        description="Confiance globale de l'inference de role",
+    )
+    indices_roles: list[str] = Field(
+        default_factory=list,
+        description="Indices textuels ayant contribue a l'inference",
+    )
 
     victoire: bool = False
     score_match: Optional[str] = None
@@ -169,5 +200,10 @@ class JoueurStatsAggregated(BaseModel):
 
     total_temps_morts_provoques: int = 0
     moyenne_temps_morts_par_match: float = 0.0
+
+    role_principal_global: Optional[str] = None
+    roles_possibles_global: list[str] = Field(default_factory=list)
+    role_distribution_matchs: dict[str, int] = Field(default_factory=dict)
+    role_scores_moyens: dict[str, float] = Field(default_factory=dict)
 
     total_sanctions: int = 0

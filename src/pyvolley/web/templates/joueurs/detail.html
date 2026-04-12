@@ -22,6 +22,7 @@
 {% set map_markers = map_markers|default([], true) %}
 {% set match_evolution_stats = match_evolution_stats|default([], true) %}
 {% set aggregated_stats = aggregated_stats|default(none, true) %}
+{% set role_overview = role_overview|default({'available': false, 'principal_code': none, 'principal_label': 'Non determine', 'plausibility_pct': 0.0, 'consistency_pct': 0.0, 'average_confidence_pct': 0.0, 'coverage_pct': 0.0, 'match_count': 0, 'roles': [], 'sources': [], 'evidence': []}, true) %}
 {% set estimated_age = estimated_age|default(none, true) %}
 {% set jersey_cards = jersey_cards|default([], true) %}
 {% set numero_stats = numero_stats|default({'principal': none, 'distinct_count': 0, 'matches_with_number': 0, 'distribution': []}, true) %}
@@ -111,6 +112,17 @@
                         <span>Niveau recent</span>
                         <strong>{{ level_timeline_summary.current_label or (current_level.label if current_level else 'Non disponible') }}</strong>
                         <small>{{ level_timeline_summary.known_count }} / {{ level_timeline_summary.total_count }} matchs avec niveau connu</small>
+                    </div>
+                    <div class="player-hero-insight">
+                        <span>Role detecte</span>
+                        <strong>{{ role_overview.principal_label if role_overview.available else 'Non determine' }}</strong>
+                        <small>
+                            {% if role_overview.available %}
+                            Plausibilite {{ role_overview.plausibility_pct|round(1) }}%
+                            {% else %}
+                            Donnees insuffisantes
+                            {% endif %}
+                        </small>
                     </div>
                 </div>
             </div>
@@ -587,14 +599,117 @@
             <div class="stat-card"><div class="stat-value gradient-text-gold">{{ aggregated_stats.total_services }}</div><div class="stat-label">Services</div></div>
             <div class="stat-card"><div class="stat-value" style="color: var(--accent-purple);">{{ aggregated_stats.max_serie_service }}</div><div class="stat-label">Max série</div></div>
             <div class="stat-card"><div class="stat-value" style="color: var(--accent-blue);">{{ aggregated_stats.total_sets_joues }}</div><div class="stat-label">Sets joués</div></div>
+            <div class="stat-card"><div class="stat-value" style="color: var(--accent-cyan);">{{ role_overview.principal_label if role_overview.available else '—' }}</div><div class="stat-label">Rôle principal</div></div>
+            <div class="stat-card"><div class="stat-value" style="color: var(--accent-gold);">{% if role_overview.available %}{{ role_overview.plausibility_pct|round(1) }}%{% else %}—{% endif %}</div><div class="stat-label">Plausibilité rôle</div></div>
         </div>
 
-        {% if match_evolution_stats and match_evolution_stats|length > 1 %}
-        <div class="card p-4">
-            <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">Évolution chronologique</h3>
-            <div style="height: 260px;"><canvas id="matchEvolutionChart"></canvas></div>
+        <div class="player-stats-grid">
+            <div class="card p-4 player-profile-radar-card">
+                <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">
+                    Profil visuel du joueur
+                </h3>
+                <div class="player-profile-radar-wrap">
+                    <canvas id="playerProfileRadarChart"></canvas>
+                </div>
+                <div class="player-profile-radar-kpis">
+                    <div class="player-profile-radar-kpi">
+                        <span>Ratio global</span>
+                        <strong>{{ (aggregated_stats.ratio_points_gagnes_global * 100)|round(1) }}%</strong>
+                    </div>
+                    <div class="player-profile-radar-kpi">
+                        <span>Break global</span>
+                        <strong>{{ (aggregated_stats.break_point_ratio_global * 100)|round(1) }}%</strong>
+                    </div>
+                    <div class="player-profile-radar-kpi">
+                        <span>Side-out global</span>
+                        <strong>{{ (aggregated_stats.ratio_points_gagnes_sideout_global * 100)|round(1) }}%</strong>
+                    </div>
+                    <div class="player-profile-radar-kpi">
+                        <span>Pts / tour service</span>
+                        <strong>{{ aggregated_stats.moyenne_points_par_tour|round(2) }}</strong>
+                    </div>
+                </div>
+            </div>
+
+            {% if match_evolution_stats and match_evolution_stats|length > 1 %}
+            <div class="card p-4">
+                <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">Évolution chronologique</h3>
+                <div style="height: 260px;"><canvas id="matchEvolutionChart"></canvas></div>
+            </div>
+            {% else %}
+            <div class="card p-4">
+                <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">Évolution chronologique</h3>
+                <p class="text-sm" style="color: var(--text-muted);">Pas assez de matchs pour tracer une évolution fiable sur la période filtrée.</p>
+            </div>
+            {% endif %}
         </div>
-        {% endif %}
+
+        <div class="card p-4">
+            <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">
+                Détection du rôle
+            </h3>
+            {% if role_overview.available %}
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div class="p-3 rounded-lg" style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.22);">
+                    <div class="text-xs uppercase tracking-wider" style="color: var(--text-muted);">Rôle principal</div>
+                    <div class="text-sm font-semibold mt-1" style="color: var(--text-primary);">{{ role_overview.principal_label }}</div>
+                </div>
+                <div class="p-3 rounded-lg" style="background: rgba(6, 182, 212, 0.08); border: 1px solid rgba(6, 182, 212, 0.22);">
+                    <div class="text-xs uppercase tracking-wider" style="color: var(--text-muted);">Confiance moyenne</div>
+                    <div class="text-sm font-semibold mt-1" style="color: var(--text-primary);">{{ role_overview.average_confidence_pct|round(1) }}%</div>
+                </div>
+                <div class="p-3 rounded-lg" style="background: rgba(168, 85, 247, 0.08); border: 1px solid rgba(168, 85, 247, 0.22);">
+                    <div class="text-xs uppercase tracking-wider" style="color: var(--text-muted);">Cohérence</div>
+                    <div class="text-sm font-semibold mt-1" style="color: var(--text-primary);">{{ role_overview.consistency_pct|round(1) }}%</div>
+                </div>
+                <div class="p-3 rounded-lg" style="background: rgba(34, 197, 94, 0.08); border: 1px solid rgba(34, 197, 94, 0.22);">
+                    <div class="text-xs uppercase tracking-wider" style="color: var(--text-muted);">Couverture</div>
+                    <div class="text-sm font-semibold mt-1" style="color: var(--text-primary);">{{ role_overview.coverage_pct|round(1) }}%</div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                <div>
+                    <p class="text-xs uppercase tracking-wider mb-2" style="color: var(--text-muted);">Répartition des rôles</p>
+                    <div class="space-y-2">
+                        {% for rr in role_overview.roles %}
+                        <div>
+                            <div class="flex items-center justify-between text-xs">
+                                <span style="color: var(--text-primary);">{{ rr.label }}</span>
+                                <span style="color: var(--text-secondary);">{{ rr.matches }} m · {{ rr.score_pct|round(1) }}%</span>
+                            </div>
+                            <div class="w-full rounded-full h-2 mt-1" style="background: rgba(42, 48, 80, 0.65);">
+                                <div class="h-2 rounded-full" style="width: {{ rr.score_pct }}%; background: linear-gradient(90deg, var(--accent-blue), var(--accent-cyan));"></div>
+                            </div>
+                        </div>
+                        {% else %}
+                        <p class="text-sm" style="color: var(--text-muted);">Aucune répartition disponible.</p>
+                        {% endfor %}
+                    </div>
+                </div>
+                <div>
+                    <p class="text-xs uppercase tracking-wider mb-2" style="color: var(--text-muted);">Sources d'inférence</p>
+                    <div class="flex flex-wrap gap-2">
+                        {% for source in role_overview.sources %}
+                        <span class="badge">{{ source.label }} ({{ source.pct|round(0)|int }}%)</span>
+                        {% else %}
+                        <span class="text-sm" style="color: var(--text-muted);">Aucune source détaillée.</span>
+                        {% endfor %}
+                    </div>
+                    {% if role_overview.evidence %}
+                    <p class="text-xs uppercase tracking-wider mt-4 mb-2" style="color: var(--text-muted);">Indices clés</p>
+                    <ul class="space-y-1 text-xs" style="color: var(--text-secondary);">
+                        {% for hint in role_overview.evidence %}
+                        <li>- {{ hint }}</li>
+                        {% endfor %}
+                    </ul>
+                    {% endif %}
+                </div>
+            </div>
+            {% else %}
+            <p class="text-sm" style="color: var(--text-muted);">Pas assez d'indices pour proposer un rôle plausible sur les matchs filtrés.</p>
+            {% endif %}
+        </div>
 
         <div class="card overflow-hidden">
             <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
@@ -608,6 +723,9 @@
                             <th>Adversaire</th>
                             <th class="text-center">#</th>
                             <th>Niveau</th>
+                            <th class="text-center">Rôle</th>
+                            <th class="text-center">Plausibilité</th>
+                            <th>Sources</th>
                             <th class="text-center">V/D</th>
                             <th class="text-center">Pts joués</th>
                             <th class="text-center">Pts gagnés</th>
@@ -640,6 +758,27 @@
                             </td>
                             <td class="text-center">{% if pm.numero %}<span class="badge badge-purple text-xs">#{{ pm.numero }}</span>{% else %}—{% endif %}</td>
                             <td>{% if pm.niveau_principal %}<span class="badge badge-blue text-xs">{{ pm.niveau_principal }}</span>{% else %}—{% endif %}</td>
+                            <td class="text-center">
+                                {% if pm.role_code %}
+                                <span class="badge badge-blue text-xs">{{ pm.role_label }}</span>
+                                {% else %}
+                                <span style="color: var(--text-muted);">—</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center" style="color: var(--accent-cyan);">
+                                {% if pm.role_code %}
+                                {{ pm.role_plausibility_pct|round(1) }}%
+                                {% else %}
+                                —
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if pm.role_sources %}
+                                <span class="text-xs" style="color: var(--text-secondary);">{{ pm.role_sources|join(' · ') }}</span>
+                                {% else %}
+                                <span style="color: var(--text-muted);">—</span>
+                                {% endif %}
+                            </td>
                             <td class="text-center">{% if pms.victoire %}<span class="badge badge-green text-xs">V</span>{% else %}<span class="badge badge-red text-xs">D</span>{% endif %}</td>
                             <td class="text-center">{{ pms.points_joues }}</td>
                             <td class="text-center" style="color: var(--accent-green);">{{ pms.points_gagnes }}</td>
@@ -652,7 +791,7 @@
                             <td class="text-center">{{ pms.max_serie if pms.max_serie > 0 else '—' }}</td>
                         </tr>
                         {% else %}
-                        <tr><td colspan="14" class="text-center py-8" style="color: var(--text-muted);">Aucune statistique détaillée sur ce filtre.</td></tr>
+                        <tr><td colspan="17" class="text-center py-8" style="color: var(--text-muted);">Aucune statistique détaillée sur ce filtre.</td></tr>
                         {% endfor %}
                     </tbody>
                 </table>
@@ -762,6 +901,94 @@ document.addEventListener('DOMContentLoaded', function () {
     };
     const gridColor = 'rgba(42, 48, 80, 0.5)';
     const textColor = '#8b92a8';
+
+    const aggregatedStats = {
+        matchs_joues: {{ aggregated_stats.matchs_joues if aggregated_stats else 0 }},
+        total_sets_joues: {{ aggregated_stats.total_sets_joues if aggregated_stats else 0 }},
+        total_sets_titulaire: {{ aggregated_stats.total_sets_titulaire if aggregated_stats else 0 }},
+        total_points_joues: {{ aggregated_stats.total_points_joues if aggregated_stats else 0 }},
+        total_points_gagnes_sideout: {{ aggregated_stats.total_points_gagnes_sideout if aggregated_stats else 0 }},
+        ratio_points_gagnes_global: {{ aggregated_stats.ratio_points_gagnes_global if aggregated_stats else 0 }},
+        break_point_ratio_global: {{ aggregated_stats.break_point_ratio_global if aggregated_stats else 0 }},
+        ratio_points_gagnes_sideout_global: {{ aggregated_stats.ratio_points_gagnes_sideout_global if aggregated_stats else 0 }},
+        moyenne_points_par_tour: {{ aggregated_stats.moyenne_points_par_tour if aggregated_stats else 0 }},
+    };
+
+    const radarCtx = document.getElementById('playerProfileRadarChart');
+    if (radarCtx && aggregatedStats.matchs_joues > 0) {
+        const clampPct = (value) => Math.max(0, Math.min(100, Number(value) || 0));
+        const matchCount = Math.max(1, Number(aggregatedStats.matchs_joues) || 1);
+        const setsPlayed = Math.max(1, Number(aggregatedStats.total_sets_joues) || 1);
+        const avgPointsPlayed = (Number(aggregatedStats.total_points_joues) || 0) / matchCount;
+        const avgSideoutPoints = (Number(aggregatedStats.total_points_gagnes_sideout) || 0) / matchCount;
+
+        const radarValues = [
+            clampPct(avgPointsPlayed * 2.8),
+            clampPct((Number(aggregatedStats.ratio_points_gagnes_global) || 0) * 100),
+            clampPct((Number(aggregatedStats.break_point_ratio_global) || 0) * 100),
+            clampPct((Number(aggregatedStats.ratio_points_gagnes_sideout_global) || 0) * 100),
+            clampPct(((Number(aggregatedStats.total_sets_titulaire) || 0) / setsPlayed) * 100),
+            clampPct((Number(aggregatedStats.moyenne_points_par_tour) || 0) * 35),
+            clampPct(avgSideoutPoints * 6),
+        ];
+
+        const radarGradient = radarCtx.getContext('2d').createLinearGradient(0, 0, 0, 280);
+        radarGradient.addColorStop(0, 'rgba(6, 182, 212, 0.42)');
+        radarGradient.addColorStop(0.55, 'rgba(59, 130, 246, 0.2)');
+        radarGradient.addColorStop(1, 'rgba(59, 130, 246, 0.04)');
+
+        new Chart(radarCtx, {
+            type: 'radar',
+            data: {
+                labels: [
+                    'Volume points',
+                    'Efficacité globale',
+                    'Break',
+                    'Side-out',
+                    'Régularité titulaire',
+                    'Impact service',
+                    'Production side-out',
+                ],
+                datasets: [{
+                    label: 'Profil',
+                    data: radarValues,
+                    borderColor: '#22d3ee',
+                    backgroundColor: radarGradient,
+                    pointBackgroundColor: '#93c5fd',
+                    pointBorderColor: '#0b0e17',
+                    pointBorderWidth: 1.5,
+                    pointRadius: 3,
+                    borderWidth: 2.2,
+                }],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    r: {
+                        min: 0,
+                        max: 100,
+                        beginAtZero: true,
+                        angleLines: { color: 'rgba(71, 85, 105, 0.35)' },
+                        grid: { color: 'rgba(71, 85, 105, 0.35)' },
+                        pointLabels: { color: textColor, font: { size: 10 } },
+                        ticks: {
+                            display: false,
+                            stepSize: 20,
+                        },
+                    },
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => `${ctx.label}: ${Math.round(ctx.parsed.r)} / 100`,
+                        },
+                    },
+                },
+            },
+        });
+    }
 
     {% if safe_level_distribution|length > 1 %}
     const levelData = {{ safe_level_distribution | tojson }};

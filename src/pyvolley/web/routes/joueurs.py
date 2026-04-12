@@ -5,6 +5,7 @@ Routes web — Joueurs (liste et détail).
 import unicodedata
 import re
 from datetime import date as dt_date
+from collections import defaultdict
 from typing import Optional
 
 from fastapi import APIRouter, Request, Depends, Query
@@ -350,6 +351,42 @@ def _infer_side_from_participation(match, participation) -> Optional[str]:
         return "B"
 
     return None
+
+
+_ROLE_LABELS = {
+    "PASSEUR": "Passeur",
+    "POINTU": "Pointu",
+    "CENTRAL": "Central",
+    "RECEPTIONNEUR_ATTAQUANT": "Receptionneur-attaquant",
+    "LIBERO": "Libero",
+}
+
+
+def _role_label(role_code: Optional[str]) -> str:
+    if not role_code:
+        return "Non determine"
+    return _ROLE_LABELS.get(role_code, role_code.replace("_", " ").title())
+
+
+def _role_hint_source(hint: str) -> str:
+    text = (hint or "").strip().lower()
+    if not text:
+        return "Indices divers"
+    if "passe-pointe" in text:
+        return "Inversion passe-pointe"
+    if "libero" in text:
+        return "Remplacements libero"
+    if (
+        "rotation" in text
+        or "formation" in text
+        or "opposition au passeur" in text
+        or "pointu" in text
+        or "serveur de depart" in text
+    ):
+        return "Ordre rotation / formation"
+    if "remplacement" in text or "coherence" in text or "sortie" in text:
+        return "Patterns de changements"
+    return "Indices divers"
 
 
 @router.get("/joueurs", response_class=HTMLResponse)
@@ -981,6 +1018,19 @@ async def joueur_detail(
     aggregated_stats = None
     per_match_stats = []
     match_evolution_stats = []
+    role_overview = {
+        "available": False,
+        "principal_code": None,
+        "principal_label": "Non determine",
+        "plausibility_pct": 0.0,
+        "consistency_pct": 0.0,
+        "average_confidence_pct": 0.0,
+        "coverage_pct": 0.0,
+        "match_count": 0,
+        "roles": [],
+        "sources": [],
+        "evidence": [],
+    }
     if stats_rows:
         filtered_stats_rows = [row for row in stats_rows if row.match_id in filtered_match_ids]
         detailed_models = [
@@ -990,6 +1040,28 @@ async def joueur_detail(
         aggregated = aggregate_joueur_stats(detailed_models)
         if aggregated is not None:
             aggregated_stats = aggregated.model_dump(mode="json")
+
+        role_distribution_matchs = (
+            (aggregated_stats or {}).get("role_distribution_matchs")
+            if aggregated_stats
+            else {}
+        ) or {}
+        role_scores_moyens = (
+            (aggregated_stats or {}).get("role_scores_moyens")
+            if aggregated_stats
+            else {}
+        ) or {}
+        role_principal_global = (
+            (aggregated_stats or {}).get("role_principal_global")
+            if aggregated_stats
+            else None
+        )
+
+        role_counts_local: dict[str, int] = defaultdict(int)
+        role_confidences: list[float] = []
+        source_counts: dict[str, int] = defaultdict(int)
+        evidence_items: list[str] = []
+        role_known_count = 0
 
         matchs_by_id = {m.id: m for m in matchs}
         for row in filtered_stats_rows:
@@ -1084,6 +1156,27 @@ async def joueur_detail(
             else:
                 sideout_contribution_pct = 0.0
 
+            role_code = row.stats_data.get("role_principal")
+            role_confidence = float(row.stats_data.get("role_confiance") or 0.0)
+            role_indices = [
+                str(item).strip()
+                for item in (row.stats_data.get("indices_roles") or [])
+                if str(item).strip()
+            ]
+            role_sources: list[str] = []
+            for hint in role_indices:
+                source_label = _role_hint_source(hint)
+                source_counts[source_label] += 1
+                if source_label not in role_sources:
+                    role_sources.append(source_label)
+                if hint not in evidence_items and len(evidence_items) < 10:
+                    evidence_items.append(hint)
+
+            if role_code:
+                role_known_count += 1
+                role_counts_local[role_code] += 1
+                role_confidences.append(role_confidence)
+
             per_match_stats.append(
                 {
                     "match_id": row.match_id,
@@ -1102,9 +1195,92 @@ async def joueur_detail(
                     "break_point_ratio_pct": break_point_ratio_pct,
                     "points_gagnes_sideout": points_gagnes_sideout,
                     "sideout_contribution_pct": sideout_contribution_pct,
+                    "role_code": role_code,
+                    "role_label": _role_label(role_code),
+                    "role_plausibility_pct": round(role_confidence * 100, 1),
+                    "role_sources": role_sources,
+                    "role_indices": role_indices,
                     "stats": row.stats_data,
                 }
             )
+
+        analyzed_matches = len(filtered_stats_rows)
+        if analyzed_matches > 0:
+            average_confidence = (
+                sum(role_confidences) / len(role_confidences)
+                if role_confidences
+                else 0.0
+            )
+            consistency_ratio = (
+                max(role_counts_local.values()) / role_known_count
+                if role_known_count > 0
+                else 0.0
+            )
+            coverage_ratio = role_known_count / analyzed_matches if analyzed_matches > 0 else 0.0
+
+            plausibility_pct = round(
+                (0.55 * average_confidence + 0.35 * consistency_ratio + 0.10 * coverage_ratio) * 100,
+                1,
+            )
+
+            if not role_principal_global and role_counts_local:
+                role_principal_global = max(
+                    role_counts_local.items(), key=lambda item: (item[1], item[0])
+                )[0]
+
+            role_codes = (
+                set(role_scores_moyens.keys())
+                | set(role_distribution_matchs.keys())
+                | set(role_counts_local.keys())
+            )
+            role_rows = [
+                {
+                    "code": role_code,
+                    "label": _role_label(role_code),
+                    "score_pct": round(float(role_scores_moyens.get(role_code, 0.0)) * 100, 1),
+                    "matches": int(
+                        role_distribution_matchs.get(
+                            role_code,
+                            role_counts_local.get(role_code, 0),
+                        )
+                    ),
+                }
+                for role_code in sorted(
+                    role_codes,
+                    key=lambda code: (
+                        -float(role_scores_moyens.get(code, 0.0)),
+                        -int(role_distribution_matchs.get(code, role_counts_local.get(code, 0))),
+                        code,
+                    ),
+                )
+            ]
+
+            source_total = sum(source_counts.values())
+            source_rows = [
+                {
+                    "label": label,
+                    "count": count,
+                    "pct": round((count / source_total) * 100, 1) if source_total > 0 else 0.0,
+                }
+                for label, count in sorted(
+                    source_counts.items(),
+                    key=lambda item: (-item[1], item[0]),
+                )
+            ]
+
+            role_overview = {
+                "available": bool(role_principal_global or role_rows),
+                "principal_code": role_principal_global,
+                "principal_label": _role_label(role_principal_global),
+                "plausibility_pct": plausibility_pct,
+                "consistency_pct": round(consistency_ratio * 100, 1),
+                "average_confidence_pct": round(average_confidence * 100, 1),
+                "coverage_pct": round(coverage_ratio * 100, 1),
+                "match_count": analyzed_matches,
+                "roles": role_rows,
+                "sources": source_rows,
+                "evidence": evidence_items,
+            }
 
         per_match_stats.sort(
             key=lambda item: (item["date"] is None, item["date"] or "", item["match_id"]),
@@ -1139,6 +1315,8 @@ async def joueur_detail(
                     "ratio_points_pct": item["ratio_points_pct"],
                     "break_point_ratio_pct": item["break_point_ratio_pct"],
                     "sideout_contribution_pct": item["sideout_contribution_pct"],
+                    "role_principal": pms.get("role_principal"),
+                    "role_plausibility_pct": round(float(pms.get("role_confiance") or 0.0) * 100, 1),
                 }
             )
 
@@ -1288,6 +1466,7 @@ async def joueur_detail(
             "level_reference_order_text": level_reference_order_text,
             "level_timeline_summary": level_timeline_summary,
             "aggregated_stats": aggregated_stats,
+            "role_overview": role_overview,
             "per_match_stats": per_match_stats,
             "match_evolution_stats": match_evolution_stats,
             "initial_tab": initial_tab,

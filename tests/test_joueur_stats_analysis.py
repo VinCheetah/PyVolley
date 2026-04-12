@@ -1,6 +1,7 @@
 """Tests ciblés pour l'analyse détaillée des stats joueur."""
 
 from pyvolley.analysis.joueur_stats import analyze_joueur_match, aggregate_joueur_stats
+from pyvolley.analysis.models import JoueurMatchDetailedStats
 from pyvolley.core.models import Match, Equipe, Joueur, Set, SetTeamData, Formation
 
 
@@ -94,3 +95,38 @@ def test_service_series_metrics_are_exposed_with_clear_names():
             aggregated.total_points_gagnes_sideout / aggregated.total_points_gagnes,
             3,
         )
+
+
+def test_aggregate_joueur_stats_includes_role_distribution():
+    stats_setter = JoueurMatchDetailedStats(
+        numero="1",
+        nom="ALPHA",
+        prenom="A",
+        licence="123456",
+        equipe="Equipe A",
+        side="A",
+        role_principal="PASSEUR",
+        roles_possibles=["PASSEUR", "POINTU"],
+        role_scores={"PASSEUR": 0.7, "POINTU": 0.3},
+        role_confiance=0.66,
+    )
+    stats_opposite = JoueurMatchDetailedStats(
+        numero="1",
+        nom="ALPHA",
+        prenom="A",
+        licence="123456",
+        equipe="Equipe B",
+        side="B",
+        role_principal="POINTU",
+        roles_possibles=["POINTU", "PASSEUR"],
+        role_scores={"POINTU": 0.8, "PASSEUR": 0.2},
+        role_confiance=0.71,
+    )
+
+    aggregated = aggregate_joueur_stats([stats_setter, stats_opposite])
+    assert aggregated is not None
+    assert aggregated.role_distribution_matchs == {"PASSEUR": 1, "POINTU": 1}
+    assert aggregated.role_principal_global in {"PASSEUR", "POINTU"}
+    assert "PASSEUR" in aggregated.role_scores_moyens
+    assert "POINTU" in aggregated.role_scores_moyens
+    assert aggregated.roles_possibles_global

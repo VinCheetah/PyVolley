@@ -1,7 +1,11 @@
 """Tests des métriques side-out / break côté vue match."""
 
+from types import SimpleNamespace
+from typing import cast
+
+from pyvolley.database.models import MatchDB
 from pyvolley.core.models import Equipe, Match, Set, SetTeamData
-from pyvolley.web.routes.matchs import _compute_team_phase_metrics
+from pyvolley.web.routes.matchs import _compute_team_phase_metrics, _summarize_team_players
 
 
 def test_compute_team_phase_metrics_from_service_timeline():
@@ -16,8 +20,8 @@ def test_compute_team_phase_metrics_from_service_timeline():
                 score_a=6,
                 score_b=4,
                 service_initial="A",
-                equipe_a=SetTeamData(services={1: [2, 4, 6]}),
-                equipe_b=SetTeamData(services={2: [2, 4]}),
+                equipe_a=SetTeamData(services={1: [2, 4, 6]}),  # type: ignore[call-arg]
+                equipe_b=SetTeamData(services={2: [2, 4]}),  # type: ignore[call-arg]
             )
         ],
     )
@@ -53,3 +57,51 @@ def test_compute_team_phase_metrics_from_service_timeline():
     # Aucun first side-out immédiat dans ce scénario.
     assert a["first_sideout_efficacite_pct"] == 0.0
     assert b["first_sideout_efficacite_pct"] == 0.0
+
+
+def test_summarize_team_players_uses_set_level_substitution_count_for_team_side():
+    """Le total changements équipe doit refléter les événements de set, sans inflation joueur."""
+    match = SimpleNamespace(
+        sets=[
+            SimpleNamespace(
+                score_a=25,
+                score_b=21,
+                changements=[
+                    SimpleNamespace(equipe="A"),
+                    SimpleNamespace(equipe="A"),
+                    SimpleNamespace(equipe="B"),
+                ],
+            ),
+            SimpleNamespace(
+                score_a=25,
+                score_b=23,
+                changements=[SimpleNamespace(equipe="A")],
+            ),
+        ],
+        sanctions=[SimpleNamespace(equipe="A"), SimpleNamespace(equipe="B")],
+    )
+
+    items = [
+        {
+            "stats": {
+                "nb_changements_total": 8,  # ne doit pas être utilisé pour l'équipe
+                "services": 12,
+                "max_serie": 3,
+            }
+        },
+        {
+            "stats": {
+                "nb_changements_total": 7,  # ne doit pas être utilisé pour l'équipe
+                "services": 10,
+                "max_serie": 4,
+            }
+        },
+    ]
+
+    summary = _summarize_team_players(items, match=cast(MatchDB, match), side="A")
+
+    assert summary["points_gagnes"] == 50
+    assert summary["points_perdus"] == 44
+    assert summary["points_joues"] == 94
+    assert summary["changements"] == 3
+    assert summary["sanctions"] == 1

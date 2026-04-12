@@ -38,6 +38,7 @@ from .models import (
     PresenceSet,
     ServiceSetDetail,
 )
+from .role_inference import infer_team_roles
 def _norm(numero: Optional[str]) -> str:
     """Normalise un numéro de maillot pour comparaison robuste."""
     if numero is None:
@@ -370,6 +371,8 @@ def analyze_joueur_match(
 
     opp_side = "B" if side == "A" else "A"
     numero = joueur.numero or ""
+    inferred_roles_by_num = infer_team_roles(match, side)
+    inferred_role = inferred_roles_by_num.get(_norm(numero))
 
     # ── Accumulateurs ────────────────────────────────────
     presence_par_set: list[PresenceSet] = []
@@ -561,6 +564,11 @@ def analyze_joueur_match(
         side=side,
         est_libero=joueur.est_libero,
         est_capitaine=joueur.est_capitaine,
+        role_principal=inferred_role.role_principal if inferred_role else None,
+        roles_possibles=inferred_role.roles_possibles if inferred_role else [],
+        role_scores=inferred_role.role_scores if inferred_role else {},
+        role_confiance=inferred_role.role_confiance if inferred_role else 0.0,
+        indices_roles=inferred_role.indices if inferred_role else [],
         victoire=victoire,
         score_match=match.score_sets,
         points_gagnes=total_points_gagnes,
@@ -611,6 +619,23 @@ def aggregate_joueur_stats(
         for stats in stats_list
         for detail in stats.detail_services_par_set
     )
+    role_distribution_matchs: dict[str, int] = {}
+    role_scores_totaux: dict[str, float] = {}
+
+    for stats in stats_list:
+        if stats.role_principal:
+            role_distribution_matchs[stats.role_principal] = (
+                role_distribution_matchs.get(stats.role_principal, 0) + 1
+            )
+        for role_name, score in (stats.role_scores or {}).items():
+            role_scores_totaux[role_name] = role_scores_totaux.get(role_name, 0.0) + float(score)
+
+    role_scores_moyens = {
+        role_name: round(total_score / len(stats_list), 3)
+        for role_name, total_score in sorted(
+            role_scores_totaux.items(), key=lambda item: (-item[1], item[0])
+        )
+    }
 
     result = JoueurStatsAggregated(
         nom=first.nom,
@@ -671,6 +696,30 @@ def aggregate_joueur_stats(
         result.moyenne_temps_morts_par_match = round(
             result.total_temps_morts_provoques / result.matchs_joues, 2,
         )
+
+    result.role_distribution_matchs = role_distribution_matchs
+    result.role_scores_moyens = role_scores_moyens
+
+    if role_scores_moyens:
+        principal = max(
+            role_scores_moyens.items(), key=lambda item: (item[1], item[0])
+        )[0]
+        result.role_principal_global = principal
+        roles_possibles = [
+            role_name
+            for role_name, score in role_scores_moyens.items()
+            if score >= 0.18
+        ]
+        if not roles_possibles:
+            roles_possibles = [principal]
+        elif principal not in roles_possibles:
+            roles_possibles.insert(0, principal)
+        result.roles_possibles_global = roles_possibles[:3]
+    elif role_distribution_matchs:
+        result.role_principal_global = max(
+            role_distribution_matchs.items(), key=lambda item: (item[1], item[0])
+        )[0]
+        result.roles_possibles_global = [result.role_principal_global]
 
     return result
 
