@@ -563,6 +563,8 @@ def _import_download(
             return
 
         console.print(f"[blue]📥 {len(matches)} matchs à traiter[/blue]")
+        if verbose:
+            console.print("[dim]Mode verbeux: affichage des URLs, des skips et des erreurs de téléchargement.[/dim]")
 
         pdf_base = Path("data/pdfs")
         pdf_index = build_pdf_index(pdf_base)
@@ -614,9 +616,17 @@ def _import_download(
                 )
                 if redownload_reason is None:
                     already_present.append((match_db.id, str(existing)))
+                    if verbose:
+                        console.print(
+                            f"[dim]↷ {match_db.code_match} déjà présent: {existing}[/dim]"
+                        )
                     continue
 
                 forced_redownload[redownload_reason] += 1
+                if verbose:
+                    console.print(
+                        f"[yellow]↻ {match_db.code_match} retéléchargement forcé: {redownload_reason}[/yellow]"
+                    )
                 try:
                     existing.unlink()
                 except OSError:
@@ -624,6 +634,10 @@ def _import_download(
                     pass
 
             download_tasks.append((match_db.id, match_db.source_url, dest_file))
+            if verbose:
+                console.print(
+                    f"[dim]→ {match_db.code_match} | {match_db.source_url} -> {dest_file}[/dim]"
+                )
 
         # Mettre à jour les matchs dont le PDF existe déjà
         if already_present:
@@ -686,7 +700,12 @@ def _import_download(
                                 description=f"[green]✓ {dest.stem}[/green]",
                             )
                         except Exception as e:
-                            dl_results.append((match_id, dest, False, str(e)[:100]))
+                            error_msg = str(e)[:200]
+                            dl_results.append((match_id, dest, False, error_msg))
+                            if verbose:
+                                console.print(
+                                    f"[red]✗ {dest.stem}: {error_msg}[/red]"
+                                )
                             progress.update(
                                 task_id, advance=1,
                                 description=f"[red]✗ {dest.stem}[/red]",
@@ -732,6 +751,11 @@ def _import_download(
         + (f" | [dim]{len(already_present)} déjà présents[/dim]" if already_present else "")
         + (f" | [red]{failed} erreurs[/red]" if failed else "")
     )
+    if verbose and failed:
+        console.print("[bold red]Détails des erreurs de téléchargement :[/bold red]")
+        for match_id, dest, success, error_msg in dl_results:
+            if not success:
+                console.print(f"[red]- {dest.stem}: {error_msg}[/red]")
 
 
 def _import_parse(

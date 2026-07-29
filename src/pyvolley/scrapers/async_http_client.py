@@ -6,6 +6,7 @@ permettant un scraping bien plus rapide que l'ancien client séquentiel.
 """
 
 import asyncio
+import importlib.util
 import logging
 import time
 from typing import Optional
@@ -59,9 +60,15 @@ class AsyncHttpClient:
             "Upgrade-Insecure-Requests": "1",
         }
 
+        # HTTP/2 support requires the optional ``h2`` dependency.
+        # Fall back to HTTP/1.1 transparently when it is not installed.
+        self._http2_enabled = importlib.util.find_spec("h2") is not None
+        if not self._http2_enabled:
+            logger.warning("HTTP/2 désactivé: dépendance optionnelle 'h2' absente")
+
         transport = httpx.AsyncHTTPTransport(
             retries=0,  # On gère les retries nous-mêmes
-            http2=True,
+            http2=self._http2_enabled,
         )
         self._client = httpx.AsyncClient(
             headers=self._headers,

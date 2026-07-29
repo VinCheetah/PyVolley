@@ -22,6 +22,35 @@ STATIC_DIR = WEB_DIR / "static"
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 
+_template_response = templates.TemplateResponse
+
+
+def _template_response_compat(*args, **kwargs):
+    """Compatibilité entre l'ancien et le nouvel ordre d'arguments.
+
+    Starlette attend maintenant ``TemplateResponse(request, name, context)``,
+    alors que plusieurs routes du projet utilisent encore
+    ``TemplateResponse(name, context)``.
+    """
+    if args and hasattr(args[0], "scope") and len(args) >= 2 and isinstance(args[1], str):
+        return _template_response(*args, **kwargs)
+
+    if args and isinstance(args[0], str):
+        name = args[0]
+        context = args[1] if len(args) >= 2 and isinstance(args[1], dict) else kwargs.pop("context", None)
+        request = kwargs.pop("request", None)
+        if request is None and isinstance(context, dict):
+            request = context.get("request")
+        if request is None:
+            raise TypeError("TemplateResponse requires a request object in context")
+        return _template_response(request, name, context, **kwargs)
+
+    return _template_response(*args, **kwargs)
+
+
+templates.TemplateResponse = _template_response_compat
+
+
 # ═══════════════════════════════════════════════════════════════════
 #  Filtres Jinja2
 # ═══════════════════════════════════════════════════════════════════
