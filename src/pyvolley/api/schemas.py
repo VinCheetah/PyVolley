@@ -185,6 +185,11 @@ class MatchResponse(BaseModel):
     equipe_a_nom: str
     equipe_b_nom: str
     score_sets: Optional[str] = None
+    score_export: Optional[str] = None
+    score_pdf: Optional[str] = None
+    score_effective: Optional[str] = None
+    score_display: Optional[str] = None
+    score_conflict: bool = False
     sets_equipe_a: int = 0
     sets_equipe_b: int = 0
     vainqueur: Optional[str] = None

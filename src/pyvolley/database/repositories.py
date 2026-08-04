@@ -1466,12 +1466,10 @@ class StatsCacheRepository(BaseRepository[StatsCacheDB]):
         if current_match_count == 0:
             return False
 
-        if current_last_match_update is None:
-            return True
-        if entry.computed_at is None:
-            return True
+        if current_last_match_update is not None and entry.computed_at is not None:
+            return current_last_match_update > entry.computed_at
 
-        return current_last_match_update > entry.computed_at
+        return False
 
     def delete_all(self) -> int:
         """Supprime toutes les entrées de cache. Retourne le nombre de lignes supprimées."""
@@ -1657,6 +1655,7 @@ class JoueurMatchStatsRepository(BaseRepository[JoueurMatchStatsDB]):
         for entry in entries:
             if entry.match_updated_at != match_updated_at:
                 return True
+
         return False
 
 

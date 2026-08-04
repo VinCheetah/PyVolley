@@ -342,6 +342,8 @@ def analyze_joueur_match(
     remplace_par_libero: bool = False,
     est_mode_libero: bool = False,
     joueurs_remplaces_numeros: Optional[list[str]] = None,
+    precomputed_roles: Optional[dict[str, RoleInference]] = None,
+    precomputed_timelines: Optional[dict[int, list[ServiceTurn]]] = None,
 ) -> Optional[JoueurMatchDetailedStats]:
     """Analyse détaillée d'un joueur sur un match.
 
@@ -371,8 +373,11 @@ def analyze_joueur_match(
 
     opp_side = "B" if side == "A" else "A"
     numero = joueur.numero or ""
-    inferred_roles_by_num = infer_team_roles(match, side)
-    inferred_role = inferred_roles_by_num.get(_norm(numero))
+    if precomputed_roles is not None:
+        inferred_role = precomputed_roles.get(_norm(numero))
+    else:
+        inferred_roles_by_num = infer_team_roles(match, side)
+        inferred_role = inferred_roles_by_num.get(_norm(numero))
 
     # ── Accumulateurs ────────────────────────────────────
     presence_par_set: list[PresenceSet] = []
@@ -466,7 +471,10 @@ def analyze_joueur_match(
         total_points_perdus += set_pts_perdus
 
         # ── Timeline exacte ───────────────────────────
-        timeline = build_set_timeline(s)
+        if precomputed_timelines is not None:
+            timeline = precomputed_timelines.get(s.numero, [])
+        else:
+            timeline = build_set_timeline(s)
 
         # ── Services du joueur (exacts) ────────────────
         set_nb_tours = 0

@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import logging
+
 from sqlalchemy.orm import Session
 
-from pyvolley.analysis.joueur_stats import analyze_joueur_match
+from pyvolley.analysis.joueur_stats import analyze_joueur_match, build_set_timeline
+from pyvolley.analysis.role_inference import infer_team_roles
 from pyvolley.analysis.models import JoueurMatchDetailedStats
 from pyvolley.database.converters import match_db_to_core, _sanitize_joueur_licence
 from pyvolley.database.models import MatchDB
 from pyvolley.database.repositories import JoueurMatchStatsRepository
+
+logger = logging.getLogger(__name__)
 
 
 class JoueurMatchStatsService:
@@ -61,19 +66,38 @@ class JoueurMatchStatsService:
         participants_b = [p for p in valid_participants if p.equipe_id == match_db.equipe_b_id]
         match_core = match_db_to_core(match_db, participants_a, participants_b)
 
+        # Pré-calculer les rôles d'équipe et les timelines de set une seule fois par match
+        precomputed_roles_a = infer_team_roles(match_core, "A")
+        precomputed_roles_b = infer_team_roles(match_core, "B")
+        precomputed_timelines = {s.numero: build_set_timeline(s) for s in match_core.sets}
+
         rows: list[dict] = []
         for participation in valid_participants:
-            licence_key = _sanitize_joueur_licence(participation.joueur.licence)
-            stats = analyze_joueur_match(match_core, licence_key)
-            if not stats:
-                continue
-            rows.append(
-                {
-                    "joueur_id": participation.joueur_id,
-                    "equipe_id": participation.equipe_id,
-                    "stats_data": stats.model_dump(mode="json"),
-                }
-            )
+            try:
+                licence_key = _sanitize_joueur_licence(participation.joueur.licence)
+                is_side_a = (participation.equipe_id == match_db.equipe_a_id)
+                precomputed_roles = precomputed_roles_a if is_side_a else precomputed_roles_b
+
+                stats = analyze_joueur_match(
+                    match_core,
+                    licence_key,
+                    precomputed_roles=precomputed_roles,
+                    precomputed_timelines=precomputed_timelines,
+                )
+                if not stats:
+                    continue
+                rows.append(
+                    {
+                        "joueur_id": participation.joueur_id,
+                        "equipe_id": participation.equipe_id,
+                        "stats_data": stats.model_dump(mode="json"),
+                    }
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Erreur lors du calcul des stats du joueur %s (match %s): %s",
+                    participation.joueur_id, match_db.id, exc,
+                )
 
         self.repo.replace_for_match(
             match_db.id,

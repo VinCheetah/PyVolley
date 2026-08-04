@@ -21,6 +21,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, relationship, Mapped, mapped_column
 
+from pyvolley.shared.match_scores import resolve_match_score
+
 
 class Base(DeclarativeBase):
     """Classe de base pour tous les modèles."""
@@ -382,6 +384,8 @@ class MatchDB(Base):
     # Résultat
     vainqueur: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     score_sets: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # "3/1"
+    score_export: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    score_pdf: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
     sets_equipe_a: Mapped[int] = mapped_column(Integer, default=0)
     sets_equipe_b: Mapped[int] = mapped_column(Integer, default=0)
     duree_totale: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
@@ -457,14 +461,19 @@ class MatchDB(Base):
     def is_played(self) -> bool:
         sets_total = (self.sets_equipe_a or 0) + (self.sets_equipe_b or 0)
         has_score_sets = False
-        if self.score_sets and "/" in self.score_sets:
-            left, right = self.score_sets.split("/", 1)
+        score_candidates = [self.score_sets, self.score_effective]
+        for score_value in score_candidates:
+            if not score_value or "/" not in score_value:
+                continue
+            left, right = score_value.split("/", 1)
             left = left.strip()
             right = right.strip()
             if left.isdigit() and right.isdigit():
                 has_score_sets = (int(left) + int(right)) > 0
             elif left.upper() == "P" or right.upper() == "P":
                 has_score_sets = True
+            if has_score_sets:
+                break
 
         return bool(
             self.match_joue
@@ -491,6 +500,34 @@ class MatchDB(Base):
         if self.date_match and self.date_match > dt_date.today():
             return "à_venir"
         return "sans_résultat"
+
+    @property
+    def score_resolution(self):
+        return resolve_match_score(
+            self.score_export,
+            self.score_pdf,
+            legacy_score=self.score_sets,
+        )
+
+    @property
+    def score_effective(self) -> Optional[str]:
+        return self.score_resolution.score_effective
+
+    @property
+    def score_display(self) -> Optional[str]:
+        return self.score_resolution.score_display
+
+    @property
+    def score_conflict(self) -> bool:
+        return self.score_resolution.conflict
+
+    @property
+    def score_primary_source(self) -> Optional[str]:
+        return self.score_resolution.primary_source
+
+    @property
+    def score_secondary_source(self) -> Optional[str]:
+        return self.score_resolution.secondary_source
 
     def __repr__(self) -> str:
         return f"<Match {self.code_match}>"

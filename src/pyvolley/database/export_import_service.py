@@ -29,6 +29,7 @@ from pyvolley.shared.match_status import (
     normalize_score_sets,
     sets_indicate_played,
 )
+from pyvolley.shared.match_scores import resolve_match_score, score_sets_to_pair
 from pyvolley.database.club_matching import normalize_club_name
 from pyvolley.database.models import (
     SaisonDB, EntiteFFVBDB, CompetitionDB, PouleDB,
@@ -333,6 +334,11 @@ class ExportImportService:
             match_info.score_sets,
             replace_forfeit_with_zero=match_info.forfait,
         ) or match_info.score_sets
+        score_resolution = resolve_match_score(
+            normalized_score_sets,
+            None,
+            legacy_score=normalized_score_sets,
+        )
         computed_played = compute_match_played(
             vainqueur=match_info.vainqueur,
             score_sets=normalized_score_sets,
@@ -359,7 +365,9 @@ class ExportImportService:
             club_a_code_ffvb=match_info.club_a_code_ffvb,
             club_b_code_ffvb=match_info.club_b_code_ffvb,
             vainqueur=match_info.vainqueur,
-            score_sets=normalized_score_sets,
+            score_sets=score_resolution.score_effective,
+            score_export=score_resolution.score_export,
+            score_pdf=score_resolution.score_pdf,
             sets_equipe_a=match_info.sets_equipe_a,
             sets_equipe_b=match_info.sets_equipe_b,
             match_joue=computed_played,
@@ -397,6 +405,11 @@ class ExportImportService:
             match_info.score_sets,
             replace_forfeit_with_zero=match_info.forfait,
         ) or match_info.score_sets
+        score_resolution = resolve_match_score(
+            normalized_score_sets,
+            None,
+            legacy_score=normalized_score_sets,
+        )
         computed_played = compute_match_played(
             vainqueur=match_info.vainqueur,
             score_sets=normalized_score_sets,
@@ -438,6 +451,17 @@ class ExportImportService:
 
         # Ne pas écraser les données PDF détaillées avec l'export CSV.
         if not parsed_locked:
+            existing.score_export = score_resolution.score_export
+            if existing.score_pdf is None:
+                existing.score_sets = score_resolution.score_effective
+                existing.vainqueur = match_info.vainqueur
+                existing.sets_equipe_a = match_info.sets_equipe_a
+                existing.sets_equipe_b = match_info.sets_equipe_b
+                if computed_played:
+                    existing.match_joue = True
+                    existing.forfait = match_info.forfait
+                updated = True
+
             can_overwrite_score = (existing.score_source in {None, "export"}) or (not existing.match_joue)
 
             # Mettre à jour le score export si le match est joué et que les données changent.
@@ -454,10 +478,12 @@ class ExportImportService:
                 if score_changed:
                     existing.match_joue = True
                     existing.vainqueur = match_info.vainqueur
-                    existing.score_sets = normalized_score_sets
+                    if existing.score_pdf is None:
+                        existing.score_sets = score_resolution.score_effective
                     existing.sets_equipe_a = match_info.sets_equipe_a
                     existing.sets_equipe_b = match_info.sets_equipe_b
                     existing.forfait = match_info.forfait
+                    existing.score_export = score_resolution.score_export
                     existing.score_source = "export"
                     updated = True
 
@@ -466,6 +492,7 @@ class ExportImportService:
                 existing.match_joue = False
                 existing.vainqueur = None
                 existing.score_sets = None
+                existing.score_export = None
                 existing.sets_equipe_a = 0
                 existing.sets_equipe_b = 0
                 existing.forfait = False
@@ -493,6 +520,7 @@ class ExportImportService:
                     self._replace_match_sets_from_export(existing, match_info)
                     existing.has_details = True
                     existing.score_source = "export"
+                    existing.score_export = score_resolution.score_export
                     updated = True
 
         if updated:

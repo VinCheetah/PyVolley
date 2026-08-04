@@ -111,7 +111,11 @@ def match_db_to_core(
         equipe_a_id=match_db.equipe_a_id,
         equipe_b_id=match_db.equipe_b_id,
         vainqueur_nom=match_db.vainqueur,
-        score_final=match_db.score_sets,
+        score_final=(match_db.score_effective or match_db.score_sets or None).replace("/", "-")
+        if (match_db.score_effective or match_db.score_sets)
+        else None,
+        score_export=getattr(match_db, "score_export", None),
+        score_pdf=getattr(match_db, "score_pdf", None),
         sets_a=match_db.sets_equipe_a or 0,
         sets_b=match_db.sets_equipe_b or 0,
         duree_totale=match_db.duree_totale,

@@ -167,10 +167,6 @@ def import_data(
         False, "--all",
         help="Traiter toutes les entités.",
     ),
-    pro: bool = typer.Option(
-        False, "--pro",
-        help="Importer uniquement les matchs pro (LNV).",
-    ),
     limit: Optional[int] = typer.Option(
         None, "--limit", "-n",
         help="Nombre maximum de matchs à traiter.",
@@ -215,6 +211,10 @@ def import_data(
         False, "--review-fixes",
         help="Demander validation manuelle pour les corrections proposées.",
     ),
+    parser_name: str = typer.Option(
+        "fast", "--parser", "-p",
+        help="Parser à utiliser : 'fast' (FastMatchSheetParser) ou 'legacy' (MatchSheetParser).",
+    ),
 ):
     """
     🔄 Importer des données FFVB dans la base de données.
@@ -236,7 +236,6 @@ def import_data(
         pyvolley import -e ABCCS -s 23/24
         pyvolley import -e ABCCS -s 22/25
         pyvolley import --type ligue
-        pyvolley import --pro -n 100
         pyvolley import --only scrape -e ABCCS
         pyvolley import --only parse --force
         pyvolley import --no-keep-pdfs -e ABCCS
@@ -257,7 +256,7 @@ def import_data(
     scraper = FFVBScraper()
     entities_to_process = resolve_entities(
         scraper, entity=entity, entity_type=entity_type,
-        all_entities=all_entities, pro=pro,
+        all_entities=all_entities,
     )
     try:
         saisons = resolve_saisons(scraper, saison)
@@ -279,6 +278,7 @@ def import_data(
     console.print(Panel(
         f"[bold blue]🔄 Import FFVB[/bold blue]\n\n"
         f"Étapes :     [cyan]{' → '.join(steps)}[/cyan]\n"
+        f"Parser :     [cyan]{parser_name}[/cyan]\n"
         f"Saison(s) :  [cyan]{saisons_display}[/cyan]\n"
         f"Entité(s) :  [cyan]{entities_display or 'depuis la base'}[/cyan]"
         f" ({len(entities_to_process)} au total)\n"
@@ -316,6 +316,7 @@ def import_data(
                 plausibility=plausibility,
                 plausibility_policy=plausibility_policy,
                 review_fixes=review_fixes,
+                parser_name=parser_name,
             )
             steps = [s for s in steps if s != "parse"]
         else:
@@ -335,6 +336,7 @@ def import_data(
             plausibility=plausibility,
             plausibility_policy=plausibility_policy,
             review_fixes=review_fixes,
+            parser_name=parser_name,
         )
 
         # Nettoyage post-parse si --no-keep-pdfs
@@ -768,6 +770,7 @@ def _import_parse(
     plausibility: bool = True,
     plausibility_policy: str = "auto",
     review_fixes: bool = False,
+    parser_name: str = "fast",
 ) -> None:
     """Étape 3 : parsing des PDFs et enrichissement de la base."""
     from pyvolley.parsers.factory import ParserFactory
@@ -785,7 +788,7 @@ def _import_parse(
         else ["discovered", "downloaded", "error"]
     )
 
-    parser = ParserFactory.get_default()
+    parser = ParserFactory.get(parser_name)
     approval_cb = None
     if review_fixes:
         approval_cb = build_plausibility_reviewer(console)
@@ -1013,6 +1016,7 @@ def _import_stream(
     plausibility: bool = True,
     plausibility_policy: str = "auto",
     review_fixes: bool = False,
+    parser_name: str = "fast",
 ) -> None:
     """Mode streaming : download → parse → DB, sans conserver les PDFs."""
     import tempfile
@@ -1025,7 +1029,7 @@ def _import_stream(
 
     init_db()
     today = dt_date.today()
-    parser = ParserFactory.get_default()
+    parser = ParserFactory.get(parser_name)
     approval_cb = None
     if review_fixes:
         approval_cb = build_plausibility_reviewer(console)
@@ -1415,6 +1419,10 @@ def parse(
     limit: Optional[int] = typer.Option(
         None, "--limit", "-n", help="Nombre max de fichiers.",
     ),
+    parser_name: str = typer.Option(
+        "fast", "--parser", "-p",
+        help="Parser à utiliser : 'fast' (FastMatchSheetParser, ~20ms) ou 'legacy' (MatchSheetParser, ~1200ms).",
+    ),
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Afficher les détails.",
     ),
@@ -1441,7 +1449,7 @@ def parse(
     Exemples :
 
         pyvolley parse match.pdf
-        pyvolley parse data/pdfs/ -n 10
+        pyvolley parse data/pdfs/ -n 10 --parser legacy
         pyvolley parse match.pdf -o resultat.json -v
     """
     from pyvolley.parsers.factory import ParserFactory
@@ -1462,7 +1470,7 @@ def parse(
     if limit:
         pdf_files = pdf_files[:limit]
 
-    parser = ParserFactory.get_default()
+    parser = ParserFactory.get(parser_name)
     approval_cb = None
     if review_fixes:
         approval_cb = build_plausibility_reviewer(console)
@@ -1504,44 +1512,43 @@ def parse(
                     if verbose:
                         m = result.match
                         progress.console.print(
-                            f"  [green]✓[/green] {pdf_file.name}: "
-                            f"{m.code_match} — "
-                            f"{m.equipe_a.nom[:20] if m.equipe_a else '?'} vs "
-                            f"{m.equipe_b.nom[:20] if m.equipe_b else '?'}"
+                            f"  [green]OK[/green] {pdf_file.name}: "
+                            f"{m.equipe_a.nom if m.equipe_a else '?'} vs "
+                            f"{m.equipe_b.nom if m.equipe_b else '?'}"
                         )
                         if result.diagnostics:
                             for d in result.diagnostics:
                                 progress.console.print(
-                                    f"      [yellow]⚠ {d}[/yellow]"
+                                    f"      [yellow][!] {d}[/yellow]"
                                 )
 
                     progress.update(
                         task, advance=1,
-                        description=f"[green]✓ {pdf_file.name[:30]}[/green]",
+                        description=f"[green]OK {pdf_file.name[:30]}[/green]",
                     )
                 else:
                     failed += 1
                     msg = result.errors[0][:60] if result.errors else "Erreur"
                     if verbose:
                         progress.console.print(
-                            f"  [red]✗[/red] {pdf_file.name}: {msg}"
+                            f"  [red]ERR[/red] {pdf_file.name}: {msg}"
                         )
                     progress.update(
                         task, advance=1,
-                        description=f"[red]✗ {pdf_file.name[:30]}[/red]",
+                        description=f"[red]ERR {pdf_file.name[:30]}[/red]",
                     )
 
             except Exception as e:
                 failed += 1
                 progress.update(
                     task, advance=1,
-                    description=f"[red]✗ {pdf_file.name[:30]}[/red]",
+                    description=f"[red]ERR {pdf_file.name[:30]}[/red]",
                 )
 
     console.print(Panel(
-        f"[green]✓ Parsés : {successful}[/green]\n"
-        f"[red]✗ Échecs : {failed}[/red]",
-        title="Résultat",
+        f"[green]Succes : {successful}[/green]\n"
+        f"[red]Echecs : {failed}[/red]",
+        title="Resultat",
     ))
 
     if results:
@@ -1565,6 +1572,230 @@ def parse(
         with open(output, "w", encoding="utf-8") as f:
             json.dump(export_data, f, ensure_ascii=False, indent=2, default=str)
         console.print(f"\n[blue]📁 Résultats : {output}[/blue]")
+
+
+# ════════════════════════════════════════════════════════════════════
+# compare — comparaison de performance et de parité des parsers
+# ════════════════════════════════════════════════════════════════════
+
+
+@app.command("compare")
+def compare_parsers(
+    input_path: Optional[Path] = typer.Argument(
+        None, help="Chemin vers un PDF ou un dossier de PDFs (par défaut: data/data_sample ou data/pdfs).",
+    ),
+    limit: Optional[int] = typer.Option(
+        None, "--limit", "-n", help="Nombre max de fichiers PDF à comparer.",
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", help="Afficher les détails des différences entre parsers.",
+    ),
+):
+    """
+    ⚡ Comparer la vitesse d'exécution et la parité des données entre FastMatchSheetParser et LegacyMatchSheetParser.
+
+    Parse une série de fichiers PDF avec les deux parsers et affiche un bilan comparatif de vitesse et de parité.
+
+    Exemples :
+
+        pyvolley compare
+        pyvolley compare data/data_sample -n 5
+        pyvolley compare data/pdfs/ -v
+    """
+    from pyvolley.parsers.factory import ParserFactory
+    from pyvolley.parsers.utils import normalize_club_name
+
+    pdf_files: list[Path] = []
+    if input_path:
+        if not input_path.exists():
+            console.print(f"[red]Erreur : {input_path} n'existe pas[/red]")
+            raise typer.Exit(1)
+        if input_path.is_dir():
+            pdf_files = sorted(input_path.glob("**/*.pdf"))
+        else:
+            pdf_files = [input_path]
+    else:
+        for cand_dir in [Path("data/data_sample"), Path("data/pdfs")]:
+            if cand_dir.exists() and cand_dir.is_dir():
+                found = sorted(cand_dir.glob("**/*.pdf"))
+                if found:
+                    pdf_files = found
+                    break
+
+    if not pdf_files:
+        console.print("[yellow]Aucun fichier PDF trouvé pour la comparaison.[/yellow]")
+        raise typer.Exit(0)
+
+    if limit:
+        pdf_files = pdf_files[:limit]
+
+    fast_parser = ParserFactory.get("fast")
+    legacy_parser = ParserFactory.get("legacy")
+
+    console.print(Panel(
+        f"[bold blue]Comparaison des Parsers PyVolley[/bold blue]\n\n"
+        f"• Parser 1 : [cyan]{fast_parser.name}[/cyan] (PyMuPDF - Rapide)\n"
+        f"• Parser 2 : [cyan]{legacy_parser.name}[/cyan] (pdfplumber - D'origine)\n"
+        f"• Fichiers : [cyan]{len(pdf_files)} PDF(s)[/cyan]",
+        title="Benchmark & Parité",
+    ))
+
+    table = Table(title="Résultats de la Comparaison")
+    table.add_column("Fichier PDF", style="dim")
+    table.add_column("Fast (ms)", justify="right", style="cyan")
+    table.add_column("Legacy (ms)", justify="right", style="magenta")
+    table.add_column("Speedup", justify="right", style="bold green")
+    table.add_column("Parité Données", justify="center")
+
+    total_fast_ms = 0.0
+    total_legacy_ms = 0.0
+    total_matches = 0
+    parity_count = 0
+    discrepancies_list = []
+
+    with make_progress(console) as progress:
+        task_id = progress.add_task("Comparaison...", total=len(pdf_files))
+
+        for pdf_file in pdf_files:
+            t0_legacy = time.perf_counter()
+            legacy_res = legacy_parser.parse(pdf_file)
+            legacy_time_ms = (time.perf_counter() - t0_legacy) * 1000.0
+
+            t0_fast = time.perf_counter()
+            fast_res = fast_parser.parse(pdf_file)
+            fast_time_ms = (time.perf_counter() - t0_fast) * 1000.0
+
+            total_fast_ms += fast_time_ms
+            total_legacy_ms += legacy_time_ms
+            total_matches += 1
+
+            speedup = legacy_time_ms / max(fast_time_ms, 0.001)
+
+            diffs = []
+            if legacy_res.success != fast_res.success:
+                diffs.append(f"Statut Succès: Legacy={legacy_res.success} vs Fast={fast_res.success}")
+
+            if legacy_res.match and fast_res.match:
+                lm, fm = legacy_res.match, fast_res.match
+
+                # 1. Equipes
+                l_eq_a = normalize_club_name(lm.equipe_a.nom if lm.equipe_a else "")
+                f_eq_a = normalize_club_name(fm.equipe_a.nom if fm.equipe_a else "")
+                if l_eq_a != f_eq_a:
+                    diffs.append(f"Equipe A: '{lm.equipe_a.nom if lm.equipe_a else '?'}' vs '{fm.equipe_a.nom if fm.equipe_a else '?'}'")
+
+                l_eq_b = normalize_club_name(lm.equipe_b.nom if lm.equipe_b else "")
+                f_eq_b = normalize_club_name(fm.equipe_b.nom if fm.equipe_b else "")
+                if l_eq_b != f_eq_b:
+                    diffs.append(f"Equipe B: '{lm.equipe_b.nom if lm.equipe_b else '?'}' vs '{fm.equipe_b.nom if fm.equipe_b else '?'}'")
+
+                # 2. Score et statut du match
+                if (lm.sets_a, lm.sets_b) != (fm.sets_a, fm.sets_b):
+                    diffs.append(f"Score Sets: Legacy={lm.sets_a}-{lm.sets_b} vs Fast={fm.sets_a}-{fm.sets_b}")
+
+                if lm.match_joue != fm.match_joue:
+                    diffs.append(f"Statut Match Joué: Legacy={lm.match_joue} vs Fast={fm.match_joue}")
+
+                # 3. Logistique et En-tête
+                for field_name in ("date", "heure", "lieu", "salle", "competition", "journee", "organisateur", "niveau", "categorie", "genre"):
+                    val_l = getattr(lm, field_name, None)
+                    val_f = getattr(fm, field_name, None)
+
+                    if field_name == "heure":
+                        s_l = str(val_l).replace("h", ":")[:5] if val_l else ""
+                        s_f = str(val_f).replace("h", ":")[:5] if val_f else ""
+                        if s_l == s_f:
+                            continue
+
+                    if field_name == "lieu" and val_l and any(w in str(val_l).upper() for w in ("SAMEDI", "DIMANCHE", "LUNDI", "MARDI", "MERCREDI", "JEUDI", "VENDREDI")) and not val_f:
+                        continue
+
+                    if val_l != val_f and not (val_l is None and val_f == "") and not (val_f is None and val_l == ""):
+                        diffs.append(f"Header {field_name}: Legacy={val_l} vs Fast={val_f}")
+
+                # 4. Rosters et Effectifs
+                l_j_a = [j.numero for j in (lm.equipe_a.joueurs if lm.equipe_a else [])]
+                f_j_a = [j.numero for j in (fm.equipe_a.joueurs if fm.equipe_a else [])]
+                if l_j_a != f_j_a:
+                    diffs.append(f"Joueurs Equipe A (numéros): Legacy={l_j_a} vs Fast={f_j_a}")
+
+                l_j_b = [j.numero for j in (lm.equipe_b.joueurs if lm.equipe_b else [])]
+                f_j_b = [j.numero for j in (fm.equipe_b.joueurs if fm.equipe_b else [])]
+                if l_j_b != f_j_b:
+                    diffs.append(f"Joueurs Equipe B (numéros): Legacy={l_j_b} vs Fast={f_j_b}")
+
+                l_lib_a = [j.numero for j in (lm.equipe_a.liberos if lm.equipe_a else [])]
+                f_lib_a = [j.numero for j in (fm.equipe_a.liberos if fm.equipe_a else [])]
+                if l_lib_a != f_lib_a:
+                    diffs.append(f"Libéros Equipe A: Legacy={l_lib_a} vs Fast={f_lib_a}")
+
+                l_lib_b = [j.numero for j in (lm.equipe_b.liberos if lm.equipe_b else [])]
+                f_lib_b = [j.numero for j in (fm.equipe_b.liberos if fm.equipe_b else [])]
+                if l_lib_b != f_lib_b:
+                    diffs.append(f"Libéros Equipe B: Legacy={l_lib_b} vs Fast={f_lib_b}")
+
+                # 5. Détails des Sets (scores par set, durées, formations, timeouts, remplacements)
+                l_sets = {s.numero: s for s in (lm.sets or [])}
+                f_sets = {s.numero: s for s in (fm.sets or [])}
+                if set(l_sets.keys()) != set(f_sets.keys()):
+                    diffs.append(f"Numéros des Sets présents: Legacy={sorted(l_sets.keys())} vs Fast={sorted(f_sets.keys())}")
+                else:
+                    for s_num in sorted(l_sets.keys()):
+                        ls, fs = l_sets[s_num], f_sets[s_num]
+                        if (ls.score_a, ls.score_b) != (fs.score_a, fs.score_b):
+                            diffs.append(f"Set {s_num} Score: Legacy={ls.score_a}-{ls.score_b} vs Fast={fs.score_a}-{fs.score_b}")
+                        if ls.duree_minutes != fs.duree_minutes and (ls.duree_minutes is not None and fs.duree_minutes is not None):
+                            diffs.append(f"Set {s_num} Durée: Legacy={ls.duree_minutes}m vs Fast={fs.duree_minutes}m")
+                        if (ls.equipe_a and fs.equipe_a) and ls.equipe_a.formation != fs.equipe_a.formation:
+                            if ls.equipe_a.formation is not None and fs.equipe_a.formation is not None:
+                                diffs.append(f"Set {s_num} Formation A: Legacy={ls.equipe_a.formation} vs Fast={fs.equipe_a.formation}")
+                        if (ls.equipe_b and fs.equipe_b) and ls.equipe_b.formation != fs.equipe_b.formation:
+                            if ls.equipe_b.formation is not None and fs.equipe_b.formation is not None:
+                                diffs.append(f"Set {s_num} Formation B: Legacy={ls.equipe_b.formation} vs Fast={fs.equipe_b.formation}")
+                        if (ls.equipe_a and fs.equipe_a) and ls.equipe_a.services != fs.equipe_a.services:
+                            diffs.append(f"Set {s_num} Services A: Legacy={dict(ls.equipe_a.services)} vs Fast={dict(fs.equipe_a.services)}")
+                        if (ls.equipe_b and fs.equipe_b) and ls.equipe_b.services != fs.equipe_b.services:
+                            diffs.append(f"Set {s_num} Services B: Legacy={dict(ls.equipe_b.services)} vs Fast={dict(fs.equipe_b.services)}")
+
+            if not diffs:
+                parity_count += 1
+                parity_str = "[bold green]100% Identique[/bold green]"
+            else:
+                parity_str = f"[bold yellow]{len(diffs)} ecart(s)[/bold yellow]"
+                discrepancies_list.append((pdf_file.name, diffs))
+
+            table.add_row(
+                pdf_file.name,
+                f"{fast_time_ms:.1f}",
+                f"{legacy_time_ms:.1f}",
+                f"{speedup:.1f}x",
+                parity_str,
+            )
+            progress.update(task_id, advance=1)
+
+    console.print(table)
+
+    avg_fast = total_fast_ms / max(total_matches, 1)
+    avg_legacy = total_legacy_ms / max(total_matches, 1)
+    avg_speedup = total_legacy_ms / max(total_fast_ms, 0.001)
+    parity_rate = (parity_count / max(total_matches, 1)) * 100.0
+
+    console.print(Panel(
+        f"[bold green]Bilan Global de la Comparaison[/bold green]\n\n"
+        f"• Matchs analysés :       [cyan]{total_matches}[/cyan]\n"
+        f"• Temps total Legacy :     [magenta]{total_legacy_ms / 1000.0:.2f} s[/magenta] (moy. {avg_legacy:.1f} ms/pdf)\n"
+        f"• Temps total Fast :       [cyan]{total_fast_ms / 1000.0:.2f} s[/cyan] (moy. {avg_fast:.1f} ms/pdf)\n"
+        f"• Gain moyen de vitesse :  [bold green]{avg_speedup:.1f}x plus rapide[/bold green]\n"
+        f"• Taux de parité globale : [bold green]{parity_rate:.1f}% de données identiques[/bold green]",
+        title="Synthèse",
+    ))
+
+    if discrepancies_list and verbose:
+        console.print("\n[bold yellow]Détail des écarts constatés :[/bold yellow]")
+        for fname, diffs in discrepancies_list:
+            console.print(f"[bold]{fname}[/bold] :")
+            for d in diffs:
+                console.print(f"  - {d}")
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -2116,9 +2347,10 @@ def compute_player_stats(
     recalculs coûteux à l'affichage (web/API).
     """
     from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
 
     from pyvolley.database.connection import get_db, init_db
-    from pyvolley.database.models import CompetitionDB, EntiteFFVBDB, MatchDB
+    from pyvolley.database.models import CompetitionDB, EntiteFFVBDB, MatchDB, ParticipationMatchDB
     from pyvolley.database.player_stats_service import JoueurMatchStatsService
     from pyvolley.database.repositories import JoueurMatchStatsRepository
 
@@ -2133,7 +2365,14 @@ def compute_player_stats(
                 f"[yellow]🗑 Stats joueurs vidées ({deleted} ligne(s) supprimée(s))[/yellow]"
             )
 
-        stmt = select(MatchDB).where(MatchDB.has_details == True)  # noqa: E712
+        stmt = (
+            select(MatchDB)
+            .options(
+                selectinload(MatchDB.participations).selectinload(ParticipationMatchDB.joueur),
+                selectinload(MatchDB.sets),
+            )
+            .where(MatchDB.has_details == True)  # noqa: E712
+        )
         if match_id is not None:
             stmt = stmt.where(MatchDB.id == match_id)
         if saison is not None:
@@ -2197,19 +2436,14 @@ def compute_player_stats(
         with make_progress(console) as progress:
             task = progress.add_task("Calcul stats joueurs...", total=len(matches))
 
-            for m in matches:
+            for m_full in matches:
                 try:
-                    m_full = session.get(MatchDB, m.id)
-                    if not m_full:
-                        progress.update(task, advance=1)
-                        continue
-
                     if not m_full.match_joue:
                         skipped_not_played += 1
                         progress.update(
                             task,
                             advance=1,
-                            description=f"[dim]↷ match #{m.id} non joué[/dim]",
+                            description=f"[dim]↷ match #{m_full.id} non joué[/dim]",
                         )
                         continue
 
@@ -2219,7 +2453,7 @@ def compute_player_stats(
                             task,
                             advance=1,
                             description=(
-                                f"[dim]↷ match #{m.id} non parsé "
+                                f"[dim]↷ match #{m_full.id} non parsé "
                                 f"({m_full.parsing_status})[/dim]"
                             ),
                         )
@@ -2247,7 +2481,7 @@ def compute_player_stats(
                             task,
                             advance=1,
                             description=(
-                                f"[dim]↷ match #{m.id} sans joueurs exploitables[/dim]"
+                                f"[dim]↷ match #{m_full.id} sans joueurs exploitables[/dim]"
                             ),
                         )
                         continue
@@ -2257,7 +2491,7 @@ def compute_player_stats(
                         progress.update(
                             task,
                             advance=1,
-                            description=f"[dim]↷ match #{m.id} déjà à jour[/dim]",
+                            description=f"[dim]↷ match #{m_full.id} déjà à jour[/dim]",
                         )
                         continue
 
@@ -2267,10 +2501,11 @@ def compute_player_stats(
                     progress.update(
                         task,
                         advance=1,
-                        description=f"[green]✓ match #{m.id} ({count} joueur(s))[/green]",
+                        description=f"[green]✓ match #{m_full.id} ({count} joueur(s))[/green]",
                     )
 
                     if processed % 100 == 0:
+                        session.commit()
                         session.commit()
 
                 except Exception as exc:
@@ -2600,6 +2835,143 @@ db_app.add_typer(explore_app, name="explore")
 # Sous-commandes de rapports
 from pyvolley.cli.reports import report_app
 app.add_typer(report_app, name="report")
+
+# Sous-commandes de développement
+dev_app = typer.Typer(help="Outils de développement")
+app.add_typer(dev_app, name="dev")
+
+
+@dev_app.command("layout-editor")
+@app.command("layout-editor")
+def launch_layout_editor(
+    pdf_path: Optional[Path] = typer.Argument(
+        None, help="Chemin d'accès optionnel vers un fichier PDF de feuille de match"
+    )
+):
+    """Lancer l'éditeur interactif de layout et inspecteur de parsing PDF (Dev Tool)."""
+    console.print("[cyan]Lancement du Layout Editor & Inspector (GUI)...[/cyan]")
+    import sys
+    import subprocess
+    script_path = Path(__file__).resolve().parent.parent.parent.parent / "scripts" / "layout_editor.py"
+    cmd = [sys.executable, str(script_path)]
+    if pdf_path:
+        cmd.append(str(pdf_path))
+    subprocess.run(cmd)
+
+
+@dev_app.command("profile-parser")
+def profile_parser_cli(
+    pdf_path: Optional[Path] = typer.Option(
+        None, "--pdf", "-p", help="Fichier PDF spécifique à profiler. Si omis, profile l'ensemble des PDFs d'exemple."
+    ),
+    iterations: int = typer.Option(
+        1, "--iterations", "-n", help="Nombre d'itérations par PDF pour moyenner les mesures."
+    )
+):
+    """Profilage complet de la vitesse d'exécution du ZoneMatchSheetParser avec métriques détaillées."""
+    import time
+    import glob
+    import pymupdf
+    from pyvolley.parsers.zone_parser import ZoneMatchSheetParser
+    from pyvolley.parsers.layout_config import DEFAULT_FFVB_LAYOUT
+    from pyvolley.parsers.extractors.zone_extractor import extract_hierarchical_data
+    from pyvolley.parsers.extractors.equipes_geometry import extract_team_roster_geometry
+
+    console.print(Panel("[bold cyan][PROFILER] PROFILAGE DÉTAILLÉ DE LA VITESSE D'EXÉCUTION DU PARSER (DEV CLI)[/bold cyan]"))
+
+    pdf_files = [pdf_path] if pdf_path else [Path(p) for p in sorted(glob.glob("data/data_sample/*.pdf"))]
+    if not pdf_files:
+        console.print("[red]Aucun fichier PDF trouvé à profiler.[/red]")
+        return
+
+    table = Table(title="Performance par Fichier PDF", show_header=True, header_style="bold magenta")
+    table.add_column("Fichier PDF", style="cyan", width=18)
+    table.add_column("PyMuPDF IO", justify="right", width=12)
+    table.add_column("Extraction Zones", justify="right", width=16)
+    table.add_column("Roster & Capitaines", justify="right", width=18)
+    table.add_column("Temps Total", justify="right", width=12, style="bold green")
+
+    results = []
+    parser = ZoneMatchSheetParser()
+
+    for pfile in pdf_files:
+        if not pfile.exists():
+            continue
+
+        tot_io, tot_zones, tot_rost, tot_full = 0.0, 0.0, 0.0, 0.0
+        for _ in range(iterations):
+            t0 = time.perf_counter_ns()
+            doc = pymupdf.open(pfile)
+            page = doc[0]
+            raw_words = page.get_text("words")
+            words = [{"x0": w[0], "y0": w[1], "x1": w[2], "y1": w[3], "text": w[4]} for w in raw_words]
+            drawings = page.get_drawings()
+            raw = page.get_text("rawdict")
+            image_blocks = []
+            for b in raw.get("blocks", []):
+                if b.get("type") == 1:
+                    bbox = b["bbox"]
+                    w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+                    if bbox[0] > 550 and 270 <= bbox[1] <= 410 and 5 <= w <= 25 and 5 <= h <= 25:
+                        image_blocks.append((bbox[0], bbox[1], bbox[2], bbox[3]))
+            doc.close()
+            t1 = time.perf_counter_ns()
+
+            h_data = extract_hierarchical_data(words, DEFAULT_FFVB_LAYOUT, drawings=drawings)
+            t2 = time.perf_counter_ns()
+
+            r_g = extract_team_roster_geometry(words, team_suffix="gauche", config=DEFAULT_FFVB_LAYOUT, drawings=drawings, image_blocks=image_blocks)
+            r_d = extract_team_roster_geometry(words, team_suffix="droite", config=DEFAULT_FFVB_LAYOUT, drawings=drawings, image_blocks=image_blocks)
+            t3 = time.perf_counter_ns()
+
+            res = parser.parse(pfile)
+            t4 = time.perf_counter_ns()
+
+            tot_io += (t1 - t0) / 1e6
+            tot_zones += (t2 - t1) / 1e6
+            tot_rost += (t3 - t2) / 1e6
+            tot_full += (t4 - t0) / 1e6
+
+        avg_io = tot_io / iterations
+        avg_zones = tot_zones / iterations
+        avg_rost = tot_rost / iterations
+        avg_full = tot_full / iterations
+
+        results.append({
+            "file": pfile.name,
+            "io": avg_io,
+            "zones": avg_zones,
+            "rost": avg_rost,
+            "full": avg_full,
+        })
+        table.add_row(
+            pfile.name,
+            f"{avg_io:.2f} ms",
+            f"{avg_zones:.2f} ms",
+            f"{avg_rost:.2f} ms",
+            f"{avg_full:.2f} ms",
+        )
+
+    console.print(table)
+
+    if results:
+        mean_io = sum(r["io"] for r in results) / len(results)
+        mean_zones = sum(r["zones"] for r in results) / len(results)
+        mean_rost = sum(r["rost"] for r in results) / len(results)
+        mean_full = sum(r["full"] for r in results) / len(results)
+
+        summary_table = Table(title="[STATISTIQUES] Répartition Moyenne du Temps d'Exécution", show_header=True, header_style="bold yellow")
+        summary_table.add_column("Étape", style="bold white")
+        summary_table.add_column("Temps Moyen", justify="right", style="cyan")
+        summary_table.add_column("Pourcentage", justify="right", style="bold green")
+
+        summary_table.add_row("1. Lecture IO PyMuPDF (words + rawdict)", f"{mean_io:.2f} ms", f"{mean_io/mean_full*100:.1f}%")
+        summary_table.add_row("2. Extraction des Zones Hiérarchisées", f"{mean_zones:.2f} ms", f"{mean_zones/mean_full*100:.1f}%")
+        summary_table.add_row("3. Roster & Détection Capitaines (Image Blocks)", f"{mean_rost:.2f} ms", f"{mean_rost/mean_full*100:.1f}%")
+        summary_table.add_row("4. Modèles Pydantic & Instanciation Match", f"{(mean_full - mean_io - mean_zones - mean_rost):.2f} ms", f"{((mean_full - mean_io - mean_zones - mean_rost)/mean_full*100):.1f}%")
+        summary_table.add_row("[bold]TOTAL MOYEN PER PDF[/bold]", f"[bold]{mean_full:.2f} ms[/bold]", "[bold]100.0%[/bold]")
+
+        console.print(summary_table)
 
 
 @db_app.command("status")

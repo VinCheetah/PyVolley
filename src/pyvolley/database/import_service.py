@@ -22,6 +22,7 @@ from pyvolley.shared.match_status import (
     normalize_score_sets,
     sets_indicate_played,
 )
+from pyvolley.shared.match_scores import resolve_match_score, score_sets_to_pair
 from .club_matching import normalize_club_name
 from .models import (
     ClubDB, ClubAliasDB, EquipeDB, JoueurDB, MatchDB, SetDB,
@@ -111,7 +112,12 @@ class MatchImportService:
             getattr(match_data, "has_details", False)
             or sets_indicate_played(match_data.sets)
         )
-        score_sets = normalize_score_sets(match_data.score_final) or match_data.score_final
+        score_resolution = resolve_match_score(
+            None,
+            match_data.score_final,
+            legacy_score=match_data.score_final,
+        )
+        score_sets = score_resolution.score_effective
         computed_played = compute_match_played(
             vainqueur=match_data.vainqueur_nom,
             score_sets=score_sets,
@@ -140,6 +146,8 @@ class MatchImportService:
             equipe_b_id=equipe_b_db.id if equipe_b_db else None,
             vainqueur=match_data.vainqueur_nom,
             score_sets=score_sets,
+            score_export=score_resolution.score_export,
+            score_pdf=score_resolution.score_pdf,
             sets_equipe_a=match_data.sets_a,
             sets_equipe_b=match_data.sets_b,
             duree_totale=match_data.duree_totale,
@@ -184,7 +192,12 @@ class MatchImportService:
         # 11. Statistiques détaillées joueur (persistées en base)
         if match_db.has_details:
             stats_service = JoueurMatchStatsService(self.session)
-            stats_service.compute_and_store_for_match(match_db, force=True)
+            count = stats_service.compute_and_store_for_match(match_db, force=True)
+            if count == 0 and match_db.participations:
+                logger.warning(
+                    "Aucune statistique joueur générée pour le match %s (id=%s) malgré %d participation(s)",
+                    match_db.code_match, match_db.id, len(match_db.participations),
+                )
 
         return match_db
 
@@ -1171,13 +1184,37 @@ class MatchImportService:
         """Synchronise score_sets, match_joue et score_source de manière cohérente."""
         changed = False
 
-        normalized_score = normalize_score_sets(
-            match_db.score_sets,
-            replace_forfeit_with_zero=bool(match_db.forfait),
+        score_resolution = resolve_match_score(
+            match_db.score_export,
+            match_db.score_pdf,
+            legacy_score=match_db.score_sets,
         )
+        normalized_score = score_resolution.score_effective
+        if bool(match_db.forfait) and normalized_score:
+            normalized_score = normalize_score_sets(
+                normalized_score,
+                replace_forfeit_with_zero=True,
+            )
         if normalized_score != match_db.score_sets:
             match_db.score_sets = normalized_score
             changed = True
+
+        if score_resolution.score_export != match_db.score_export:
+            match_db.score_export = score_resolution.score_export
+            changed = True
+        if score_resolution.score_pdf != match_db.score_pdf:
+            match_db.score_pdf = score_resolution.score_pdf
+            changed = True
+
+        if score_resolution.score_effective:
+            sets_a, sets_b = score_sets_to_pair(score_resolution.score_effective)
+            if sets_a is not None and sets_b is not None:
+                if match_db.sets_equipe_a != sets_a:
+                    match_db.sets_equipe_a = sets_a
+                    changed = True
+                if match_db.sets_equipe_b != sets_b:
+                    match_db.sets_equipe_b = sets_b
+                    changed = True
 
         computed_played = compute_match_played(
             vainqueur=match_db.vainqueur,
@@ -1371,7 +1408,12 @@ class MatchImportService:
             updated = True
 
         # ── Résultat (mettre à jour si plus riche ou si forcé) ──
-        parsed_score_sets = normalize_score_sets(parsed.score_final) or parsed.score_final
+        parsed_score_resolution = resolve_match_score(
+            None,
+            parsed.score_final,
+            legacy_score=parsed.score_final,
+        )
+        parsed_score_sets = parsed_score_resolution.score_effective
         parsed_played = compute_match_played(
             vainqueur=parsed.vainqueur_nom,
             score_sets=parsed_score_sets,
@@ -1391,8 +1433,22 @@ class MatchImportService:
         if parsed.vainqueur_nom and (not match_db.vainqueur or force):
             match_db.vainqueur = parsed.vainqueur_nom
             updated = True
-        if parsed_score_sets and (not match_db.score_sets or force):
-            match_db.score_sets = parsed_score_sets
+        if parsed_score_sets:
+            parsed_sets_a, parsed_sets_b = score_sets_to_pair(parsed_score_sets)
+            if force or match_db.score_pdf != parsed_score_sets or match_db.score_sets != parsed_score_sets:
+                match_db.score_pdf = parsed_score_sets
+                match_db.score_sets = parsed_score_sets
+                updated = True
+            if parsed_sets_a is not None and parsed_sets_b is not None and (
+                force
+                or match_db.sets_equipe_a != parsed_sets_a
+                or match_db.sets_equipe_b != parsed_sets_b
+            ):
+                match_db.sets_equipe_a = parsed_sets_a
+                match_db.sets_equipe_b = parsed_sets_b
+                updated = True
+        elif parsed_score_resolution.score_pdf and (force or not match_db.score_pdf):
+            match_db.score_pdf = parsed_score_resolution.score_pdf
             updated = True
         if (parsed.sets_a or parsed.sets_b) and (
             (match_db.sets_equipe_a == 0 and match_db.sets_equipe_b == 0) or force
@@ -1497,7 +1553,12 @@ class MatchImportService:
             # Recalcule et persiste les statistiques détaillées des joueurs
             if match_db.has_details:
                 stats_service = JoueurMatchStatsService(self.session)
-                stats_service.compute_and_store_for_match(match_db, force=True)
+                count = stats_service.compute_and_store_for_match(match_db, force=True)
+                if count == 0 and match_db.participations:
+                    logger.warning(
+                        "Aucune statistique joueur générée pour le match %s (id=%s) malgré %d participation(s)",
+                        match_db.code_match, match_db.id, len(match_db.participations),
+                    )
 
         return updated
 

@@ -44,18 +44,12 @@ def resolve_entities(
     entity: Optional[List[str]] = None,
     entity_type: Optional[str] = None,
     all_entities: bool = False,
-    pro: bool = False,
 ) -> list[str]:
     """Résout les codes d'entités à partir des options CLI.
 
     Gère les cas : entités explicites, filtrage par type, --all, --pro.
     Retourne une liste de codes d'entités à traiter.
     """
-    if pro:
-        from pyvolley.scrapers.lnv import PRO_ENTITY_CODE
-        if not entity:
-            return [PRO_ENTITY_CODE]
-        return list(entity)
 
     if all_entities:
         all_ents = scraper.get_entities()
@@ -354,8 +348,11 @@ def add_entity_filter(session, stmt, entity: Optional[List[str]]):
 
 def make_progress(console: Console) -> Progress:
     """Crée une barre de progression Rich standardisée."""
+    encoding = getattr(console.file, "encoding", None) or "utf-8"
+    is_utf8 = encoding.lower() in ("utf-8", "utf8")
+    spinner = SpinnerColumn() if is_utf8 else SpinnerColumn("line")
     return Progress(
-        SpinnerColumn(),
+        spinner,
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
         TaskProgressColumn(),

@@ -13,6 +13,8 @@ from enum import Enum
 
 from pydantic import BaseModel, Field, field_validator
 
+from pyvolley.shared.match_scores import resolve_match_score
+
 
 # ============== Enums ==============
 
@@ -139,6 +141,7 @@ class Equipe(PyVolleyModel):
     club: Optional[Club] = None
     niveau: Optional[str] = None  # Elite, Nationale, Régionale, ...
     division: Optional[str] = None  # N2, R1, D1, ...
+    capitaine: Optional[str] = Field(None, description="Numéro de maillot du capitaine")
     joueurs: list[Joueur] = Field(default_factory=list)
     liberos: list[Joueur] = Field(default_factory=list)
     officiels: list["Officiel"] = Field(default_factory=list)
@@ -349,6 +352,8 @@ class Match(MatchBase):
     vainqueur_nom: Optional[str] = None
     vainqueur_id: Optional[int] = None
     score_final: Optional[str] = None  # "3/1"
+    score_export: Optional[str] = None
+    score_pdf: Optional[str] = None
     sets_a: int = 0
     sets_b: int = 0
     duree_totale: Optional[str] = None
@@ -369,14 +374,18 @@ class Match(MatchBase):
     @property
     def is_played(self) -> bool:
         has_score_final = False
-        if self.score_final and "/" in self.score_final:
-            left, right = self.score_final.split("/", 1)
+        for score_value in (self.score_final, self.score_effective):
+            if not score_value or "/" not in score_value:
+                continue
+            left, right = score_value.split("/", 1)
             left = left.strip()
             right = right.strip()
             if left.isdigit() and right.isdigit():
                 has_score_final = (int(left) + int(right)) > 0
             elif left.upper() == "P" or right.upper() == "P":
                 has_score_final = True
+            if has_score_final:
+                break
 
         return bool(
             self.match_joue
@@ -409,6 +418,26 @@ class Match(MatchBase):
         if self.sets_a > 0 or self.sets_b > 0:
             return f"{self.sets_a}-{self.sets_b}"
         return None
+
+    @property
+    def score_resolution(self):
+        return resolve_match_score(
+            self.score_export,
+            self.score_pdf,
+            legacy_score=self.score_final,
+        )
+
+    @property
+    def score_effective(self) -> Optional[str]:
+        return self.score_resolution.score_effective
+
+    @property
+    def score_display(self) -> Optional[str]:
+        return self.score_resolution.score_display
+
+    @property
+    def score_conflict(self) -> bool:
+        return self.score_resolution.conflict
 
 
 # ============== Saison ==============

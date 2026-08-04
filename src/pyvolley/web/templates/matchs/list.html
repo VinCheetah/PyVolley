@@ -237,9 +237,14 @@
                         {% if match.statut == 'forfait' %}
                         <span class="badge badge-red" style="font-size: 0.65rem;">Forfait</span>
                         {% elif match.statut == 'joué' %}
-                        <span class="score-team-a">{{ match.sets_equipe_a }}</span>
-                        <span style="color: var(--text-muted);">-</span>
-                        <span class="score-team-b">{{ match.sets_equipe_b }}</span>
+                        <div class="flex items-center justify-center gap-2 whitespace-nowrap">
+                            <span class="score-team-a">{{ match.sets_equipe_a }}</span>
+                            <span style="color: var(--text-muted);">-</span>
+                            <span class="score-team-b">{{ match.sets_equipe_b }}</span>
+                            {% if match.score_conflict %}
+                            <span class="badge badge-red" title="{{ match.score_display or 'Écart de score' }}" style="font-size: 0.55rem; line-height: 1;">≠</span>
+                            {% endif %}
+                        </div>
                         {% elif match.statut == 'à_venir' %}
                         <span class="badge badge-blue" style="font-size: 0.6rem;">À venir</span>
                         {% else %}
