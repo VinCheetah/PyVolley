@@ -26,6 +26,13 @@ PLAYED_PDFS = [
 ]
 
 
+try:
+    import pytest_benchmark
+    HAS_PYTEST_BENCHMARK = True
+except ImportError:
+    HAS_PYTEST_BENCHMARK = False
+
+
 def _skip_if_no_samples():
     if not SAMPLE_PDFS:
         pytest.skip("No sample PDFs in data/data_sample")
@@ -36,6 +43,7 @@ def _skip_if_no_samples():
 # =====================================================================
 
 
+@pytest.mark.skipif(not HAS_PYTEST_BENCHMARK, reason="pytest-benchmark is not installed")
 class TestParserBenchmark:
     """Performance benchmarks for the parser."""
 
