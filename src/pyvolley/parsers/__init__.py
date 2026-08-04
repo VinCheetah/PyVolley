@@ -18,6 +18,7 @@ Structure :
 
 from pyvolley.parsers.base import BaseParser, ParseResult
 from pyvolley.parsers.parser import MatchSheetParser
+from pyvolley.parsers.fast_parser import FastMatchSheetParser
 from pyvolley.parsers.factory import ParserFactory, get_parser
 from pyvolley.parsers.diagnostics import (
     Diagnostic,
@@ -39,6 +40,7 @@ __all__ = [
     "BaseParser",
     "ParseResult",
     "MatchSheetParser",
+    "FastMatchSheetParser",
     "ParserFactory",
     "get_parser",
     "Diagnostic",

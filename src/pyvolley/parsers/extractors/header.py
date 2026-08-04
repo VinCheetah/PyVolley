@@ -36,11 +36,7 @@ _CATEGORIE_PATTERN = re.compile(r'\b(M\d{2}|U\d{2})\b')
 def extract_header(lines: list[str]) -> dict:
     """Parse le header depuis les premières lignes du texte.
 
-    Lignes typiques :
-      [0] ``"EMA - ELITE MASCULINE - POULE A Match: EMA001 - Jour: 01"``
-      [1] ``"Ville: SAINT MARTIN D'HÈRES Samedi 20 Septembre 2025 à 20h30"``
-      [2] ``"Salle: CSU - GRAND GYMNASE SENIOR | MASCULIN"``
-      [3] ``"Compétitions Nationales SENIORS GRENOBLE V.UNIVERSITE CLUB …"``
+    Supports les lignes fusions (pdfplumber) et segmentées (PyMuPDF).
     """
     header: dict = {
         "competition": None, "code_match": None, "journee": None,
@@ -51,9 +47,9 @@ def extract_header(lines: list[str]) -> dict:
         "division": None, "type_competition": None, "phase": None,
     }
 
-    for line in lines[:8]:
-        line = line.strip()
+    clean_lines = [l.strip() for l in lines if l and l.strip()]
 
+    for i, line in enumerate(clean_lines[:12]):
         # ── Code match & journée ──
         if 'Match:' in line:
             if m := _MATCH_CODE_PATTERN.search(line):
@@ -63,21 +59,47 @@ def extract_header(lines: list[str]) -> dict:
             comp_part = line.split('Match:')[0].strip().rstrip('-').strip()
             if comp_part:
                 header["competition"] = comp_part
+            elif i > 0:
+                prev = clean_lines[i - 1]
+                if not any(kw in prev for kw in ('Ligue', 'Comité', 'Comite', 'FFVB', 'Match:')):
+                    header["competition"] = prev
 
         # ── Ville, date, heure ──
         if 'Ville:' in line:
             header.update(_parse_ville_date_line(line))
-        elif (
+            if not header.get("lieu"):
+                lieu_raw = line.split('Ville:')[-1].strip()
+                lieu_clean = re.sub(r'\s+(?:' + _JOURS_ALT + r').*$', '', lieu_raw, flags=re.IGNORECASE).strip()
+                if lieu_clean and lieu_clean not in JOURS_SEMAINE:
+                    header["lieu"] = lieu_clean
+
+        if (
             not header.get("date_obj")
             and any(day in line for day in JOURS_SEMAINE)
-        ) or (not header.get("heure_obj") and 'h' in line and 'à' in line):
+        ) or (not header.get("heure_obj") and 'h' in line and ('à' in line or ':' in line or re.search(r'\b\d{1,2}h\d{2}\b', line))):
             frag = _parse_date_time_fragment(line)
             if frag:
                 header.update(frag)
 
-        # ── Salle, genre, catégorie ──
+        # ── Salle ──
         if 'Salle:' in line:
             header.update(_parse_salle_line(line))
+
+        # ── Genre & Catégorie (détectés sur n'importe quelle ligne d'en-tête) ──
+        upper = line.upper()
+        if not header.get("genre"):
+            if 'MASCULIN' in upper:
+                header["genre"] = "MASCULIN"
+            elif 'FÉMININ' in upper or 'FEMININ' in upper:
+                header["genre"] = "FEMININ"
+            elif 'MIXTE' in upper:
+                header["genre"] = "MIXTE"
+
+        if not header.get("categorie"):
+            if 'SENIOR' in upper:
+                header["categorie"] = "SENIOR"
+            elif cm := _CATEGORIE_PATTERN.search(upper):
+                header["categorie"] = cm.group(1)
 
         # ── Organisation / ligue / organisateur ──
         if 'Compétitions' in line or 'Compétition' in line:
@@ -193,7 +215,7 @@ def _parse_ville_date_line(line: str) -> dict:
 
     if m := _VILLE_PATTERN.search(line):
         lieu = m.group(1).strip()
-        if lieu and lieu not in JOURS_SEMAINE:
+        if lieu and lieu not in JOURS_SEMAINE and not any(day in lieu.upper() for day in ('SAMEDI', 'DIMANCHE', 'LUNDI', 'MARDI', 'MERCREDI', 'JEUDI', 'VENDREDI')):
             info["lieu"] = lieu
 
     if dm := _DATE_PATTERN.search(line):
@@ -209,11 +231,14 @@ def _parse_ville_date_line(line: str) -> dict:
 
     if hm := _HEURE_PATTERN.search(line):
         h, mn = int(hm.group(1)), int(hm.group(2))
-        info["heure"] = f"{h}h{mn:02d}"
+        info["heure"] = f"{h:02d}:{mn:02d}:00"
         try:
             info["heure_obj"] = dt_time(h, mn)
         except ValueError:
             pass
+
+    if not info.get("lieu") and info.get("date"):
+        info["lieu"] = info["date"]
 
     return info
 
@@ -240,7 +265,7 @@ def _parse_date_time_fragment(line: str) -> dict:
 
     if hm := _HEURE_PATTERN.search(line):
         h, mn = int(hm.group(1)), int(hm.group(2))
-        info["heure"] = f"{h}h{mn:02d}"
+        info["heure"] = f"{h:02d}:{mn:02d}:00"
         try:
             info["heure_obj"] = dt_time(h, mn)
         except ValueError:

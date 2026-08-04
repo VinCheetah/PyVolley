@@ -55,6 +55,17 @@ def extract_all_sets(tidx: dict) -> list[dict]:
         if not tbl:
             continue
         sections = _find_set_sections(tbl)
+        if not sections and len(tbl) >= 7:
+            if key == 'main':
+                sections = [(1, 0)]
+                if len(tbl) >= 15:
+                    sections.append((3, 10))
+                if len(tbl) >= 25:
+                    sections.append((5, 20))
+            elif key == 'secondary':
+                sections = [(2, 0)]
+                if len(tbl) >= 15:
+                    sections.append((4, 10))
         sections.sort(key=lambda x: x[1])
         for ordinal, (raw_num, start_row) in enumerate(sections):
             set_num = expected_map.get(ordinal, raw_num)
@@ -147,12 +158,21 @@ def _parse_set_header(row: list, sd: dict, n_cols: int) -> None:
     if not row:
         return
 
+    full_row_str = " ".join(str(c).strip() for c in row if c)
+
+    # 1. Extraction globale des heures de début et de fin si présentes dans la ligne
+    for tm in _SET_HEADER_TIME_PATTERN.finditer(full_row_str):
+        if tm.group(1) == 'Début' and not sd.get('heure_debut'):
+            sd['heure_debut'] = tm.group(2)
+        elif tm.group(1) == 'Fin' and not sd.get('heure_fin'):
+            sd['heure_fin'] = tm.group(2)
+
     team_cells: list[tuple[int, str]] = []
     for i, cell in enumerate(row):
         if not cell:
             continue
         cs = str(cell).strip()
-        if len(cs) < 5:
+        if len(cs) < 3:
             continue
         if 'Début' in cs or 'Fin' in cs or 'Pts' in cs:
             team_cells.append((i, cs))
@@ -168,7 +188,7 @@ def _parse_set_header(row: list, sd: dict, n_cols: int) -> None:
         side = 'left' if i <= mid_col else 'right'
 
         name = re.split(r'\s+(?:Début|Fin):', cs)[0].strip()
-        if name:
+        if name and name not in ('S', 'R', 'Début:', 'Fin:'):
             if side == 'left':
                 sd['left_team_name'] = name
             else:
@@ -263,9 +283,9 @@ def _find_position_columns(
             [i for i, _ in left_dup[:6]],
         )
 
-    if len(hits) >= 12:
+    if len(hits) >= 8:
         hits.sort(key=lambda x: x[0])
-        max_gap, split_idx = 0, 5
+        max_gap, split_idx = 0, (len(hits) // 2) - 1
         for k in range(len(hits) - 1):
             gap = hits[k + 1][0] - hits[k][0]
             if gap > max_gap:
@@ -273,7 +293,11 @@ def _find_position_columns(
 
         left = sorted(hits[:split_idx + 1], key=lambda x: x[1])
         right = sorted(hits[split_idx + 1:], key=lambda x: x[1])
-        return [i for i, _ in left[:6]], [i for i, _ in right[:6]], []
+        return [i for i, _ in left], [i for i, _ in right], []
+
+    if len(hits) >= 4:
+        hits.sort(key=lambda x: x[1])
+        return [i for i, _ in hits], [], []
 
     # Fallback heuristique
     if n_cols >= 40:
@@ -487,8 +511,6 @@ def extract_resultats_table(
             continue
         for dm in re.finditer(r'(\d)\s+(\d+)\'', str(row[4])):
             durations[int(dm.group(1))] = int(dm.group(2))
-        if durations:
-            break
 
     # Durée totale
     duree_totale: Optional[str] = None
@@ -513,9 +535,12 @@ def extract_resultats_table(
     # Données par set
     data: list[dict] = []
     set_num = 0
-    for row_idx in range(3, min(8, len(tbl))):
-        row = tbl[row_idx]
+    for row in tbl:
         if not row:
+            continue
+
+        row_str = " ".join(str(c) for c in row if c)
+        if any(kw in row_str for kw in ("RESULTATS", "Equipe", "Durée", "OFFICIELS", "APPROBATION", "Signature", "Vainqueur", "R.Salle")):
             continue
 
         nums = []
@@ -529,15 +554,31 @@ def extract_resultats_table(
         if any(v > 50 for v in nums):
             continue
 
+        # Clean row if it has leading None cell (11 columns instead of 10)
+        clean_row = [c for c in row]
+        while len(clean_row) > 10 and clean_row[0] is None:
+            clean_row.pop(0)
+
+        points_a = _safe_int(clean_row, 3)
+        points_b = _safe_int(clean_row, 6)
+
+        # Totals row check (e.g. 50-30 after 2 sets)
+        if data and points_a is not None and points_b is not None:
+            sum_prev_a = sum(d.get('points_a', 0) or 0 for d in data)
+            sum_prev_b = sum(d.get('points_b', 0) or 0 for d in data)
+            if sum_prev_a > 0 and points_a == sum_prev_a and points_b == sum_prev_b:
+                # Totals row reached
+                break
+
         set_num += 1
         d = {
             'numero': set_num,
             'timeouts_a': _safe_int(row, 0),
             'remplacements_a': _safe_int(row, 1),
             'sets_gagnes_a': _safe_int(row, 2),
-            'points_a': _safe_int(row, 3),
+            'points_a': points_a,
             'duree_minutes': durations.get(set_num),
-            'points_b': _safe_int(row, 6),
+            'points_b': points_b,
             'sets_gagnes_b': _safe_int(row, 7),
             'remplacements_b': _safe_int(row, 8),
             'timeouts_b': _safe_int(row, 9),

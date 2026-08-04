@@ -81,11 +81,8 @@ def normalize_club_name(name: str) -> str:
     """
     if not name:
         return name
-    # volley-ball / volley ball → VB
     name = _VB_VARIANTS_PATTERN.sub('VB', name)
-    # V.B. → VB (handle with or without trailing period)
     name = re.sub(r'\bV\.B\.?(?:\b|\s|$)', 'VB', name)
-    # Espaces multiples
     name = re.sub(r'\s+', ' ', name).strip()
     return name
 

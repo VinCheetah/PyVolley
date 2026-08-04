@@ -36,7 +36,7 @@ from pyvolley.parsers.diagnostics import (
 )
 from pyvolley.parsers.utils import (
     extract_club_info, extract_competition_code, try_enum, saison_year,
-    normalize_club_name,
+    normalize_club_name, parse_time_str,
 )
 from pyvolley.parsers.extractors.header import extract_header
 from pyvolley.parsers.extractors.equipes import (
@@ -599,7 +599,7 @@ def _build_match(
         journee=header.get("journee"),
         saison=header.get("saison"),
         date=header.get("date_obj"),
-        heure=header.get("heure_obj"),
+        heure=header.get("heure_obj") or parse_time_str(header.get("heure")),
         lieu=header.get("lieu"),
         salle=header.get("salle"),
         genre=genre,

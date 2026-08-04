@@ -1,3 +1,4 @@
+
 """
 Extraction des données d'équipe depuis la feuille de match.
 
@@ -669,9 +670,7 @@ def _dedup_word_lines(
 # =====================================================================
 
 
-def extract_liberos(
-    words: list,
-) -> tuple[list[Joueur], list[Joueur]]:
+def extract_liberos(words: list, config: Optional[Any] = None) -> tuple[list[Joueur], list[Joueur]]:
     """Extrait les libéros depuis la section LIBEROS du PDF.
 
     Détecte le header LIBEROS même garbled (ex: ``LIBER2O9S``,
@@ -729,7 +728,7 @@ def extract_liberos(
         ]
         zone_words.sort(key=lambda w: (w['top'], w['x0']))
 
-        x_thresh = 700
+        x_thresh = getattr(config, 'x_split', 700) if config else 700
         lines_a: dict[int, list] = defaultdict(list)
         lines_b: dict[int, list] = defaultdict(list)
         for w in zone_words:
@@ -908,7 +907,7 @@ def merge_liberos(joueurs: list[Joueur], liberos: list[Joueur]) -> list[Joueur]:
 # =====================================================================
 
 
-def extract_officiels(words: list) -> tuple[list[Officiel], list[Officiel]]:
+def extract_officiels(words: list, config: Optional[Any] = None) -> tuple[list[Officiel], list[Officiel]]:
     """Extrait les officiels d'équipe sous la section OFFICIELS."""
     off_a: list[Officiel] = []
     off_b: list[Officiel] = []
@@ -935,7 +934,7 @@ def extract_officiels(words: list) -> tuple[list[Officiel], list[Officiel]]:
     ]
     zone_words.sort(key=lambda w: (w['top'], w['x0']))
 
-    x_thresh = 700
+    x_thresh = getattr(config, 'x_split', 700) if config else 700
     lines_left: dict[int, list] = defaultdict(list)
     lines_right: dict[int, list] = defaultdict(list)
     for w in zone_words:
@@ -1061,9 +1060,9 @@ def _capitaines_from_images(
 
         nearby_digits = [
             c for c in chars
-            if abs(c['top'] - img_center_y) < 12
+            if abs(((c.get('top', c.get('y0', 0)) + c.get('bottom', c.get('y1', 0))) / 2) - img_center_y) < 6
             and c['text'].isdigit()
-            and img['x0'] - 3 < c['x0'] < img['x1'] + 3
+            and img['x0'] - 4 < c['x0'] < img['x1'] + 4
         ]
         if not nearby_digits:
             continue

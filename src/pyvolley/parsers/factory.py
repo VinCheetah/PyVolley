@@ -39,6 +39,23 @@ class ParserFactory:
 
     _parsers: dict[str, Type[BaseParser]] = {}
     _default_parser: Optional[str] = None
+    _aliases: dict[str, str] = {
+        "fast": "FastMatchSheetParser",
+        "fitz": "FastMatchSheetParser",
+        "legacy": "MatchSheetParser",
+        "pdfplumber": "MatchSheetParser",
+    }
+
+    @classmethod
+    def resolve_name(cls, name: str) -> str:
+        """Résout un nom ou un alias de parser en sa clé canonique."""
+        lower_name = name.lower()
+        if lower_name in cls._aliases:
+            return cls._aliases[lower_name]
+        for key in cls._parsers:
+            if key.lower() == lower_name:
+                return key
+        return name
 
     @classmethod
     def register(cls, parser_class: Type[BaseParser], name: Optional[str] = None) -> None:
@@ -58,23 +75,24 @@ class ParserFactory:
 
     @classmethod
     def get(cls, name: str) -> BaseParser:
-        """Instancie un parser par son nom.
+        """Instancie un parser par son nom ou son alias.
 
         Raises:
             KeyError: Si le parser n'est pas enregistré.
         """
-        if name not in cls._parsers:
-            available = ", ".join(cls._parsers.keys()) or "(aucun)"
+        canonical_name = cls.resolve_name(name)
+        if canonical_name not in cls._parsers:
+            available = ", ".join(list(cls._parsers.keys()) + list(cls._aliases.keys()))
             raise KeyError(
                 f"Parser '{name}' non trouvé. Disponibles : {available}"
             )
-        return cls._parsers[name]()
+        return cls._parsers[canonical_name]()
 
     @classmethod
     def get_default(cls) -> BaseParser:
         """Retourne une instance du parser par défaut.
 
-        Enregistre automatiquement ``MatchSheetParser`` s'il n'y a aucun
+        Enregistre automatiquement ``FastMatchSheetParser`` et ``MatchSheetParser`` s'il n'y a aucun
         parser enregistré.
 
         Raises:
@@ -93,9 +111,10 @@ class ParserFactory:
         Raises:
             KeyError: Si le parser n'est pas enregistré.
         """
-        if name not in cls._parsers:
+        canonical_name = cls.resolve_name(name)
+        if canonical_name not in cls._parsers:
             raise KeyError(f"Parser '{name}' non trouvé")
-        cls._default_parser = name
+        cls._default_parser = canonical_name
 
     @classmethod
     def list_parsers(cls) -> list[str]:
@@ -128,8 +147,10 @@ class ParserFactory:
         """Enregistre le parser principal si le registre est vide."""
         if cls._parsers:
             return
+        from pyvolley.parsers.fast_parser import FastMatchSheetParser
         from pyvolley.parsers.parser import MatchSheetParser
 
+        cls.register(FastMatchSheetParser)
         cls.register(MatchSheetParser)
 
     @classmethod
@@ -150,7 +171,11 @@ def get_parser(name: Optional[str] = None) -> BaseParser:
     return ParserFactory.get_default()
 
 
-# ── Enregistrement automatique du parser principal ──────────────────
+# ── Enregistrement automatique des parsers ──────────────────
+from pyvolley.parsers.fast_parser import FastMatchSheetParser  # noqa: E402
 from pyvolley.parsers.parser import MatchSheetParser  # noqa: E402
+from pyvolley.parsers.geometry_parser import GeometryMatchSheetParser  # noqa: E402
 
+ParserFactory.register(GeometryMatchSheetParser)
+ParserFactory.register(FastMatchSheetParser)
 ParserFactory.register(MatchSheetParser)
