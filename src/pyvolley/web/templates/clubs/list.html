@@ -9,10 +9,10 @@
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
             <h1 class="text-2xl font-bold">
-                <i data-lucide="building-2" class="w-6 h-6 inline-block mr-2" style="color: var(--accent-gold);"></i>
+                <i data-lucide="building-2" class="w-6 h-6 inline-block mr-2 text-accent-gold"></i>
                 Clubs
             </h1>
-            <p style="color: var(--text-muted);">{{ total }} clubs enregistrés</p>
+            <p class="text-muted">{{ total }} clubs enregistrés</p>
         </div>
         <form action="/clubs" method="get" class="flex gap-2 max-w-md w-full">
             <input type="text" name="q" value="{{ query or '' }}" placeholder="Rechercher un club..."
@@ -47,29 +47,29 @@
                 {% for c in clubs %}
                 <tr>
                     <td class="font-semibold text-white">{{ c.nom }}</td>
-                    <td style="color: var(--text-secondary);">{{ c.ville or '—' }}</td>
+                    <td class="text-secondary">{{ c.ville or '—' }}</td>
                     <td>
                         {% if c.departement %}
                         <span class="badge">{{ c.departement }}</span>
                         {% else %}
-                        <span style="color: var(--text-muted);">—</span>
+                        <span class="text-muted">—</span>
                         {% endif %}
                     </td>
                     <td>
                         {% if c.ligue %}
-                        <span class="badge badge-green" style="font-size: 0.65rem;">{{ c.ligue }}</span>
+                        <span class="badge badge-green text-xs">{{ c.ligue }}</span>
                         {% else %}
-                        <span style="color: var(--text-muted);">—</span>
+                        <span class="text-muted">—</span>
                         {% endif %}
                     </td>
                     <td>
-                        <span class="font-mono text-xs" style="color: var(--text-muted);">{{ c.code_ffvb or '—' }}</span>
+                        <span class="font-mono text-xs text-muted">{{ c.code_ffvb or '—' }}</span>
                     </td>
                     <td class="text-center">
                         {% if c.couleurs %}
-                        <span class="badge badge-gold" style="font-size: 0.65rem;">{{ c.couleurs }}</span>
+                        <span class="badge badge-gold text-xs">{{ c.couleurs }}</span>
                         {% else %}
-                        <span style="color: var(--text-muted);">—</span>
+                        <span class="text-muted">—</span>
                         {% endif %}
                     </td>
                     <td class="text-right">
@@ -80,7 +80,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="7" class="text-center py-8" style="color: var(--text-muted);">
+                    <td colspan="7" class="text-center py-8 text-muted">
                         {% if query %}
                         Aucun club trouvé pour « {{ query }} »
                         {% else %}

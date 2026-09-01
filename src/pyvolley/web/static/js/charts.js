@@ -56,6 +56,46 @@ window.PyVolleyCharts = (function() {
         return out;
     }
 
+    // ── Visibility Observer for Tabs ──
+    const visibilityObserver = (typeof IntersectionObserver !== 'undefined')
+        ? new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const canvas = entry.target;
+                    const chart = canvas._chartInstance || (typeof Chart !== 'undefined' ? Chart.getChart(canvas) : null);
+                    if (chart) {
+                        try {
+                            chart.resize();
+                            chart.update('none');
+                        } catch (e) {
+                            /* ignore transient resize errors */
+                        }
+                    }
+                }
+            });
+        }, { threshold: 0.01 })
+        : null;
+
+    function observeCanvas(canvas, chart) {
+        if (!canvas) return;
+        canvas._chartInstance = chart;
+        if (visibilityObserver) {
+            visibilityObserver.observe(canvas);
+        }
+    }
+
+    // Global resize trigger
+    if (typeof window !== 'undefined') {
+        window.addEventListener('resize', () => {
+            document.querySelectorAll('canvas').forEach(canvas => {
+                const chart = canvas._chartInstance || (typeof Chart !== 'undefined' ? Chart.getChart(canvas) : null);
+                if (chart && canvas.offsetWidth > 0 && canvas.offsetHeight > 0) {
+                    try { chart.resize(); } catch (e) {}
+                }
+            });
+        });
+    }
+
     /**
      * Create a Chart.js chart with PyVolley defaults.
      * @param {string} canvasId - The canvas element ID
@@ -64,8 +104,16 @@ window.PyVolleyCharts = (function() {
      * @returns {Chart|null} The created chart instance, or null if canvas not found
      */
     function create(canvasId, type, config) {
-        const canvas = document.getElementById(canvasId);
+        const canvas = typeof canvasId === 'string' ? document.getElementById(canvasId) : canvasId;
         if (!canvas) return null;
+
+        // Destroy existing chart on canvas if present to prevent canvas reuse errors
+        if (typeof Chart !== 'undefined') {
+            const existing = Chart.getChart(canvas);
+            if (existing) {
+                try { existing.destroy(); } catch (e) {}
+            }
+        }
 
         const defaults = {
             responsive: true,
@@ -82,12 +130,15 @@ window.PyVolleyCharts = (function() {
 
         const mergedOptions = deepMerge(defaults, config.options || {});
 
-        return new Chart(canvas, {
+        const chart = new Chart(canvas, {
             type: type,
             data: config.data,
             options: mergedOptions,
             plugins: config.plugins || [],
         });
+
+        observeCanvas(canvas, chart);
+        return chart;
     }
 
     /**
@@ -145,5 +196,5 @@ window.PyVolleyCharts = (function() {
         });
     }
 
-    return { colors, teamPalette, defaultScales, create, horizontalBar };
+    return { colors, teamPalette, defaultScales, create, horizontalBar, observeCanvas };
 })();

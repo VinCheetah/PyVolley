@@ -41,9 +41,9 @@ class ParserFactory:
     _default_parser: Optional[str] = None
     _aliases: dict[str, str] = {
         "fast": "FastMatchSheetParser",
-        "fitz": "FastMatchSheetParser",
         "legacy": "MatchSheetParser",
         "pdfplumber": "MatchSheetParser",
+        "simple": "MatchSheetParser",
     }
 
     @classmethod
@@ -174,8 +174,6 @@ def get_parser(name: Optional[str] = None) -> BaseParser:
 # ── Enregistrement automatique des parsers ──────────────────
 from pyvolley.parsers.fast_parser import FastMatchSheetParser  # noqa: E402
 from pyvolley.parsers.parser import MatchSheetParser  # noqa: E402
-from pyvolley.parsers.geometry_parser import GeometryMatchSheetParser  # noqa: E402
 
-ParserFactory.register(GeometryMatchSheetParser)
 ParserFactory.register(FastMatchSheetParser)
 ParserFactory.register(MatchSheetParser)

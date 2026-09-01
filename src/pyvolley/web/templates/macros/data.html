@@ -11,8 +11,8 @@
    chart_suffix: unique suffix for chart canvas ID (e.g. "_poule1") #}
 {% macro classement_table(cls, title, chart_suffix) %}
 <div class="card overflow-hidden">
-    <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
-        <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+    <div class="p-4 border-b">
+        <h2 class="section-title">
             <i data-lucide="list-ordered" class="w-4 h-4 inline-block mr-1"></i>
             {{ title }}
         </h2>
@@ -41,53 +41,48 @@
                 <tr>
                     <td class="text-center">
                         {% if ligne.rang == 1 %}
-                        <span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold"
-                              style="background: linear-gradient(135deg, #f59e0b, #f97316); color: #000;">
+                        <span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold rank-gold">
                             {{ ligne.rang }}
                         </span>
                         {% elif ligne.rang == 2 %}
-                        <span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold"
-                              style="background: linear-gradient(135deg, #94a3b8, #cbd5e1); color: #000;">
+                        <span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold rank-silver">
                             {{ ligne.rang }}
                         </span>
                         {% elif ligne.rang == 3 %}
-                        <span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold"
-                              style="background: linear-gradient(135deg, #b45309, #d97706); color: #fff;">
+                        <span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold rank-bronze">
                             {{ ligne.rang }}
                         </span>
                         {% else %}
-                        <span class="font-semibold" style="color: var(--text-muted);">{{ ligne.rang }}</span>
+                        <span class="font-semibold text-muted">{{ ligne.rang }}</span>
                         {% endif %}
                     </td>
                     <td>
-                        <a href="{{ path_for_entity('equipe', ligne.equipe_id) }}" class="font-semibold hover:text-white transition"
-                           style="color: var(--text-primary);">
+                        <a href="{{ path_for_entity('equipe', ligne.equipe_id) }}" class="font-semibold text-primary hover:text-white transition">
                             {{ ligne.equipe_nom|truncate_name(30) }}
                         </a>
                     </td>
                     <td class="text-center">
-                        <span class="font-bold text-lg" style="color: var(--accent-gold);">{{ ligne.points }}</span>
+                        <span class="font-bold text-lg text-accent-gold">{{ ligne.points }}</span>
                     </td>
                     <td class="text-center font-medium">{{ ligne.matchs_joues }}</td>
-                    <td class="text-center font-medium" style="color: var(--accent-green);">{{ ligne.victoires }}</td>
-                    <td class="text-center font-medium" style="color: var(--accent-red);">{{ ligne.defaites }}</td>
-                    <td class="text-center text-xs" style="color: var(--text-secondary);">
-                        <span style="color: var(--accent-green-light);">{{ ligne.victoires_3_0 }}</span> /
-                        <span style="color: var(--accent-green);">{{ ligne.victoires_3_1 }}</span> /
-                        <span style="color: var(--accent-cyan);">{{ ligne.victoires_3_2 }}</span>
+                    <td class="text-center font-medium text-accent-green">{{ ligne.victoires }}</td>
+                    <td class="text-center font-medium text-accent-red">{{ ligne.defaites }}</td>
+                    <td class="text-center text-xs text-secondary">
+                        <span class="text-accent-green-light">{{ ligne.victoires_3_0 }}</span> /
+                        <span class="text-accent-green">{{ ligne.victoires_3_1 }}</span> /
+                        <span class="text-accent-cyan">{{ ligne.victoires_3_2 }}</span>
                     </td>
-                    <td class="text-center text-xs" style="color: var(--text-secondary);">
-                        <span style="color: var(--accent-red);">{{ ligne.defaites_0_3 }}</span> /
-                        <span style="color: var(--accent-red-light);">{{ ligne.defaites_1_3 }}</span> /
+                    <td class="text-center text-xs text-secondary">
+                        <span class="text-accent-red">{{ ligne.defaites_0_3 }}</span> /
+                        <span class="text-accent-red-light">{{ ligne.defaites_1_3 }}</span> /
                         <span>{{ ligne.defaites_2_3 }}</span>
                     </td>
                     <td class="text-center">
-                        <span class="font-medium" style="color: var(--accent-blue);">{{ ligne.sets_gagnes }}</span>
-                        <span style="color: var(--text-muted);">-</span>
-                        <span style="color: var(--text-secondary);">{{ ligne.sets_perdus }}</span>
+                        <span class="font-medium text-accent-blue">{{ ligne.sets_gagnes }}</span>
+                        <span class="text-muted">-</span>
+                        <span class="text-secondary">{{ ligne.sets_perdus }}</span>
                         {% set ds = ligne.sets_gagnes - ligne.sets_perdus %}
-                        <span class="text-xs ml-1"
-                              style="color: {% if ds > 0 %}var(--accent-green){% elif ds < 0 %}var(--accent-red){% else %}var(--text-muted){% endif %};">
+                        <span class="text-xs ml-1 {% if ds > 0 %}text-accent-green{% elif ds < 0 %}text-accent-red{% else %}text-muted{% endif %}">
                             ({% if ds > 0 %}+{% endif %}{{ ds }})
                         </span>
                     </td>
@@ -95,30 +90,29 @@
                         {% if ligne.sets_perdus > 0 %}
                         {{ "%.2f"|format(ligne.ratio_sets) }}
                         {% elif ligne.sets_gagnes > 0 %}
-                        <span style="color: var(--accent-green);">∞</span>
+                        <span class="text-accent-green">∞</span>
                         {% else %}
-                        <span style="color: var(--text-muted);">—</span>
+                        <span class="text-muted">—</span>
                         {% endif %}
                     </td>
                     <td class="text-center text-sm">
-                        <span style="color: var(--accent-blue);">{{ ligne.points_marques }}</span>
-                        <span style="color: var(--text-muted);">-</span>
-                        <span style="color: var(--text-secondary);">{{ ligne.points_encaisses }}</span>
+                        <span class="text-accent-blue">{{ ligne.points_marques }}</span>
+                        <span class="text-muted">-</span>
+                        <span class="text-secondary">{{ ligne.points_encaisses }}</span>
                     </td>
                     <td class="text-center font-mono text-sm">
                         {% if ligne.points_encaisses > 0 %}
                         {{ "%.3f"|format(ligne.ratio_points) }}
                         {% elif ligne.points_marques > 0 %}
-                        <span style="color: var(--accent-green);">∞</span>
+                        <span class="text-accent-green">∞</span>
                         {% else %}
-                        <span style="color: var(--text-muted);">—</span>
+                        <span class="text-muted">—</span>
                         {% endif %}
                     </td>
                     <td class="text-center">
                         <div class="flex gap-0.5 justify-center">
                             {% for r in ligne.serie[-8:] %}
-                            <span class="inline-block w-4 h-4 rounded text-xs font-bold flex items-center justify-center leading-none"
-                                  style="{% if r == 'V' %}background: rgba(34,197,94,0.2); color: var(--accent-green);{% else %}background: rgba(239,68,68,0.2); color: var(--accent-red);{% endif %}">
+                            <span class="inline-block w-4 h-4 rounded text-xs font-bold flex items-center justify-center leading-none {% if r == 'V' %}bg-tint-green text-accent-green{% else %}bg-tint-red text-accent-red{% endif %}">
                                 {{ r }}
                             </span>
                             {% endfor %}
@@ -133,7 +127,7 @@
 
 {% if cls.classement_actuel|length > 1 %}
 <div class="card p-6">
-    <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+    <h2 class="section-title mb-4">
         <i data-lucide="bar-chart-3" class="w-4 h-4 inline-block mr-1"></i> Points par équipe
     </h2>
     <div style="height: {{ [cls.classement_actuel|length * 32 + 40, 700]|min }}px; max-height: 700px;">

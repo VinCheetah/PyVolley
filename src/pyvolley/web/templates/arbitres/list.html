@@ -9,10 +9,10 @@
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
             <h1 class="text-2xl font-bold">
-                <i data-lucide="gavel" class="w-6 h-6 inline-block mr-2" style="color: var(--accent-purple);"></i>
+                <i data-lucide="gavel" class="w-6 h-6 inline-block mr-2 text-accent-purple"></i>
                 Arbitres
             </h1>
-            <p style="color: var(--text-muted);">{{ total }} arbitres enregistrés</p>
+            <p class="text-muted">{{ total }} arbitres enregistrés</p>
         </div>
     </div>
 
@@ -43,7 +43,7 @@
 
     {% if ligue %}
     <div class="flex flex-wrap gap-2 items-center">
-        <span class="text-xs font-semibold uppercase" style="color: var(--text-muted);">Filtre :</span>
+        <span class="text-xs font-semibold uppercase text-muted">Filtre :</span>
         <span class="badge badge-purple">{{ ligue }}</span>
     </div>
     {% endif %}
@@ -64,15 +64,15 @@
                 {% for a in arbitres %}
                 <tr>
                     <td class="font-semibold text-white">{{ a.nom }}</td>
-                    <td style="color: var(--text-secondary);">{{ a.prenom or '—' }}</td>
+                    <td class="text-secondary">{{ a.prenom or '—' }}</td>
                     <td>
-                        <span class="font-mono text-xs" style="color: var(--text-muted);">{{ a.licence or '—' }}</span>
+                        <span class="font-mono text-xs text-muted">{{ a.licence or '—' }}</span>
                     </td>
                     <td>
                         {% if a.ligue %}
                         <span class="badge badge-purple">{{ a.ligue }}</span>
                         {% else %}
-                        <span style="color: var(--text-muted);">—</span>
+                        <span class="text-muted">—</span>
                         {% endif %}
                     </td>
                     <td class="text-right">
@@ -83,7 +83,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="5" class="text-center py-8" style="color: var(--text-muted);">
+                    <td colspan="5" class="text-center py-8 text-muted">
                         {% if query or ligue %}
                         Aucun arbitre trouvé pour ces critères
                         {% else %}

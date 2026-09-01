@@ -1,9 +1,8 @@
-"""
-Routes web — Clubs (liste et détail).
+﻿"""
+Routes web â€” Clubs (liste et dÃ©tail).
 """
 
 from typing import Optional
-import re
 
 from fastapi import APIRouter, Request, Depends, Query
 from fastapi.responses import HTMLResponse
@@ -13,6 +12,7 @@ from pyvolley.api.dependencies import get_club_repo, get_equipe_repo
 from pyvolley.database.repositories import ClubRepository, EquipeRepository
 from pyvolley.web.helpers.niveau import resolve_niveau_badge
 from pyvolley.web.helpers.club_branding import build_club_branding
+from pyvolley.web.helpers.common import season_sort_key
 from pyvolley.core.config import settings
 from pyvolley.scrapers.ffvb.adressier_scraper import (
     build_adressier_url,
@@ -21,19 +21,6 @@ from pyvolley.scrapers.ffvb.adressier_scraper import (
 )
 
 router = APIRouter()
-
-
-def _season_sort_key(value: str) -> tuple[int, int]:
-    if not value:
-        return (0, 0)
-    match = re.match(r"^(\d{4})-(\d{4})$", value)
-    if match:
-        return (int(match.group(1)), int(match.group(2)))
-    single = re.match(r"^(\d{4})$", value)
-    if single:
-        year = int(single.group(1))
-        return (year, year)
-    return (0, 0)
 
 
 def _level_score_from_label(level_label: str | None) -> float | None:
@@ -52,13 +39,13 @@ def _level_score_from_label(level_label: str | None) -> float | None:
         "N3": 5.0,
         "NATIONAL": 4.8,
         "PRENAT": 4.0,
-        "PRÉNAT": 4.0,
+        "PRÃ‰NAT": 4.0,
         "PREREG": 3.0,
-        "PRÉREG": 3.0,
+        "PRÃ‰REG": 3.0,
         "REGIONAL": 2.0,
-        "RÉGIONAL": 2.0,
+        "RÃ‰GIONAL": 2.0,
         "DEP": 1.0,
-        "DÉP": 1.0,
+        "DÃ‰P": 1.0,
         "LOISIR": 0.5,
     }
     return mapping.get(normalized)
@@ -88,7 +75,7 @@ def _build_ffvb_links(club, equipes: list) -> dict[str, str | None]:
         ):
             entite_code = equipe.competition.entite.code
 
-    latest_season = max(season_codes, key=_season_sort_key) if season_codes else None
+    latest_season = max(season_codes, key=season_sort_key) if season_codes else None
     ffvb_saison = _to_ffvb_season(latest_season)
 
     planning_url = None
@@ -114,7 +101,7 @@ def _build_ffvb_links(club, equipes: list) -> dict[str, str | None]:
 
 
 def _build_level_evolution_chart(team_rows: list[dict]) -> dict:
-    seasons = sorted({row["saison"] for row in team_rows if row["saison"]}, key=_season_sort_key)
+    seasons = sorted({row["saison"] for row in team_rows if row["saison"]}, key=season_sort_key)
     kinds = sorted({row["kind"] for row in team_rows if row["kind"]})
 
     datasets: list[dict] = []
@@ -183,7 +170,7 @@ async def club_detail(
     if not club:
         return templates.TemplateResponse(
             "error.html",
-            {"request": request, "message": "Club non trouvé"},
+            {"request": request, "message": "Club non trouvÃ©"},
             status_code=404,
         )
     equipes = equipe_repo.get_by_club(club_id)
@@ -208,7 +195,7 @@ async def club_detail(
             categorie,
             eq.division or (eq.competition.division if eq.competition else None),
         )
-        niveau_label = niveau_badge["label"] if niveau_badge else "Non classé"
+        niveau_label = niveau_badge["label"] if niveau_badge else "Non classÃ©"
         team_rows.append(
             {
                 "id": eq.id,
@@ -221,16 +208,16 @@ async def club_detail(
                 "niveau_score": _level_score_from_label(niveau_label),
                 "division": eq.division or (eq.competition.division if eq.competition else None),
                 "competition": eq.competition.nom if eq.competition else "",
-                "kind": f"{genre} · {categorie}",
+                "kind": f"{genre} Â· {categorie}",
             }
         )
 
     team_rows.sort(
-        key=lambda row: (_season_sort_key(row["saison"]), row["nom"]),
+        key=lambda row: (season_sort_key(row["saison"]), row["nom"]),
         reverse=True,
     )
     team_filters = {
-        "saisons": sorted({row["saison"] for row in team_rows if row["saison"]}, key=_season_sort_key, reverse=True),
+        "saisons": sorted({row["saison"] for row in team_rows if row["saison"]}, key=season_sort_key, reverse=True),
         "genres": sorted({row["genre"] for row in team_rows if row["genre"]}),
         "categories": sorted({row["categorie"] for row in team_rows if row["categorie"]}),
         "niveaux": sorted({row["niveau_label"] for row in team_rows if row["niveau_label"]}),

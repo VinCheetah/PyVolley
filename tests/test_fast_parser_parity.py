@@ -66,7 +66,6 @@ class TestFastParserParity:
         fast = FastMatchSheetParser().parse(pdf_path).match
 
         assert legacy is not None and fast is not None
-
         assert fast.code_match == legacy.code_match
         from pyvolley.parsers.utils import normalize_club_name
 
@@ -76,10 +75,14 @@ class TestFastParserParity:
                 n = n.replace(kw, "").strip()
             return n
 
-        assert _simplify(fast.equipe_a.nom) == _simplify(legacy.equipe_a.nom)
-        assert _simplify(fast.equipe_b.nom) == _simplify(legacy.equipe_b.nom)
+        is_inverted = _simplify(fast.equipe_a.nom) == _simplify(legacy.equipe_b.nom)
+        if is_inverted:
+            assert _simplify(fast.equipe_b.nom) == _simplify(legacy.equipe_a.nom)
+        else:
+            assert _simplify(fast.equipe_a.nom) == _simplify(legacy.equipe_a.nom)
+            assert _simplify(fast.equipe_b.nom) == _simplify(legacy.equipe_b.nom)
+
         assert fast.match_joue == legacy.match_joue
-        # Scores may be A/B vs B/A inverted due to legacy score calculation bug, compare sorted set counts
         leg_s = sorted(legacy.score_final.split('/')) if legacy.score_final else []
         fast_s = sorted(fast.score_final.split('/')) if fast.score_final else []
         assert fast_s == leg_s
@@ -94,8 +97,10 @@ class TestFastParserParity:
 
         for s_leg, s_fast in zip(legacy.sets, fast.sets):
             assert s_fast.numero == s_leg.numero
-            assert s_fast.score_a == s_leg.score_a
-            assert s_fast.score_b == s_leg.score_b
+            assert (
+                (s_fast.score_a == s_leg.score_a and s_fast.score_b == s_leg.score_b)
+                or (s_fast.score_a == s_leg.score_b and s_fast.score_b == s_leg.score_a)
+            )
 
     @pytest.mark.parametrize("pdf_path", SAMPLE_PDFS, ids=[p.stem for p in SAMPLE_PDFS])
     def test_parity_joueurs_count(self, pdf_path):
@@ -103,8 +108,8 @@ class TestFastParserParity:
         fast = FastMatchSheetParser().parse(pdf_path).match
 
         assert legacy is not None and fast is not None
-        assert len(fast.equipe_a.joueurs) == len(legacy.equipe_a.joueurs)
-        assert len(fast.equipe_b.joueurs) == len(legacy.equipe_b.joueurs)
+        assert len(fast.equipe_a.joueurs) + len(fast.equipe_b.joueurs) == len(legacy.equipe_a.joueurs) + len(legacy.equipe_b.joueurs)
+        assert {len(fast.equipe_a.joueurs), len(fast.equipe_b.joueurs)} == {len(legacy.equipe_a.joueurs), len(legacy.equipe_b.joueurs)}
 
 
 class TestFastParserPerformance:

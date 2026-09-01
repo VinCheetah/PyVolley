@@ -13,12 +13,16 @@
   transition: var(--transition);
 }
 .card:hover {
-  border-color: rgba(59, 130, 246, 0.3);
-  box-shadow: var(--shadow);
+  border-color: rgba(59, 130, 246, 0.35);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35), 0 0 15px rgba(59, 130, 246, 0.08);
+}
+.card-interactive {
+  cursor: pointer;
 }
 .card-interactive:hover {
-  transform: translateY(-2px);
+  transform: translateY(-3px);
   border-color: var(--accent-blue);
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.4), 0 0 20px rgba(59, 130, 246, 0.15);
 }
 
 /* ── Stat Cards ── */
@@ -52,26 +56,41 @@
 }
 
 /* ── Navigation ── */
+.navbar {
+  background: rgba(19, 24, 41, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border-color);
+}
 .nav-link {
   position: relative;
   color: var(--text-secondary);
   font-weight: 500;
-  font-size: 0.9rem;
-  padding: 0.5rem 0;
+  font-size: 0.875rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--radius-sm);
   transition: var(--transition);
+  text-decoration: none;
 }
-.nav-link:hover, .nav-link.active {
+.nav-link:hover {
   color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+.nav-link.active {
+  color: #ffffff;
+  font-weight: 600;
+  background: rgba(59, 130, 246, 0.12);
 }
 .nav-link.active::after {
   content: '';
   position: absolute;
   bottom: -2px;
-  left: 0;
-  right: 0;
+  left: 0.6rem;
+  right: 0.6rem;
   height: 2px;
   background: var(--accent-blue);
-  border-radius: 1px;
+  box-shadow: 0 0 10px var(--accent-blue);
+  border-radius: 2px;
 }
 
 /* ── Badges ── */
@@ -127,6 +146,49 @@
 .pagination-btn.disabled {
   opacity: 0.3;
   pointer-events: none;
+}
+
+/* ── Tab Navigation ── */
+.tab-nav {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border-color);
+}
+.tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  transition: var(--transition);
+  cursor: pointer;
+  text-decoration: none;
+}
+.tab-btn:hover {
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.03);
+}
+.tab-btn.active {
+  color: var(--accent-blue-light);
+  border-bottom-color: var(--accent-blue);
+  background: rgba(59, 130, 246, 0.06);
+}
+
+/* ── Chart Container ── */
+.chart-wrap {
+  position: relative;
+  width: 100%;
+  height: 280px;
+}
+.chart-wrap canvas {
+  width: 100% !important;
+  height: 100% !important;
 }
 
 /* ── Search ── */

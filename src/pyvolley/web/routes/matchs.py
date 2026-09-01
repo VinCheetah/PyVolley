@@ -18,6 +18,7 @@ from pyvolley.web.templateconfig import templates
 from pyvolley.web.helpers.time_filter import build_time_filter
 from pyvolley.web.helpers.match_utils import build_simulation_data, build_momentum_data
 from pyvolley.web.helpers.niveau import resolve_niveau_badge, niveau_sort_rank
+from pyvolley.web.helpers.common import safe_int, safe_float, pct
 from pyvolley.shared.helpers import parse_optional_int
 from pyvolley.api.dependencies import get_match_repo, get_saison_repo
 from pyvolley.database.repositories import MatchRepository, SaisonRepository
@@ -26,26 +27,6 @@ from pyvolley.database.converters import match_db_to_core
 from pyvolley.analysis.joueur_stats import build_set_timeline
 
 router = APIRouter()
-
-
-def _to_int(value: object) -> int:
-    try:
-        return int(value or 0)
-    except (TypeError, ValueError):
-        return 0
-
-
-def _to_float(value: object) -> float:
-    try:
-        return float(value or 0.0)
-    except (TypeError, ValueError):
-        return 0.0
-
-
-def _pct(part: float, whole: float) -> float:
-    if whole <= 0:
-        return 0.0
-    return (part / whole) * 100.0
 
 
 def _normalize_numero(value: object) -> str:
@@ -62,11 +43,11 @@ def _team_points_from_sets(match: MatchDB, side: str) -> tuple[int, int, int]:
     points_perdus = 0
     for set_ in (match.sets or []):
         if side == "A":
-            points_gagnes += _to_int(set_.score_a)
-            points_perdus += _to_int(set_.score_b)
+            points_gagnes += safe_int(set_.score_a)
+            points_perdus += safe_int(set_.score_b)
         else:
-            points_gagnes += _to_int(set_.score_b)
-            points_perdus += _to_int(set_.score_a)
+            points_gagnes += safe_int(set_.score_b)
+            points_perdus += safe_int(set_.score_a)
     return points_gagnes, points_perdus, points_gagnes + points_perdus
 
 
@@ -329,22 +310,22 @@ def _summarize_team_players(
     for item in items:
         stats = item.get("stats", {})
         if not use_match_points:
-            points_joues += _to_int(stats.get("points_joues"))
-            points_gagnes += _to_int(stats.get("points_gagnes"))
-            points_perdus += _to_int(stats.get("points_perdus"))
-        points_gagnes_service += _to_int(stats.get("points_gagnes_service"))
-        services += _to_int(stats.get("services") or stats.get("nb_services"))
-        max_serie = max(max_serie, _to_int(stats.get("max_serie") or stats.get("meilleure_serie")))
+            points_joues += safe_int(stats.get("points_joues"))
+            points_gagnes += safe_int(stats.get("points_gagnes"))
+            points_perdus += safe_int(stats.get("points_perdus"))
+        points_gagnes_service += safe_int(stats.get("points_gagnes_service"))
+        services += safe_int(stats.get("services") or stats.get("nb_services"))
+        max_serie = max(max_serie, safe_int(stats.get("max_serie") or stats.get("meilleure_serie")))
         if not use_match_points:
-            sets_joues += _to_int(stats.get("sets_joues"))
-            changements += _to_int(stats.get("nb_changements_total"))
-        temps_morts_provoques += _to_int(stats.get("temps_morts_provoques"))
+            sets_joues += safe_int(stats.get("sets_joues"))
+            changements += safe_int(stats.get("nb_changements_total"))
+        temps_morts_provoques += safe_int(stats.get("temps_morts_provoques"))
         if not use_match_points:
             sanctions += len(stats.get("sanctions") or [])
         if stats.get("est_libero"):
             liberos += 1
         if stats.get("temps_jeu_estime") is not None:
-            temps.append(_to_float(stats.get("temps_jeu_estime")))
+            temps.append(safe_float(stats.get("temps_jeu_estime")))
 
     temps_total = round(sum(temps), 1)
     points_gagnes_sideout = max(0, points_gagnes - points_gagnes_service)
@@ -363,12 +344,12 @@ def _summarize_team_players(
         "changements": changements,
         "temps_morts_provoques": temps_morts_provoques,
         "sanctions": sanctions,
-        "efficacite_pct": round(_pct(points_gagnes, points_joues), 1),
-        "service_win_pct": round(_pct(points_gagnes_service, services), 1),
+        "efficacite_pct": round(pct(points_gagnes, points_joues), 1),
+        "service_win_pct": round(pct(points_gagnes_service, services), 1),
         "points_gagnes_sideout": points_gagnes_sideout,
         "break_points": points_gagnes_service,
         "break_opportunities": services,
-        "break_point_ratio_pct": round(_pct(points_gagnes_service, services), 1),
+        "break_point_ratio_pct": round(pct(points_gagnes_service, services), 1),
         "sideout_points": points_gagnes_sideout,
         "sideout_successes": 0,
         "sideout_attempts": 0,
@@ -376,7 +357,7 @@ def _summarize_team_players(
         "first_sideout_successes": 0,
         "first_sideout_attempts": 0,
         "first_sideout_efficacite_pct": 0.0,
-        "sideout_contribution_pct": round(_pct(points_gagnes_sideout, points_gagnes), 1),
+        "sideout_contribution_pct": round(pct(points_gagnes_sideout, points_gagnes), 1),
         "service_turns": 0,
         "receiving_turns": 0,
         "sets_with_timeline": 0,
@@ -394,14 +375,14 @@ def _summarize_team_from_sets(match: MatchDB, side: str, participant_count: int 
     temps_total = 0.0
 
     for set_ in (match.sets or []):
-        score_for = _to_int(set_.score_a if side == "A" else set_.score_b)
-        score_against = _to_int(set_.score_b if side == "A" else set_.score_a)
+        score_for = safe_int(set_.score_a if side == "A" else set_.score_b)
+        score_against = safe_int(set_.score_b if side == "A" else set_.score_a)
         points_gagnes += score_for
         points_perdus += score_against
         sets_joues += 1
 
         if set_.duree_minutes is not None:
-            temps_total += _to_float(set_.duree_minutes)
+            temps_total += safe_float(set_.duree_minutes)
 
         services_dict = set_.services_a if side == "A" else set_.services_b
         if isinstance(services_dict, dict):
@@ -425,7 +406,7 @@ def _summarize_team_from_sets(match: MatchDB, side: str, participant_count: int 
         "changements": changements,
         "temps_morts_provoques": 0,
         "sanctions": sum(1 for s in (match.sanctions or []) if s.equipe == side),
-        "efficacite_pct": round(_pct(points_gagnes, points_joues), 1),
+        "efficacite_pct": round(pct(points_gagnes, points_joues), 1),
         "service_win_pct": 0.0,
         "points_gagnes_sideout": 0,
         "break_points": 0,
@@ -485,7 +466,7 @@ def _compute_team_phase_metrics(match_core) -> dict[str, dict]:
             serving = turn.team
             receiving = "B" if serving == "A" else "A"
 
-            break_points = _to_int(turn.points_scored)
+            break_points = safe_int(turn.points_scored)
             break_opportunities = break_points + (0 if turn.is_set_winner else 1)
 
             serving_bucket = metrics[serving]
@@ -507,16 +488,16 @@ def _compute_team_phase_metrics(match_core) -> dict[str, dict]:
     for side in ("A", "B"):
         bucket = metrics[side]
         bucket["break_point_ratio_pct"] = round(
-            _pct(bucket["break_points"], bucket["break_opportunities"]), 1,
+            pct(bucket["break_points"], bucket["break_opportunities"]), 1,
         )
         bucket["sideout_efficacite_pct"] = round(
-            _pct(bucket["sideout_successes"], bucket["sideout_attempts"]), 1,
+            pct(bucket["sideout_successes"], bucket["sideout_attempts"]), 1,
         )
         bucket["first_sideout_efficacite_pct"] = round(
-            _pct(bucket["first_sideout_successes"], bucket["first_sideout_attempts"]), 1,
+            pct(bucket["first_sideout_successes"], bucket["first_sideout_attempts"]), 1,
         )
         bucket["phase_coverage_pct"] = round(
-            _pct(bucket["sets_with_timeline"], bucket["sets_total"]), 1,
+            pct(bucket["sets_with_timeline"], bucket["sets_total"]), 1,
         )
 
     return metrics
@@ -527,32 +508,32 @@ def _merge_phase_metrics(summary: dict, phase_metrics: dict) -> dict:
     phase_metrics = phase_metrics or _empty_phase_metrics()
 
     has_phase_data = (
-        _to_int(phase_metrics.get("sets_with_timeline")) > 0
+        safe_int(phase_metrics.get("sets_with_timeline")) > 0
         and (
-            _to_int(phase_metrics.get("break_opportunities")) > 0
-            or _to_int(phase_metrics.get("sideout_attempts")) > 0
+            safe_int(phase_metrics.get("break_opportunities")) > 0
+            or safe_int(phase_metrics.get("sideout_attempts")) > 0
         )
     )
 
     if has_phase_data:
         merged.update(phase_metrics)
-        merged["points_gagnes_sideout"] = _to_int(phase_metrics.get("sideout_points"))
-        merged["break_points"] = _to_int(phase_metrics.get("break_points"))
-        merged["break_opportunities"] = _to_int(phase_metrics.get("break_opportunities"))
-        merged["break_point_ratio_pct"] = _to_float(phase_metrics.get("break_point_ratio_pct"))
-        merged["sideout_efficacite_pct"] = _to_float(phase_metrics.get("sideout_efficacite_pct"))
-        merged["first_sideout_efficacite_pct"] = _to_float(
+        merged["points_gagnes_sideout"] = safe_int(phase_metrics.get("sideout_points"))
+        merged["break_points"] = safe_int(phase_metrics.get("break_points"))
+        merged["break_opportunities"] = safe_int(phase_metrics.get("break_opportunities"))
+        merged["break_point_ratio_pct"] = safe_float(phase_metrics.get("break_point_ratio_pct"))
+        merged["sideout_efficacite_pct"] = safe_float(phase_metrics.get("sideout_efficacite_pct"))
+        merged["first_sideout_efficacite_pct"] = safe_float(
             phase_metrics.get("first_sideout_efficacite_pct"),
         )
         points_total = merged["points_gagnes_sideout"] + merged["break_points"]
         merged["sideout_contribution_pct"] = round(
-            _pct(merged["points_gagnes_sideout"], points_total), 1,
+            pct(merged["points_gagnes_sideout"], points_total), 1,
         )
         return merged
 
-    merged["sets_total"] = _to_int(phase_metrics.get("sets_total"))
-    merged["sets_with_timeline"] = _to_int(phase_metrics.get("sets_with_timeline"))
-    merged["phase_coverage_pct"] = _to_float(phase_metrics.get("phase_coverage_pct"))
+    merged["sets_total"] = safe_int(phase_metrics.get("sets_total"))
+    merged["sets_with_timeline"] = safe_int(phase_metrics.get("sets_with_timeline"))
+    merged["phase_coverage_pct"] = safe_float(phase_metrics.get("phase_coverage_pct"))
     return merged
 
 
@@ -590,9 +571,9 @@ def _build_position_stats(match: MatchDB, side: str, items: list[dict]) -> list[
                 bucket["joueurs"][numero] += 1
                 player = by_num.get(numero)
                 if player:
-                    bucket["points_joues"] += _to_int(player.get("points_joues"))
-                    bucket["points_gagnes"] += _to_int(player.get("points_gagnes"))
-                    bucket["points_perdus"] += _to_int(player.get("points_perdus"))
+                    bucket["points_joues"] += safe_int(player.get("points_joues"))
+                    bucket["points_gagnes"] += safe_int(player.get("points_gagnes"))
+                    bucket["points_perdus"] += safe_int(player.get("points_perdus"))
 
         services = set_.services_a if side == "A" else set_.services_b
         if isinstance(services, dict):
@@ -617,7 +598,7 @@ def _build_position_stats(match: MatchDB, side: str, items: list[dict]) -> list[
                 "points_joues": points_joues,
                 "points_gagnes": points_gagnes,
                 "points_perdus": points_perdus,
-                "efficacite_pct": round(_pct(points_gagnes, points_joues), 1),
+                "efficacite_pct": round(pct(points_gagnes, points_joues), 1),
                 "service_turns": bucket["service_turns"],
                 "joueur_dominant": max(bucket["joueurs"], key=bucket["joueurs"].get) if bucket["joueurs"] else None,
             }
@@ -645,11 +626,11 @@ def _build_face_to_face_rows(match: MatchDB, summary_a: dict, summary_b: dict) -
     timeouts_b = sum(1 for set_ in (match.sets or []) for t in (set_.timeouts or []) if t.equipe == "B")
     sanctions_a = sum(1 for s in (match.sanctions or []) if s.equipe == "A")
     sanctions_b = sum(1 for s in (match.sanctions or []) if s.equipe == "B")
-    score_points_a = sum(_to_int(set_.score_a) for set_ in (match.sets or []))
-    score_points_b = sum(_to_int(set_.score_b) for set_ in (match.sets or []))
+    score_points_a = sum(safe_int(set_.score_a) for set_ in (match.sets or []))
+    score_points_b = sum(safe_int(set_.score_b) for set_ in (match.sets or []))
 
     return [
-        {"label": "Sets remportés", "a": _to_int(match.sets_equipe_a), "b": _to_int(match.sets_equipe_b), "unit": "", "comparison": "higher"},
+        {"label": "Sets remportés", "a": safe_int(match.sets_equipe_a), "b": safe_int(match.sets_equipe_b), "unit": "", "comparison": "higher"},
         {"label": "Points marqués", "a": score_points_a, "b": score_points_b, "unit": "", "comparison": "higher"},
         {"label": "Points de break", "a": summary_a.get("break_points", 0), "b": summary_b.get("break_points", 0), "unit": "", "comparison": "higher"},
         {"label": "Points de side-out", "a": summary_a.get("sideout_points", 0), "b": summary_b.get("sideout_points", 0), "unit": "", "comparison": "higher"},
@@ -904,14 +885,14 @@ async def match_detail(
             "face_to_face": _build_face_to_face_rows(match, summary_a, summary_b),
             "teams": {
                 "A": {
-                    "name": match.equipe_a.nom if match.equipe_a else "Équipe A",
+                    "name": match.equipe_a.nom if match.equipe_a else "Ã‰quipe A",
                     "summary": summary_a,
                     "positions": _build_position_stats(match, "A", player_stats_a),
                     "history": _build_team_history_rows(summary_a, previous_a),
                     "levels": _build_team_levels_snapshot(match, participants_a, repo.session),
                 },
                 "B": {
-                    "name": match.equipe_b.nom if match.equipe_b else "Équipe B",
+                    "name": match.equipe_b.nom if match.equipe_b else "Ã‰quipe B",
                     "summary": summary_b,
                     "positions": _build_position_stats(match, "B", player_stats_b),
                     "history": _build_team_history_rows(summary_b, previous_b),
@@ -936,35 +917,35 @@ async def match_detail(
             ))
             player_history = []
             for stat_row, history_match in history_rows:
-                history_services = _to_int(
+                history_services = safe_int(
                     stat_row.stats_data.get("services") or stat_row.stats_data.get("nb_services"),
                 )
-                history_break_points = _to_int(stat_row.stats_data.get("points_gagnes_service"))
-                history_points_gagnes = _to_int(stat_row.stats_data.get("points_gagnes"))
+                history_break_points = safe_int(stat_row.stats_data.get("points_gagnes_service"))
+                history_points_gagnes = safe_int(stat_row.stats_data.get("points_gagnes"))
                 history_sideout_raw = stat_row.stats_data.get("points_gagnes_sideout")
                 if history_sideout_raw is None:
                     history_sideout_points = max(0, history_points_gagnes - history_break_points)
                 else:
-                    history_sideout_points = max(0, _to_int(history_sideout_raw))
+                    history_sideout_points = max(0, safe_int(history_sideout_raw))
                 label = history_match.date_match.strftime("%d/%m") if history_match.date_match else history_match.code_match
                 player_history.append({
                     "label": label,
-                    "points_joues": _to_int(stat_row.stats_data.get("points_joues")),
-                    "efficacite_pct": round(_pct(history_points_gagnes, _to_int(stat_row.stats_data.get("points_joues"))), 1),
+                    "points_joues": safe_int(stat_row.stats_data.get("points_joues")),
+                    "efficacite_pct": round(pct(history_points_gagnes, safe_int(stat_row.stats_data.get("points_joues"))), 1),
                     "services": history_services,
-                    "break_point_ratio_pct": round(_pct(history_break_points, history_services), 1),
+                    "break_point_ratio_pct": round(pct(history_break_points, history_services), 1),
                     "points_gagnes_sideout": max(0, history_sideout_points),
-                    "max_serie": _to_int(stat_row.stats_data.get("max_serie") or stat_row.stats_data.get("meilleure_serie")),
-                    "temps_jeu": round(_to_float(stat_row.stats_data.get("temps_jeu_estime")), 1),
+                    "max_serie": safe_int(stat_row.stats_data.get("max_serie") or stat_row.stats_data.get("meilleure_serie")),
+                    "temps_jeu": round(safe_float(stat_row.stats_data.get("temps_jeu_estime")), 1),
                 })
 
-            player_services = _to_int(stats.get("services") or stats.get("nb_services"))
-            player_break_points = _to_int(stats.get("points_gagnes_service"))
+            player_services = safe_int(stats.get("services") or stats.get("nb_services"))
+            player_break_points = safe_int(stats.get("points_gagnes_service"))
             player_sideout_raw = stats.get("points_gagnes_sideout")
             if player_sideout_raw is None:
-                player_sideout_points = max(0, _to_int(stats.get("points_gagnes")) - player_break_points)
+                player_sideout_points = max(0, safe_int(stats.get("points_gagnes")) - player_break_points)
             else:
-                player_sideout_points = max(0, _to_int(player_sideout_raw))
+                player_sideout_points = max(0, safe_int(player_sideout_raw))
 
             stats_dashboard["players"].append({
                 "joueur_id": joueur_id,
@@ -974,17 +955,17 @@ async def match_detail(
                 "prenom": stats.get("prenom"),
                 "est_capitaine": bool(stats.get("est_capitaine")),
                 "est_libero": bool(stats.get("est_libero")),
-                "points_joues": _to_int(stats.get("points_joues")),
-                "points_gagnes": _to_int(stats.get("points_gagnes")),
-                "points_perdus": _to_int(stats.get("points_perdus")),
+                "points_joues": safe_int(stats.get("points_joues")),
+                "points_gagnes": safe_int(stats.get("points_gagnes")),
+                "points_perdus": safe_int(stats.get("points_perdus")),
                 "points_gagnes_sideout": max(0, player_sideout_points),
-                "efficacite_pct": round(_pct(_to_int(stats.get("points_gagnes")), _to_int(stats.get("points_joues"))), 1),
+                "efficacite_pct": round(pct(safe_int(stats.get("points_gagnes")), safe_int(stats.get("points_joues"))), 1),
                 "services": player_services,
-                "break_point_ratio_pct": round(_pct(player_break_points, player_services), 1),
-                "sideout_contribution_pct": round(_pct(max(0, player_sideout_points), _to_int(stats.get("points_gagnes"))), 1),
-                "max_serie": _to_int(stats.get("max_serie") or stats.get("meilleure_serie")),
-                "temps_jeu": round(_to_float(stats.get("temps_jeu_estime")), 1),
-                "sets_joues": _to_int(stats.get("sets_joues")),
+                "break_point_ratio_pct": round(pct(player_break_points, player_services), 1),
+                "sideout_contribution_pct": round(pct(max(0, player_sideout_points), safe_int(stats.get("points_gagnes"))), 1),
+                "max_serie": safe_int(stats.get("max_serie") or stats.get("meilleure_serie")),
+                "temps_jeu": round(safe_float(stats.get("temps_jeu_estime")), 1),
+                "sets_joues": safe_int(stats.get("sets_joues")),
                 "presence_par_set": stats.get("presence_par_set") or [],
                 "detail_services_par_set": stats.get("detail_services_par_set") or [],
                 "history": player_history,

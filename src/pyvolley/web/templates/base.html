@@ -9,35 +9,22 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            colors: {
-              dark: { 900: '#0b0e17', 800: '#131829', 700: '#1a1f35', 600: '#222845', 500: '#2a3050' },
-              volley: { blue: '#3b82f6', red: '#ef4444', gold: '#f59e0b', green: '#22c55e', cyan: '#06b6d4', purple: '#a855f7' },
-            },
-            fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
-          }
-        }
-      }
-    </script>
+    <!-- Core CSS (Tokens, Resets, Components, Data) -->
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/components.css">
+    <link rel="stylesheet" href="/static/css/data.css">
+
+    <!-- Utility CSS (Token-mapped utility classes) -->
+    <link rel="stylesheet" href="/static/css/utilities.css">
 
     <!-- Alpine.js -->
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.16.2/dist/cdn.min.js"></script>
 
     <!-- Chart.js -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 
     <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
-
-    <!-- Custom CSS (modular) -->
-    <link rel="stylesheet" href="/static/css/base.css">
-    <link rel="stylesheet" href="/static/css/components.css">
-    <link rel="stylesheet" href="/static/css/data.css">
+    <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
 
     <!-- Chart.js helpers -->
     <script src="/static/js/charts.js"></script>
@@ -47,13 +34,13 @@
 <body class="min-h-screen" x-data="{ mobileMenu: false, searchOpen: false }">
 
     <!-- ═══════════════ Navigation ═══════════════ -->
-    <nav class="sticky top-0 z-50 border-b" style="background: var(--bg-secondary); border-color: var(--border-color);">
+    <nav class="navbar sticky top-0 z-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6">
             <div class="flex items-center justify-between h-16">
 
                 <!-- Logo -->
                 <a href="/" class="flex items-center gap-3 group">
-                    <div class="w-9 h-9 rounded-lg flex items-center justify-center text-white font-black text-sm"
+                    <div class="w-9 h-9 rounded-lg flex items-center justify-center text-white font-black text-sm gradient-text-blue"
                          style="background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));">
                         PV
                     </div>
@@ -61,7 +48,7 @@
                 </a>
 
                 <!-- Desktop Nav Links -->
-                <div class="hidden lg:flex items-center gap-6">
+                <div class="hidden lg:flex items-center gap-2 xl:gap-3">
                     <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">Accueil</a>
                     <a href="/matchs" class="nav-link {% if '/matchs' in request.url.path %}active{% endif %}">Matchs</a>
                     <a href="/joueurs" class="nav-link {% if '/joueurs' in request.url.path %}active{% endif %}">Joueurs</a>
@@ -77,15 +64,13 @@
                 <!-- Search + Mobile menu -->
                 <div class="flex items-center gap-3">
                     <!-- Search toggle -->
-                    <button @click="searchOpen = !searchOpen" class="p-2 rounded-lg transition"
-                            style="color: var(--text-secondary);"
+                    <button @click="searchOpen = !searchOpen" class="p-2 rounded-lg transition text-secondary"
                             :style="searchOpen && 'color: var(--accent-blue)'">
                         <i data-lucide="search" class="w-5 h-5"></i>
                     </button>
 
                     <!-- Mobile menu toggle -->
-                    <button @click="mobileMenu = !mobileMenu" class="lg:hidden p-2 rounded-lg"
-                            style="color: var(--text-secondary);">
+                    <button @click="mobileMenu = !mobileMenu" class="lg:hidden p-2 rounded-lg text-secondary">
                         <i data-lucide="menu" class="w-5 h-5" x-show="!mobileMenu"></i>
                         <i data-lucide="x" class="w-5 h-5" x-show="mobileMenu" x-cloak></i>
                     </button>
@@ -95,7 +80,7 @@
             <!-- Search bar (expandable) -->
             <div x-show="searchOpen" x-cloak x-transition.opacity class="pb-4">
                 <form action="/search" method="get" class="relative max-w-2xl mx-auto">
-                    <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" style="color: var(--text-muted);"></i>
+                    <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted"></i>
                     <input type="text" name="q" placeholder="Rechercher un joueur, club, équipe, arbitre..."
                            class="search-input" autofocus
                            x-ref="searchInput"
@@ -105,16 +90,16 @@
 
             <!-- Mobile menu -->
             <div x-show="mobileMenu" x-cloak x-transition class="lg:hidden pb-4 space-y-1">
-                <a href="/" class="block px-3 py-2 rounded-lg text-sm" style="color: var(--text-secondary);">Accueil</a>
-                <a href="/matchs" class="block px-3 py-2 rounded-lg text-sm" style="color: var(--text-secondary);">Matchs</a>
-                <a href="/joueurs" class="block px-3 py-2 rounded-lg text-sm" style="color: var(--text-secondary);">Joueurs</a>
-                <a href="/equipes" class="block px-3 py-2 rounded-lg text-sm" style="color: var(--text-secondary);">Équipes</a>
-                <a href="/clubs" class="block px-3 py-2 rounded-lg text-sm" style="color: var(--text-secondary);">Clubs</a>
-                <a href="/arbitres" class="block px-3 py-2 rounded-lg text-sm" style="color: var(--text-secondary);">Arbitres</a>
-                <a href="/entraineurs" class="block px-3 py-2 rounded-lg text-sm" style="color: var(--text-secondary);">Entraîneurs</a>
-                <a href="/competitions" class="block px-3 py-2 rounded-lg text-sm" style="color: var(--text-secondary);">Compétitions</a>
-                <a href="/statistiques" class="block px-3 py-2 rounded-lg text-sm" style="color: var(--text-secondary);">Statistiques</a>
-                <a href="/palmares" class="block px-3 py-2 rounded-lg text-sm" style="color: var(--text-secondary);">Palmarès</a>
+                <a href="/" class="block px-3 py-2 rounded-lg text-sm nav-link {% if request.url.path == '/' %}active{% endif %}">Accueil</a>
+                <a href="/matchs" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/matchs' in request.url.path %}active{% endif %}">Matchs</a>
+                <a href="/joueurs" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/joueurs' in request.url.path %}active{% endif %}">Joueurs</a>
+                <a href="/equipes" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/equipes' in request.url.path %}active{% endif %}">Équipes</a>
+                <a href="/clubs" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/clubs' in request.url.path %}active{% endif %}">Clubs</a>
+                <a href="/arbitres" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/arbitres' in request.url.path %}active{% endif %}">Arbitres</a>
+                <a href="/entraineurs" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/entraineurs' in request.url.path %}active{% endif %}">Entraîneurs</a>
+                <a href="/competitions" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/competitions' in request.url.path %}active{% endif %}">Compétitions</a>
+                <a href="/statistiques" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/statistiques' in request.url.path %}active{% endif %}">Statistiques</a>
+                <a href="/palmares" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/palmares' in request.url.path %}active{% endif %}">Palmarès</a>
             </div>
         </div>
     </nav>
@@ -125,15 +110,15 @@
     </main>
 
     <!-- ═══════════════ Footer ═══════════════ -->
-    <footer class="border-t mt-16 py-8" style="background: var(--bg-secondary); border-color: var(--border-color);">
+    <footer class="border-t bg-secondary mt-16 py-8">
         <div class="max-w-7xl mx-auto px-4 sm:px-6">
             <div class="flex flex-col md:flex-row items-center justify-between gap-4">
                 <div class="flex items-center gap-2">
                     <span class="font-bold gradient-text">PyVolley</span>
-                    <span style="color: var(--text-muted);">—</span>
-                    <span style="color: var(--text-muted);" class="text-sm">Données volleyball FFVB</span>
+                    <span class="text-muted">—</span>
+                    <span class="text-muted text-sm">Données volleyball FFVB</span>
                 </div>
-                <div class="flex items-center gap-6 text-sm" style="color: var(--text-muted);">
+                <div class="flex items-center gap-6 text-sm text-muted">
                     <a href="/api/docs" class="hover:text-white transition">API Docs</a>
                     <span>© 2024-2026</span>
                 </div>

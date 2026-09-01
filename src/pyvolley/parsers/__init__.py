@@ -16,9 +16,9 @@ Structure :
         resultats.py     – Résultat global, arbitres, sanctions, remarques
 """
 
-from pyvolley.parsers.base import BaseParser, ParseResult
-from pyvolley.parsers.parser import MatchSheetParser
+from pyvolley.parsers.base import BaseParser, ParseResult, ParserMetrics
 from pyvolley.parsers.fast_parser import FastMatchSheetParser
+from pyvolley.parsers.parser import MatchSheetParser
 from pyvolley.parsers.factory import ParserFactory, get_parser
 from pyvolley.parsers.diagnostics import (
     Diagnostic,
@@ -39,8 +39,9 @@ from pyvolley.parsers.plausibility import (
 __all__ = [
     "BaseParser",
     "ParseResult",
-    "MatchSheetParser",
+    "ParserMetrics",
     "FastMatchSheetParser",
+    "MatchSheetParser",
     "ParserFactory",
     "get_parser",
     "Diagnostic",

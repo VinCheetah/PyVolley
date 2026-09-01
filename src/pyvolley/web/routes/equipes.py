@@ -4,7 +4,7 @@ Routes web — Équipes (liste et détail).
 
 from collections import defaultdict
 import json
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Request, Depends, Query
 from fastapi.responses import HTMLResponse
@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from pyvolley.web.templateconfig import templates
 from pyvolley.web.helpers.match_utils import build_match_score_evolution
+from pyvolley.web.helpers.common import role_label, safe_float
 from pyvolley.shared.helpers import is_winner, parse_optional_int
 from pyvolley.api.dependencies import (
     get_equipe_repo,
@@ -38,16 +39,6 @@ ROLE_LIBERO = "LIBERO"
 ROLE_MULTI = "POLYVALENT"
 ROLE_UNKNOWN = "INDETERMINE"
 
-_ROLE_LABELS = {
-    ROLE_SETTER: "Passeur",
-    ROLE_OPPOSITE: "Pointu",
-    ROLE_MIDDLE: "Central",
-    ROLE_OUTSIDE: "Receptionneur-attaquant",
-    ROLE_LIBERO: "Libero",
-    ROLE_MULTI: "Polyvalent",
-    ROLE_UNKNOWN: "Non determine",
-}
-
 _ROLE_GROUP_ORDER = (
     ROLE_SETTER,
     ROLE_OPPOSITE,
@@ -57,19 +48,6 @@ _ROLE_GROUP_ORDER = (
     ROLE_MULTI,
     ROLE_UNKNOWN,
 )
-
-
-def _role_label(role_code: Optional[str]) -> str:
-    if not role_code:
-        return _ROLE_LABELS[ROLE_UNKNOWN]
-    return _ROLE_LABELS.get(role_code, role_code.replace("_", " ").title())
-
-
-def _to_float(value: Any) -> float:
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return 0.0
 
 
 def _compute_player_role_profile(
@@ -87,7 +65,7 @@ def _compute_player_role_profile(
         if role_principal:
             role_counts[role_principal] += 1
 
-        conf = _to_float(sample.get("role_confiance"))
+        conf = safe_float(sample.get("role_confiance"))
         if conf > 0:
             confidence_values.append(conf)
 
@@ -97,7 +75,7 @@ def _compute_player_role_profile(
                 role_code = str(role_name or "").strip().upper()
                 if not role_code:
                     continue
-                value = _to_float(score)
+                value = safe_float(score)
                 if value <= 0:
                     continue
                 role_score_sum[role_code] += value
@@ -115,7 +93,7 @@ def _compute_player_role_profile(
         role_rows.append(
             {
                 "code": role_code,
-                "label": _role_label(role_code),
+                "label": role_label(role_code),
                 "score": avg_score,
                 "match_count": match_count,
                 "match_share": match_share,
@@ -134,10 +112,10 @@ def _compute_player_role_profile(
         if libero_count > 0:
             return {
                 "group_code": ROLE_LIBERO,
-                "group_label": _role_label(ROLE_LIBERO),
+                "group_label": role_label(ROLE_LIBERO),
                 "primary_code": ROLE_LIBERO,
-                "primary_label": _role_label(ROLE_LIBERO),
-                "plausible_labels": [_role_label(ROLE_LIBERO)],
+                "primary_label": role_label(ROLE_LIBERO),
+                "plausible_labels": [role_label(ROLE_LIBERO)],
                 "is_multi_role": False,
                 "has_data": False,
                 "confidence_pct": 35.0,
@@ -147,9 +125,9 @@ def _compute_player_role_profile(
 
         return {
             "group_code": ROLE_UNKNOWN,
-            "group_label": _role_label(ROLE_UNKNOWN),
+            "group_label": role_label(ROLE_UNKNOWN),
             "primary_code": None,
-            "primary_label": _role_label(ROLE_UNKNOWN),
+            "primary_label": role_label(ROLE_UNKNOWN),
             "plausible_labels": [],
             "is_multi_role": False,
             "has_data": False,
@@ -198,7 +176,7 @@ def _compute_player_role_profile(
 
     return {
         "group_code": group_code,
-        "group_label": _role_label(group_code),
+        "group_label": role_label(group_code),
         "primary_code": str(top_role["code"]),
         "primary_label": str(top_role["label"]),
         "plausible_labels": [str(row["label"]) for row in plausible_rows],
@@ -249,7 +227,7 @@ def _build_roster_role_groups(
         groups.append(
             {
                 "code": group_code,
-                "label": _role_label(group_code),
+                "label": role_label(group_code),
                 "players": players,
                 "count": len(players),
                 "total_matches": sum(int(p.get("matchs_joues") or 0) for p in players),
@@ -267,7 +245,7 @@ def _build_roster_role_groups(
         groups.append(
             {
                 "code": group_code,
-                "label": _role_label(group_code),
+                "label": role_label(group_code),
                 "players": players,
                 "count": len(players),
                 "total_matches": sum(int(p.get("matchs_joues") or 0) for p in players),

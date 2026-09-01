@@ -1590,16 +1590,20 @@ def compare_parsers(
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Afficher les détails des différences entre parsers.",
     ),
+    parsers: Optional[List[str]] = typer.Option(
+        None, "--parsers", "-p", help="Parsers à comparer (ex: -p legacy -p zone ou -p legacy,zone).",
+    ),
 ):
     """
-    ⚡ Comparer la vitesse d'exécution et la parité des données entre FastMatchSheetParser et LegacyMatchSheetParser.
+    Comparer la vitesse d'exécution et la parité des données entre parsers.
 
-    Parse une série de fichiers PDF avec les deux parsers et affiche un bilan comparatif de vitesse et de parité.
+    Parse une série de fichiers PDF avec les parsers sélectionnés et affiche un bilan comparatif de vitesse et de parité.
 
     Exemples :
 
         pyvolley compare
-        pyvolley compare data/data_sample -n 5
+        pyvolley compare -p legacy -p zone -v
+        pyvolley compare data/data_sample -n 5 -p legacy,zone
         pyvolley compare data/pdfs/ -v
     """
     from pyvolley.parsers.factory import ParserFactory
@@ -1629,173 +1633,391 @@ def compare_parsers(
     if limit:
         pdf_files = pdf_files[:limit]
 
-    fast_parser = ParserFactory.get("fast")
-    legacy_parser = ParserFactory.get("legacy")
+    raw_parser_names: list[str] = []
+    if parsers:
+        for p in parsers:
+            for item in p.split(","):
+                item_clean = item.strip()
+                if item_clean:
+                    raw_parser_names.append(item_clean)
 
+    if not raw_parser_names:
+        raw_parser_names = ["legacy", "fast"]
+
+    parser_instances = []
+
+    def _get_short_label(canonical_key: str, instance) -> str:
+        k = canonical_key.lower()
+        if "legacy" in k or k == "matchsheetparser":
+            return "Legacy"
+        if "fast" in k or k == "fastmatchsheetparser":
+            return "Fast"
+        return instance.name or canonical_key
+
+    for p_name in raw_parser_names:
+        try:
+            canonical = ParserFactory.resolve_name(p_name)
+            instance = ParserFactory.get(canonical)
+            label = _get_short_label(canonical, instance)
+            parser_instances.append((label, instance))
+        except KeyError:
+            available = ", ".join(["legacy", "fast"] + ParserFactory.list_parsers())
+            console.print(f"[red]Erreur : Parser '{p_name}' non reconnu. Disponibles : {available}[/red]")
+            raise typer.Exit(1)
+
+    if len(parser_instances) < 2:
+        console.print("[yellow]Attention : au moins 2 parsers sont nécessaires pour une comparaison utile.[/yellow]")
+
+    parser_lines = [f"• Parser {i+1} : [cyan]{instance.name}[/cyan] ({label})" for i, (label, instance) in enumerate(parser_instances)]
     console.print(Panel(
-        f"[bold blue]Comparaison des Parsers PyVolley[/bold blue]\n\n"
-        f"• Parser 1 : [cyan]{fast_parser.name}[/cyan] (PyMuPDF - Rapide)\n"
-        f"• Parser 2 : [cyan]{legacy_parser.name}[/cyan] (pdfplumber - D'origine)\n"
-        f"• Fichiers : [cyan]{len(pdf_files)} PDF(s)[/cyan]",
+        f"[bold blue]Comparaison des Parsers PyVolley[/bold blue]\n\n" +
+        "\n".join(parser_lines) +
+        f"\n• Fichiers : [cyan]{len(pdf_files)} PDF(s)[/cyan]",
         title="Benchmark & Parité",
     ))
 
     table = Table(title="Résultats de la Comparaison")
     table.add_column("Fichier PDF", style="dim")
-    table.add_column("Fast (ms)", justify="right", style="cyan")
-    table.add_column("Legacy (ms)", justify="right", style="magenta")
-    table.add_column("Speedup", justify="right", style="bold green")
+
+    colors = ["magenta", "cyan", "blue", "green", "yellow", "purple"]
+    for i, (label, _) in enumerate(parser_instances):
+        color = colors[i % len(colors)]
+        table.add_column(f"{label} (ms)", justify="right", style=color)
+
+    if len(parser_instances) >= 2:
+        table.add_column("Speedup", justify="right", style="bold green")
     table.add_column("Parité Données", justify="center")
 
-    total_fast_ms = 0.0
-    total_legacy_ms = 0.0
+    total_times = {label: 0.0 for label, _ in parser_instances}
     total_matches = 0
     parity_count = 0
     discrepancies_list = []
+
+    def _compare_two_results(label1: str, res1, label2: str, res2) -> tuple[list[str], list[str]]:
+        matches = []
+        diffs = []
+
+        if res1.success != res2.success:
+            diffs.append(f"Statut Succès: {label1}={res1.success} vs {label2}={res2.success}")
+        else:
+            matches.append(f"Statut Succès: {'Succès' if res1.success else 'Échec'}")
+
+        if res1.match and res2.match:
+            lm, fm = res1.match, res2.match
+
+            l_eq_a = normalize_club_name(lm.equipe_a.nom if lm.equipe_a else "")
+            f_eq_a = normalize_club_name(fm.equipe_a.nom if fm.equipe_a else "")
+            if l_eq_a != f_eq_a:
+                diffs.append(f"Equipe A Nom: '{lm.equipe_a.nom if lm.equipe_a else '?'}' vs '{fm.equipe_a.nom if fm.equipe_a else '?'}'")
+            else:
+                matches.append(f"Equipe A Nom: '{lm.equipe_a.nom if lm.equipe_a else '?'}'")
+
+            l_eq_b = normalize_club_name(lm.equipe_b.nom if lm.equipe_b else "")
+            f_eq_b = normalize_club_name(fm.equipe_b.nom if fm.equipe_b else "")
+            if l_eq_b != f_eq_b:
+                diffs.append(f"Equipe B Nom: '{lm.equipe_b.nom if lm.equipe_b else '?'}' vs '{fm.equipe_b.nom if fm.equipe_b else '?'}'")
+            else:
+                matches.append(f"Equipe B Nom: '{lm.equipe_b.nom if lm.equipe_b else '?'}'")
+
+            if (lm.sets_a, lm.sets_b) != (fm.sets_a, fm.sets_b):
+                diffs.append(f"Score Sets: {label1}={lm.sets_a}-{lm.sets_b} vs {label2}={fm.sets_a}-{fm.sets_b}")
+            else:
+                matches.append(f"Score Sets: {lm.sets_a}-{lm.sets_b}")
+
+            if lm.match_joue != fm.match_joue:
+                diffs.append(f"Statut Match Joué: {label1}={lm.match_joue} vs {label2}={fm.match_joue}")
+            else:
+                matches.append(f"Statut Match Joué: {lm.match_joue}")
+
+            # Match Header Fields
+            for field_name in ("code_match", "date", "heure", "lieu", "salle", "competition", "journee", "organisateur", "niveau", "categorie", "genre", "score_final", "duree_totale", "vainqueur_nom"):
+                val_l = getattr(lm, field_name, None)
+                val_f = getattr(fm, field_name, None)
+
+                if field_name == "heure":
+                    s_l = str(val_l).replace("h", ":")[:5] if val_l else ""
+                    s_f = str(val_f).replace("h", ":")[:5] if val_f else ""
+                    if s_l == s_f:
+                        matches.append(f"Header heure: {s_l}")
+                        continue
+
+                if field_name == "lieu" and val_l and any(w in str(val_l).upper() for w in ("SAMEDI", "DIMANCHE", "LUNDI", "MARDI", "MERCREDI", "JEUDI", "VENDREDI")) and not val_f:
+                    matches.append(f"Header lieu: {val_l}")
+                    continue
+
+                if val_l != val_f and not (val_l is None and val_f == "") and not (val_f is None and val_l == ""):
+                    diffs.append(f"Header {field_name}: {label1}={val_l} vs {label2}={val_f}")
+                elif val_l or val_f:
+                    matches.append(f"Header {field_name}: {val_l if val_l is not None else val_f}")
+
+            # Entraîneurs A & B
+            ent_a1 = getattr(lm.equipe_a, "entraineur", None) if lm.equipe_a else None
+            ent_a2 = getattr(fm.equipe_a, "entraineur", None) if fm.equipe_a else None
+            if ent_a1 != ent_a2 and (ent_a1 or ent_a2):
+                diffs.append(f"Entraîneur Equipe A: {label1}='{ent_a1}' vs {label2}='{ent_a2}'")
+            elif ent_a1 or ent_a2:
+                matches.append(f"Entraîneur Equipe A: {ent_a1 or ent_a2}")
+
+            ent_b1 = getattr(lm.equipe_b, "entraineur", None) if lm.equipe_b else None
+            ent_b2 = getattr(fm.equipe_b, "entraineur", None) if fm.equipe_b else None
+            if ent_b1 != ent_b2 and (ent_b1 or ent_b2):
+                diffs.append(f"Entraîneur Equipe B: {label1}='{ent_b1}' vs {label2}='{ent_b2}'")
+            elif ent_b1 or ent_b2:
+                matches.append(f"Entraîneur Equipe B: {ent_b1 or ent_b2}")
+
+            # Capitaines
+            cap_a1 = lm.equipe_a.capitaine if lm.equipe_a else None
+            cap_a2 = fm.equipe_a.capitaine if fm.equipe_a else None
+            if cap_a1 != cap_a2 and (cap_a1 or cap_a2):
+                diffs.append(f"Capitaine Equipe A (maillot): {label1}='{cap_a1}' vs {label2}='{cap_a2}'")
+            elif cap_a1 or cap_a2:
+                matches.append(f"Capitaine Equipe A: N° {cap_a1}")
+
+            cap_b1 = lm.equipe_b.capitaine if lm.equipe_b else None
+            cap_b2 = fm.equipe_b.capitaine if fm.equipe_b else None
+            if cap_b1 != cap_b2 and (cap_b1 or cap_b2):
+                diffs.append(f"Capitaine Equipe B (maillot): {label1}='{cap_b1}' vs {label2}='{cap_b2}'")
+            elif cap_b1 or cap_b2:
+                matches.append(f"Capitaine Equipe B: N° {cap_b1}")
+
+            # Joueurs A & B (numéros, licences & détails)
+            l_j_a = [(j.numero, j.nom, j.prenom, j.licence, getattr(j, "est_capitaine", False)) for j in (lm.equipe_a.joueurs if lm.equipe_a else [])]
+            f_j_a = [(j.numero, j.nom, j.prenom, j.licence, getattr(j, "est_capitaine", False)) for j in (fm.equipe_a.joueurs if fm.equipe_a else [])]
+            if l_j_a != f_j_a:
+                diffs.append(f"Joueurs Equipe A (N°/Nom/Licence): {label1}={l_j_a} vs {label2}={f_j_a}")
+            else:
+                matches.append(f"Joueurs Equipe A: {len(l_j_a)} joueur(s) identiques")
+
+            l_j_b = [(j.numero, j.nom, j.prenom, j.licence, getattr(j, "est_capitaine", False)) for j in (lm.equipe_b.joueurs if lm.equipe_b else [])]
+            f_j_b = [(j.numero, j.nom, j.prenom, j.licence, getattr(j, "est_capitaine", False)) for j in (fm.equipe_b.joueurs if fm.equipe_b else [])]
+            if l_j_b != f_j_b:
+                diffs.append(f"Joueurs Equipe B (N°/Nom/Licence): {label1}={l_j_b} vs {label2}={f_j_b}")
+            else:
+                matches.append(f"Joueurs Equipe B: {len(l_j_b)} joueur(s) identiques")
+
+            # Libéros A & B
+            l_lib_a = [(j.numero, j.nom, j.prenom, j.licence) for j in (lm.equipe_a.liberos if lm.equipe_a else [])]
+            f_lib_a = [(j.numero, j.nom, j.prenom, j.licence) for j in (fm.equipe_a.liberos if fm.equipe_a else [])]
+            if l_lib_a != f_lib_a:
+                diffs.append(f"Libéros Equipe A (N°/Nom/Licence): {label1}={l_lib_a} vs {label2}={f_lib_a}")
+            else:
+                matches.append(f"Libéros Equipe A: {len(l_lib_a)} libéro(s) identiques")
+
+            l_lib_b = [(j.numero, j.nom, j.prenom, j.licence) for j in (lm.equipe_b.liberos if lm.equipe_b else [])]
+            f_lib_b = [(j.numero, j.nom, j.prenom, j.licence) for j in (fm.equipe_b.liberos if fm.equipe_b else [])]
+            if l_lib_b != f_lib_b:
+                diffs.append(f"Libéros Equipe B (N°/Nom/Licence): {label1}={l_lib_b} vs {label2}={f_lib_b}")
+            else:
+                matches.append(f"Libéros Equipe B: {len(l_lib_b)} libéro(s) identiques")
+
+            # Officiels / Staff A & B
+            l_off_a = [(o.role, o.nom, o.prenom, o.licence) for o in (lm.equipe_a.officiels if lm.equipe_a else [])]
+            f_off_a = [(o.role, o.nom, o.prenom, o.licence) for o in (fm.equipe_a.officiels if fm.equipe_a else [])]
+            if l_off_a != f_off_a:
+                diffs.append(f"Officiels Equipe A: {label1}={l_off_a} vs {label2}={f_off_a}")
+            else:
+                matches.append(f"Officiels Equipe A: {len(l_off_a)} officiel(s) identiques")
+
+            l_off_b = [(o.role, o.nom, o.prenom, o.licence) for o in (lm.equipe_b.officiels if lm.equipe_b else [])]
+            f_off_b = [(o.role, o.nom, o.prenom, o.licence) for o in (fm.equipe_b.officiels if fm.equipe_b else [])]
+            if l_off_b != f_off_b:
+                diffs.append(f"Officiels Equipe B: {label1}={l_off_b} vs {label2}={f_off_b}")
+            else:
+                matches.append(f"Officiels Equipe B: {len(l_off_b)} officiel(s) identiques")
+
+            # Corps Arbitral
+            l_arb = [(a.role.value if hasattr(a.role, "value") else str(a.role), a.nom, getattr(a, "prenom", ""), getattr(a, "ligue", ""), a.licence) for a in (lm.arbitres or [])]
+            f_arb = [(a.role.value if hasattr(a.role, "value") else str(a.role), a.nom, getattr(a, "prenom", ""), getattr(a, "ligue", ""), a.licence) for a in (fm.arbitres or [])]
+            if l_arb != f_arb:
+                diffs.append(f"Arbitres (Rôle/Nom/Prénom/Ligue/Licence): {label1}={l_arb} vs {label2}={f_arb}")
+            else:
+                matches.append(f"Corps Arbitral: {len(l_arb)} arbitre(s) identiques")
+
+            # Sets Details (Sets 1 à 5)
+            l_sets = {s.numero: s for s in (lm.sets or [])}
+            f_sets = {s.numero: s for s in (fm.sets or [])}
+            if set(l_sets.keys()) != set(f_sets.keys()):
+                diffs.append(f"Numéros des Sets présents: {label1}={sorted(l_sets.keys())} vs {label2}={sorted(f_sets.keys())}")
+
+            common_sets = set(l_sets.keys()).intersection(set(f_sets.keys()))
+            for s_num in sorted(common_sets):
+                ls, fs = l_sets[s_num], f_sets[s_num]
+                if (ls.score_a, ls.score_b) != (fs.score_a, fs.score_b):
+                    diffs.append(f"Set {s_num} Score: {label1}={ls.score_a}-{ls.score_b} vs {label2}={fs.score_a}-{fs.score_b}")
+                else:
+                    matches.append(f"Set {s_num} Score: {ls.score_a}-{ls.score_b}")
+
+                # Heures Début / Fin
+                deb_l = str(ls.debut) if ls.debut else None
+                deb_f = str(fs.debut) if fs.debut else None
+                if deb_l != deb_f and (deb_l is not None and deb_f is not None):
+                    diffs.append(f"Set {s_num} Début: {label1}={deb_l} vs {label2}={deb_f}")
+                elif deb_l or deb_f:
+                    matches.append(f"Set {s_num} Début: {deb_l or deb_f}")
+
+                fin_l = str(ls.fin) if ls.fin else None
+                fin_f = str(fs.fin) if fs.fin else None
+                if fin_l != fin_f and (fin_l is not None and fin_f is not None):
+                    diffs.append(f"Set {s_num} Fin: {label1}={fin_l} vs {label2}={fin_f}")
+                elif fin_l or fin_f:
+                    matches.append(f"Set {s_num} Fin: {fin_l or fin_f}")
+
+                if ls.duree_minutes != fs.duree_minutes and (ls.duree_minutes is not None and fs.duree_minutes is not None):
+                    diffs.append(f"Set {s_num} Durée: {label1}={ls.duree_minutes}m vs {label2}={fs.duree_minutes}m")
+                elif ls.duree_minutes is not None:
+                    matches.append(f"Set {s_num} Durée: {ls.duree_minutes}m")
+
+                if ls.service_initial != fs.service_initial and (ls.service_initial is not None and fs.service_initial is not None):
+                    diffs.append(f"Set {s_num} Service Initial: {label1}={ls.service_initial} vs {label2}={fs.service_initial}")
+                elif ls.service_initial is not None:
+                    matches.append(f"Set {s_num} Service Initial: Équipe {ls.service_initial}")
+
+                # Formations A & B
+                if (ls.equipe_a and fs.equipe_a) and ls.equipe_a.formation != fs.equipe_a.formation:
+                    if ls.equipe_a.formation is not None and fs.equipe_a.formation is not None:
+                        diffs.append(f"Set {s_num} Formation A: {label1}={ls.equipe_a.formation} vs {label2}={fs.equipe_a.formation}")
+                elif ls.equipe_a and ls.equipe_a.formation:
+                    matches.append(f"Set {s_num} Formation A: {ls.equipe_a.formation}")
+
+                if (ls.equipe_b and fs.equipe_b) and ls.equipe_b.formation != fs.equipe_b.formation:
+                    if ls.equipe_b.formation is not None and fs.equipe_b.formation is not None:
+                        diffs.append(f"Set {s_num} Formation B: {label1}={ls.equipe_b.formation} vs {label2}={fs.equipe_b.formation}")
+                elif ls.equipe_b and ls.equipe_b.formation:
+                    matches.append(f"Set {s_num} Formation B: {ls.equipe_b.formation}")
+
+                # Changements / Substitutions A & B
+                ch_a1 = [(c.joueur_entrant, c.joueur_sortant, c.position, c.score_a, c.score_b) for c in (ls.equipe_a.changements if ls.equipe_a else [])]
+                ch_a2 = [(c.joueur_entrant, c.joueur_sortant, c.position, c.score_a, c.score_b) for c in (fs.equipe_a.changements if fs.equipe_a else [])]
+                if ch_a1 != ch_a2 and (ch_a1 or ch_a2):
+                    diffs.append(f"Set {s_num} Changements A: {label1}={ch_a1} vs {label2}={ch_a2}")
+                elif ch_a1:
+                    matches.append(f"Set {s_num} Changements A: {len(ch_a1)} changement(s)")
+
+                ch_b1 = [(c.joueur_entrant, c.joueur_sortant, c.position, c.score_a, c.score_b) for c in (ls.equipe_b.changements if ls.equipe_b else [])]
+                ch_b2 = [(c.joueur_entrant, c.joueur_sortant, c.position, c.score_a, c.score_b) for c in (fs.equipe_b.changements if fs.equipe_b else [])]
+                if ch_b1 != ch_b2 and (ch_b1 or ch_b2):
+                    diffs.append(f"Set {s_num} Changements B: {label1}={ch_b1} vs {label2}={ch_b2}")
+                elif ch_b1:
+                    matches.append(f"Set {s_num} Changements B: {len(ch_b1)} changement(s)")
+
+                # Timeouts A & B
+                t_a1 = [(t.score_a, t.score_b) for t in (ls.equipe_a.timeouts if ls.equipe_a else [])]
+                t_a2 = [(t.score_a, t.score_b) for t in (fs.equipe_a.timeouts if fs.equipe_a else [])]
+                if t_a1 != t_a2 and (t_a1 or t_a2):
+                    diffs.append(f"Set {s_num} Timeouts A: {label1}={t_a1} vs {label2}={t_a2}")
+                elif t_a1:
+                    matches.append(f"Set {s_num} Timeouts A: {t_a1}")
+
+                t_b1 = [(t.score_a, t.score_b) for t in (ls.equipe_b.timeouts if ls.equipe_b else [])]
+                t_b2 = [(t.score_a, t.score_b) for t in (fs.equipe_b.timeouts if fs.equipe_b else [])]
+                if t_b1 != t_b2 and (t_b1 or t_b2):
+                    diffs.append(f"Set {s_num} Timeouts B: {label1}={t_b1} vs {label2}={t_b2}")
+                elif t_b1:
+                    matches.append(f"Set {s_num} Timeouts B: {t_b1}")
+
+                # Services A & B
+                if (ls.equipe_a and fs.equipe_a) and ls.equipe_a.services != fs.equipe_a.services:
+                    diffs.append(f"Set {s_num} Services A: {label1}={dict(ls.equipe_a.services)} vs {label2}={dict(fs.equipe_a.services)}")
+                elif ls.equipe_a and ls.equipe_a.services:
+                    matches.append(f"Set {s_num} Services A: {dict(ls.equipe_a.services)}")
+
+                if (ls.equipe_b and fs.equipe_b) and ls.equipe_b.services != fs.equipe_b.services:
+                    diffs.append(f"Set {s_num} Services B: {label1}={dict(ls.equipe_b.services)} vs {label2}={dict(fs.equipe_b.services)}")
+                elif ls.equipe_b and ls.equipe_b.services:
+                    matches.append(f"Set {s_num} Services B: {dict(ls.equipe_b.services)}")
+
+            # Remarques
+            if (lm.remarques or "").strip() != (fm.remarques or "").strip() and (lm.remarques or fm.remarques):
+                diffs.append(f"Remarques: {label1}='{(lm.remarques or '').strip()}' vs {label2}='{(fm.remarques or '').strip()}'")
+            elif lm.remarques:
+                matches.append(f"Remarques: {lm.remarques.strip()}")
+
+        elif res1.success or res2.success:
+            diffs.append(f"Parsing Match Objet: {label1}={'présent' if res1.match else 'absent'} vs {label2}={'présent' if res2.match else 'absent'}")
+        return matches, diffs
+
+    all_comparison_details = []
 
     with make_progress(console) as progress:
         task_id = progress.add_task("Comparaison...", total=len(pdf_files))
 
         for pdf_file in pdf_files:
-            t0_legacy = time.perf_counter()
-            legacy_res = legacy_parser.parse(pdf_file)
-            legacy_time_ms = (time.perf_counter() - t0_legacy) * 1000.0
+            file_results = []
+            for label, instance in parser_instances:
+                t0 = time.perf_counter()
+                res = instance.parse(pdf_file)
+                elapsed_ms = (time.perf_counter() - t0) * 1000.0
+                total_times[label] += elapsed_ms
+                file_results.append((label, res, elapsed_ms))
 
-            t0_fast = time.perf_counter()
-            fast_res = fast_parser.parse(pdf_file)
-            fast_time_ms = (time.perf_counter() - t0_fast) * 1000.0
-
-            total_fast_ms += fast_time_ms
-            total_legacy_ms += legacy_time_ms
             total_matches += 1
 
-            speedup = legacy_time_ms / max(fast_time_ms, 0.001)
+            matches_all, diffs_all = [], []
+            ref_label, ref_res, ref_ms = file_results[0]
+            for other_label, other_res, other_ms in file_results[1:]:
+                m_list, d_list = _compare_two_results(ref_label, ref_res, other_label, other_res)
+                matches_all.extend(m_list)
+                diffs_all.extend(d_list)
 
-            diffs = []
-            if legacy_res.success != fast_res.success:
-                diffs.append(f"Statut Succès: Legacy={legacy_res.success} vs Fast={fast_res.success}")
+            all_comparison_details.append((pdf_file.name, matches_all, diffs_all))
 
-            if legacy_res.match and fast_res.match:
-                lm, fm = legacy_res.match, fast_res.match
-
-                # 1. Equipes
-                l_eq_a = normalize_club_name(lm.equipe_a.nom if lm.equipe_a else "")
-                f_eq_a = normalize_club_name(fm.equipe_a.nom if fm.equipe_a else "")
-                if l_eq_a != f_eq_a:
-                    diffs.append(f"Equipe A: '{lm.equipe_a.nom if lm.equipe_a else '?'}' vs '{fm.equipe_a.nom if fm.equipe_a else '?'}'")
-
-                l_eq_b = normalize_club_name(lm.equipe_b.nom if lm.equipe_b else "")
-                f_eq_b = normalize_club_name(fm.equipe_b.nom if fm.equipe_b else "")
-                if l_eq_b != f_eq_b:
-                    diffs.append(f"Equipe B: '{lm.equipe_b.nom if lm.equipe_b else '?'}' vs '{fm.equipe_b.nom if fm.equipe_b else '?'}'")
-
-                # 2. Score et statut du match
-                if (lm.sets_a, lm.sets_b) != (fm.sets_a, fm.sets_b):
-                    diffs.append(f"Score Sets: Legacy={lm.sets_a}-{lm.sets_b} vs Fast={fm.sets_a}-{fm.sets_b}")
-
-                if lm.match_joue != fm.match_joue:
-                    diffs.append(f"Statut Match Joué: Legacy={lm.match_joue} vs Fast={fm.match_joue}")
-
-                # 3. Logistique et En-tête
-                for field_name in ("date", "heure", "lieu", "salle", "competition", "journee", "organisateur", "niveau", "categorie", "genre"):
-                    val_l = getattr(lm, field_name, None)
-                    val_f = getattr(fm, field_name, None)
-
-                    if field_name == "heure":
-                        s_l = str(val_l).replace("h", ":")[:5] if val_l else ""
-                        s_f = str(val_f).replace("h", ":")[:5] if val_f else ""
-                        if s_l == s_f:
-                            continue
-
-                    if field_name == "lieu" and val_l and any(w in str(val_l).upper() for w in ("SAMEDI", "DIMANCHE", "LUNDI", "MARDI", "MERCREDI", "JEUDI", "VENDREDI")) and not val_f:
-                        continue
-
-                    if val_l != val_f and not (val_l is None and val_f == "") and not (val_f is None and val_l == ""):
-                        diffs.append(f"Header {field_name}: Legacy={val_l} vs Fast={val_f}")
-
-                # 4. Rosters et Effectifs
-                l_j_a = [j.numero for j in (lm.equipe_a.joueurs if lm.equipe_a else [])]
-                f_j_a = [j.numero for j in (fm.equipe_a.joueurs if fm.equipe_a else [])]
-                if l_j_a != f_j_a:
-                    diffs.append(f"Joueurs Equipe A (numéros): Legacy={l_j_a} vs Fast={f_j_a}")
-
-                l_j_b = [j.numero for j in (lm.equipe_b.joueurs if lm.equipe_b else [])]
-                f_j_b = [j.numero for j in (fm.equipe_b.joueurs if fm.equipe_b else [])]
-                if l_j_b != f_j_b:
-                    diffs.append(f"Joueurs Equipe B (numéros): Legacy={l_j_b} vs Fast={f_j_b}")
-
-                l_lib_a = [j.numero for j in (lm.equipe_a.liberos if lm.equipe_a else [])]
-                f_lib_a = [j.numero for j in (fm.equipe_a.liberos if fm.equipe_a else [])]
-                if l_lib_a != f_lib_a:
-                    diffs.append(f"Libéros Equipe A: Legacy={l_lib_a} vs Fast={f_lib_a}")
-
-                l_lib_b = [j.numero for j in (lm.equipe_b.liberos if lm.equipe_b else [])]
-                f_lib_b = [j.numero for j in (fm.equipe_b.liberos if fm.equipe_b else [])]
-                if l_lib_b != f_lib_b:
-                    diffs.append(f"Libéros Equipe B: Legacy={l_lib_b} vs Fast={f_lib_b}")
-
-                # 5. Détails des Sets (scores par set, durées, formations, timeouts, remplacements)
-                l_sets = {s.numero: s for s in (lm.sets or [])}
-                f_sets = {s.numero: s for s in (fm.sets or [])}
-                if set(l_sets.keys()) != set(f_sets.keys()):
-                    diffs.append(f"Numéros des Sets présents: Legacy={sorted(l_sets.keys())} vs Fast={sorted(f_sets.keys())}")
-                else:
-                    for s_num in sorted(l_sets.keys()):
-                        ls, fs = l_sets[s_num], f_sets[s_num]
-                        if (ls.score_a, ls.score_b) != (fs.score_a, fs.score_b):
-                            diffs.append(f"Set {s_num} Score: Legacy={ls.score_a}-{ls.score_b} vs Fast={fs.score_a}-{fs.score_b}")
-                        if ls.duree_minutes != fs.duree_minutes and (ls.duree_minutes is not None and fs.duree_minutes is not None):
-                            diffs.append(f"Set {s_num} Durée: Legacy={ls.duree_minutes}m vs Fast={fs.duree_minutes}m")
-                        if (ls.equipe_a and fs.equipe_a) and ls.equipe_a.formation != fs.equipe_a.formation:
-                            if ls.equipe_a.formation is not None and fs.equipe_a.formation is not None:
-                                diffs.append(f"Set {s_num} Formation A: Legacy={ls.equipe_a.formation} vs Fast={fs.equipe_a.formation}")
-                        if (ls.equipe_b and fs.equipe_b) and ls.equipe_b.formation != fs.equipe_b.formation:
-                            if ls.equipe_b.formation is not None and fs.equipe_b.formation is not None:
-                                diffs.append(f"Set {s_num} Formation B: Legacy={ls.equipe_b.formation} vs Fast={fs.equipe_b.formation}")
-                        if (ls.equipe_a and fs.equipe_a) and ls.equipe_a.services != fs.equipe_a.services:
-                            diffs.append(f"Set {s_num} Services A: Legacy={dict(ls.equipe_a.services)} vs Fast={dict(fs.equipe_a.services)}")
-                        if (ls.equipe_b and fs.equipe_b) and ls.equipe_b.services != fs.equipe_b.services:
-                            diffs.append(f"Set {s_num} Services B: Legacy={dict(ls.equipe_b.services)} vs Fast={dict(fs.equipe_b.services)}")
-
-            if not diffs:
+            if not diffs_all:
                 parity_count += 1
                 parity_str = "[bold green]100% Identique[/bold green]"
             else:
-                parity_str = f"[bold yellow]{len(diffs)} ecart(s)[/bold yellow]"
-                discrepancies_list.append((pdf_file.name, diffs))
+                parity_str = f"[bold yellow]{len(diffs_all)} ecart(s)[/bold yellow]"
 
-            table.add_row(
-                pdf_file.name,
-                f"{fast_time_ms:.1f}",
-                f"{legacy_time_ms:.1f}",
-                f"{speedup:.1f}x",
-                parity_str,
-            )
+            row_vals = [pdf_file.name]
+            for _, _, elapsed_ms in file_results:
+                row_vals.append(f"{elapsed_ms:.1f}")
+
+            if len(parser_instances) >= 2:
+                first_ms = file_results[0][2]
+                last_ms = file_results[-1][2]
+                speedup = first_ms / max(last_ms, 0.001)
+                row_vals.append(f"{speedup:.1f}x")
+
+            row_vals.append(parity_str)
+            table.add_row(*row_vals)
             progress.update(task_id, advance=1)
 
     console.print(table)
 
-    avg_fast = total_fast_ms / max(total_matches, 1)
-    avg_legacy = total_legacy_ms / max(total_matches, 1)
-    avg_speedup = total_legacy_ms / max(total_fast_ms, 0.001)
     parity_rate = (parity_count / max(total_matches, 1)) * 100.0
 
+    summary_lines = [f"• Matchs analysés :       [cyan]{total_matches}[/cyan]"]
+    for label, _ in parser_instances:
+        t_ms = total_times[label]
+        avg = t_ms / max(total_matches, 1)
+        summary_lines.append(f"• Temps total {label} :      [cyan]{t_ms / 1000.0:.2f} s[/cyan] (moy. {avg:.1f} ms/pdf)")
+
+    if len(parser_instances) >= 2:
+        ref_label = parser_instances[0][0]
+        last_label = parser_instances[-1][0]
+        spd = total_times[ref_label] / max(total_times[last_label], 0.001)
+        summary_lines.append(f"• Gain moyen de vitesse :  [bold green]{spd:.1f}x ({last_label} vs {ref_label})[/bold green]")
+
+    summary_lines.append(f"• Taux de parité globale : [bold green]{parity_rate:.1f}% de données identiques[/bold green]")
+
     console.print(Panel(
-        f"[bold green]Bilan Global de la Comparaison[/bold green]\n\n"
-        f"• Matchs analysés :       [cyan]{total_matches}[/cyan]\n"
-        f"• Temps total Legacy :     [magenta]{total_legacy_ms / 1000.0:.2f} s[/magenta] (moy. {avg_legacy:.1f} ms/pdf)\n"
-        f"• Temps total Fast :       [cyan]{total_fast_ms / 1000.0:.2f} s[/cyan] (moy. {avg_fast:.1f} ms/pdf)\n"
-        f"• Gain moyen de vitesse :  [bold green]{avg_speedup:.1f}x plus rapide[/bold green]\n"
-        f"• Taux de parité globale : [bold green]{parity_rate:.1f}% de données identiques[/bold green]",
+        "\n".join(summary_lines),
         title="Synthèse",
     ))
 
-    if discrepancies_list and verbose:
-        console.print("\n[bold yellow]Détail des écarts constatés :[/bold yellow]")
-        for fname, diffs in discrepancies_list:
-            console.print(f"[bold]{fname}[/bold] :")
-            for d in diffs:
-                console.print(f"  - {d}")
+    if verbose:
+        console.print("\n[bold cyan]Detail exhaustif par fichier (-v active) :[/bold cyan]")
+        for fname, matches_list, diffs_list in all_comparison_details:
+            console.print(f"\n[bold cyan]Fichier: {fname}[/bold cyan]")
+            if matches_list:
+                console.print(f"  [bold green]Champs Concordants ({len(matches_list)} champs) :[/bold green]")
+                for m in matches_list:
+                    console.print(f"     [green]+ {m}[/green]")
+            if diffs_list:
+                console.print(f"  [bold yellow]Differences Surlignes ({len(diffs_list)} ecarts) :[/bold yellow]")
+                for d in diffs_list:
+                    console.print(f"     [bold yellow]- {d}[/bold yellow]")
+            else:
+                console.print("  [bold green]Aucune difference constatee (100% Identique)[/bold green]")
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -1962,7 +2184,10 @@ def serve(
     """🌐 Lance le serveur web."""
     import uvicorn
 
-    console.print(f"[blue]🏐 PyVolley sur http://{host}:{port}[/blue]")
+    try:
+        console.print(f"[blue]🏐 PyVolley sur http://{host}:{port}[/blue]")
+    except UnicodeEncodeError:
+        console.print(f"[blue]PyVolley sur http://{host}:{port}[/blue]")
     uvicorn.run("pyvolley.web.app:web_app", host=host, port=port, reload=reload)
 
 
@@ -2868,11 +3093,11 @@ def profile_parser_cli(
         1, "--iterations", "-n", help="Nombre d'itérations par PDF pour moyenner les mesures."
     )
 ):
-    """Profilage complet de la vitesse d'exécution du ZoneMatchSheetParser avec métriques détaillées."""
+    """Profilage complet de la vitesse d'exécution du FastMatchSheetParser avec métriques détaillées."""
     import time
     import glob
     import pymupdf
-    from pyvolley.parsers.zone_parser import ZoneMatchSheetParser
+    from pyvolley.parsers.fast_parser import FastMatchSheetParser
     from pyvolley.parsers.layout_config import DEFAULT_FFVB_LAYOUT
     from pyvolley.parsers.extractors.zone_extractor import extract_hierarchical_data
     from pyvolley.parsers.extractors.equipes_geometry import extract_team_roster_geometry
@@ -2892,7 +3117,7 @@ def profile_parser_cli(
     table.add_column("Temps Total", justify="right", width=12, style="bold green")
 
     results = []
-    parser = ZoneMatchSheetParser()
+    parser = FastMatchSheetParser()
 
     for pfile in pdf_files:
         if not pfile.exists():

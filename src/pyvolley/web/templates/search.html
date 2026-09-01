@@ -7,13 +7,13 @@
     <!-- Search Header -->
     <div>
         <h1 class="text-2xl font-bold mb-4">
-            <i data-lucide="search" class="w-6 h-6 inline-block mr-2" style="color: var(--accent-blue);"></i>
+            <i data-lucide="search" class="w-6 h-6 inline-block mr-2 text-accent-blue"></i>
             Recherche
         </h1>
         <form action="/search" method="get" class="space-y-4" id="searchForm">
             <!-- Search input -->
             <div class="relative max-w-2xl">
-                <i data-lucide="search" class="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2" style="color: var(--text-muted);"></i>
+                <i data-lucide="search" class="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-muted"></i>
                 <input type="text" name="q" value="{{ query }}"
                        placeholder="Nom, prénom, club, équipe..."
                        class="search-input text-lg py-3 pl-12" autofocus>
@@ -22,8 +22,7 @@
             <!-- Filters -->
             <div x-data="{ showFilters: {{ 'true' if (genre or niveau or ligue or (season_ids and season_ids|length > 0) or date_from or date_to) else 'false' }} }" class="max-w-2xl">
                 <button type="button" @click="showFilters = !showFilters"
-                        class="flex items-center gap-2 text-sm font-medium transition"
-                        style="color: var(--text-secondary);">
+                        class="flex items-center gap-2 text-sm font-medium transition text-secondary">
                     <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
                     Filtres avancés
                     <i data-lucide="chevron-down" class="w-3 h-3 transition-transform"
@@ -34,12 +33,10 @@
                 </button>
 
                 <div x-show="showFilters" x-cloak x-transition
-                     class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3 p-4 rounded-xl"
-                     style="background: var(--bg-card); border: 1px solid var(--border-color);">
+                     class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3 p-4 rounded-xl bg-card border">
                     <!-- Genre -->
                     <div>
-                        <label class="text-xs font-semibold uppercase tracking-wider block mb-1"
-                               style="color: var(--text-muted);">Genre</label>
+                        <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Genre</label>
                         <select name="genre" class="filter-select">
                             <option value="">Tous</option>
                             {% for g in genres %}
@@ -50,8 +47,7 @@
 
                     <!-- Niveau -->
                     <div>
-                        <label class="text-xs font-semibold uppercase tracking-wider block mb-1"
-                               style="color: var(--text-muted);">Niveau</label>
+                        <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Niveau</label>
                         <select name="niveau" class="filter-select">
                             <option value="">Tous</option>
                             {% for n in niveaux %}
@@ -62,8 +58,7 @@
 
                     <!-- Saisons -->
                     <div>
-                        <label class="text-xs font-semibold uppercase tracking-wider block mb-1"
-                               style="color: var(--text-muted);">Saisons</label>
+                        <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Saisons</label>
                         <select name="saison_ids" class="filter-select" multiple size="4">
                             {% for s in saisons %}
                             <option value="{{ s.id }}" {% if season_ids and s.id in season_ids %}selected{% endif %}>{{ s.code }}</option>
@@ -73,8 +68,7 @@
 
                     <!-- Ligue (pour arbitres) -->
                     <div>
-                        <label class="text-xs font-semibold uppercase tracking-wider block mb-1"
-                               style="color: var(--text-muted);">Ligue (arbitres)</label>
+                        <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Ligue (arbitres)</label>
                         <select name="ligue" class="filter-select">
                             <option value="">Toutes</option>
                             {% for l in ligues %}
@@ -84,21 +78,18 @@
                     </div>
 
                     <div>
-                        <label class="text-xs font-semibold uppercase tracking-wider block mb-1"
-                               style="color: var(--text-muted);">Du</label>
-                              <input type="date" name="after_date" value="{{ date_from }}" class="filter-select filter-date-input" lang="fr" title="Format : aaaa-mm-jj">
+                        <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Du</label>
+                               <input type="date" name="after_date" value="{{ date_from }}" class="filter-select filter-date-input" lang="fr" title="Format : aaaa-mm-jj">
                     </div>
 
                     <div>
-                        <label class="text-xs font-semibold uppercase tracking-wider block mb-1"
-                               style="color: var(--text-muted);">Au</label>
-                              <input type="date" name="before_date" value="{{ date_to }}" class="filter-select filter-date-input" lang="fr" title="Format : aaaa-mm-jj">
-                              <span class="filter-date-hint">Format : aaaa-mm-jj</span>
+                        <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Au</label>
+                               <input type="date" name="before_date" value="{{ date_to }}" class="filter-select filter-date-input" lang="fr" title="Format : aaaa-mm-jj">
+                               <span class="filter-date-hint">Format : aaaa-mm-jj</span>
                     </div>
 
                     <div class="sm:col-span-2 lg:col-span-4 flex gap-2 pt-2">
-                        <button type="submit" class="pagination-btn"
-                                style="background: var(--accent-blue); color: white; border-color: var(--accent-blue);">
+                        <button type="submit" class="pagination-btn btn-primary">
                             <i data-lucide="search" class="w-4 h-4 mr-1"></i> Rechercher
                         </button>
                         {% if genre or niveau or ligue or (season_ids and season_ids|length > 0) or date_from or date_to %}
@@ -117,7 +108,7 @@
     {% if genre or niveau or ligue or (season_ids and season_ids|length > 0) or date_from or date_to %}
     <div class="flex flex-wrap gap-2 items-center">
         {% set niveau_filter_badge = resolve_niveau_badge(niveau) %}
-        <span class="text-xs font-semibold uppercase" style="color: var(--text-muted);">Filtres :</span>
+        <span class="text-xs font-semibold uppercase text-muted">Filtres :</span>
         {% if genre %}
         <span class="badge badge-blue">Genre : {{ genre }}</span>
         {% endif %}
@@ -142,7 +133,7 @@
     {% endif %}
 
     <!-- Results summary -->
-    <div class="flex items-center gap-2" style="color: var(--text-secondary);">
+    <div class="flex items-center gap-2 text-secondary">
         <span class="font-medium">
             {{ joueurs|length + clubs|length + equipes|length + arbitres|length + entraineurs|length }} résultat(s)
         </span>
@@ -202,7 +193,7 @@
                     <tr>
                         <td class="font-semibold">{{ j.nom }}</td>
                         <td>{{ j.prenom }}</td>
-                        <td style="color: var(--text-muted);">{{ j.licence }}</td>
+                        <td class="text-muted">{{ j.licence }}</td>
                         <td class="text-center">
                             <a href="{{ path_for_entity('joueur', j.id) }}" class="badge badge-blue">Voir profil</a>
                         </td>
@@ -211,7 +202,7 @@
                 </tbody>
             </table>
             {% else %}
-            <p class="p-8 text-center" style="color: var(--text-muted);">Aucun joueur trouvé</p>
+            <p class="p-8 text-center text-muted">Aucun joueur trouvé</p>
             {% endif %}
         </div>
 
@@ -236,18 +227,18 @@
                             {% if c.ville %}
                             <span class="badge badge-blue">{{ c.ville }}</span>
                             {% else %}
-                            <span style="color: var(--text-muted);">—</span>
+                            <span class="text-muted">—</span>
                             {% endif %}
                         </td>
                         <td>
                             {% if c.departement %}
                             <span class="badge badge-purple">{{ c.departement }}</span>
                             {% else %}
-                            <span style="color: var(--text-muted);">—</span>
+                            <span class="text-muted">—</span>
                             {% endif %}
                         </td>
                         <td>
-                            <span class="font-mono text-xs" style="color: var(--text-muted);">{{ c.code_ffvb or '—' }}</span>
+                            <span class="font-mono text-xs text-muted">{{ c.code_ffvb or '—' }}</span>
                         </td>
                         <td class="text-center">
                             <a href="{{ path_for_entity('club', c.id) }}" class="badge badge-green">Voir club</a>
@@ -257,7 +248,7 @@
                 </tbody>
             </table>
             {% else %}
-            <p class="p-8 text-center" style="color: var(--text-muted);">Aucun club trouvé</p>
+            <p class="p-8 text-center text-muted">Aucun club trouvé</p>
             {% endif %}
         </div>
 
@@ -290,20 +281,20 @@
                             <span class="badge {% if e.genre == 'MASCULIN' %}badge-blue{% elif e.genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %}">
                                 {{ e.genre }}
                             </span>
-                            {% else %}<span style="color: var(--text-muted);">—</span>{% endif %}
+                            {% else %}<span class="text-muted">—</span>{% endif %}
                         </td>
-                        <td style="color: var(--text-secondary);">{{ e.categorie or '—' }}</td>
+                        <td class="text-secondary">{{ e.categorie or '—' }}</td>
                         <td>
                             {% if niveau_badge %}
                             <span class="badge {{ niveau_badge.css_class }}">{{ niveau_badge.label }}</span>
                             {% else %}
-                            <span style="color: var(--text-muted);">—</span>
+                            <span class="text-muted">—</span>
                             {% endif %}
                         </td>
                         <td>
                             {% if e.saison %}
                             <span class="badge badge-purple">{{ e.saison.code }}</span>
-                            {% else %}<span style="color: var(--text-muted);">—</span>{% endif %}
+                            {% else %}<span class="text-muted">—</span>{% endif %}
                         </td>
                         <td class="text-center">
                             <a href="{{ path_for_entity('equipe', e.id) }}" class="badge badge-purple">Voir équipe</a>
@@ -313,7 +304,7 @@
                 </tbody>
             </table>
             {% else %}
-            <p class="p-8 text-center" style="color: var(--text-muted);">Aucune équipe trouvée</p>
+            <p class="p-8 text-center text-muted">Aucune équipe trouvée</p>
             {% endif %}
         </div>
 
@@ -334,7 +325,7 @@
                     <tr>
                         <td class="font-semibold">{{ a.nom }}</td>
                         <td>{{ a.prenom or '-' }}</td>
-                        <td style="color: var(--text-muted);">{{ a.ligue or '-' }}</td>
+                        <td class="text-muted">{{ a.ligue or '-' }}</td>
                         <td class="text-center">
                             <a href="{{ path_for_entity('arbitre', a.id) }}" class="badge badge-gold">Voir profil</a>
                         </td>
@@ -343,7 +334,7 @@
                 </tbody>
             </table>
             {% else %}
-            <p class="p-8 text-center" style="color: var(--text-muted);">Aucun arbitre trouvé</p>
+            <p class="p-8 text-center text-muted">Aucun arbitre trouvé</p>
             {% endif %}
         </div>
 
@@ -365,7 +356,7 @@
                     <tr>
                         <td class="font-semibold">{{ e.nom }}</td>
                         <td>{{ e.prenom or '-' }}</td>
-                        <td style="color: var(--text-muted);">{{ e.licence or '-' }}</td>
+                        <td class="text-muted">{{ e.licence or '-' }}</td>
                         <td class="text-center">
                             <span class="badge badge-green">{{ e.matchs_count }}</span>
                         </td>
@@ -377,7 +368,7 @@
                 </tbody>
             </table>
             {% else %}
-            <p class="p-8 text-center" style="color: var(--text-muted);">Aucun entraîneur trouvé</p>
+            <p class="p-8 text-center text-muted">Aucun entraîneur trouvé</p>
             {% endif %}
         </div>
     </div>
@@ -386,10 +377,10 @@
     <!-- No query -->
     <div class="text-center py-16">
         <div class="text-6xl mb-4">🔍</div>
-        <p class="text-lg" style="color: var(--text-secondary);">
+        <p class="text-lg text-secondary">
             Tapez un nom, prénom ou terme de recherche
         </p>
-        <p class="text-sm mt-2" style="color: var(--text-muted);">
+        <p class="text-sm mt-2 text-muted">
             Utilisez les filtres avancés pour affiner par genre, niveau ou saison
         </p>
     </div>

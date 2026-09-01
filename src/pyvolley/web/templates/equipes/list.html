@@ -9,10 +9,10 @@
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
             <h1 class="text-2xl font-bold">
-                <i data-lucide="shield" class="w-6 h-6 inline-block mr-2" style="color: var(--accent-green);"></i>
+                <i data-lucide="shield" class="w-6 h-6 inline-block mr-2 text-accent-green"></i>
                 Équipes
             </h1>
-            <p style="color: var(--text-muted);">{{ total }} équipes enregistrées</p>
+            <p class="text-muted">{{ total }} équipes enregistrées</p>
         </div>
     </div>
 
@@ -66,7 +66,7 @@
     {% if genre or niveau or categorie or current_saison_id %}
     <div class="flex flex-wrap gap-2 items-center">
         {% set niveau_filter_badge = resolve_niveau_badge(niveau) %}
-        <span class="text-xs font-semibold uppercase" style="color: var(--text-muted);">Filtres :</span>
+        <span class="text-xs font-semibold uppercase text-muted">Filtres :</span>
         {% if genre %}
         <span class="badge badge-blue">{{ genre }}</span>
         {% endif %}
@@ -105,11 +105,11 @@
                     <td class="font-semibold text-white">{{ eq.nom }}</td>
                     <td>
                         {% if eq.club %}
-                        <a href="{{ path_for_entity('club', eq.club.id) }}" class="hover:text-white transition" style="color: var(--accent-blue);">
+                        <a href="{{ path_for_entity('club', eq.club.id) }}" class="hover:text-white transition text-accent-blue">
                             {{ eq.club.nom|truncate_name(25) }}
                         </a>
                         {% else %}
-                        <span style="color: var(--text-muted);">—</span>
+                        <span class="text-muted">—</span>
                         {% endif %}
                     </td>
                     <td>
@@ -118,22 +118,22 @@
                             {{ eq.genre }}
                         </span>
                         {% else %}
-                        <span style="color: var(--text-muted);">—</span>
+                        <span class="text-muted">—</span>
                         {% endif %}
                     </td>
-                    <td style="color: var(--text-secondary);">{{ eq.categorie or '—' }}</td>
+                    <td class="text-secondary">{{ eq.categorie or '—' }}</td>
                     <td>
                         {% if niveau_badge %}
                         <span class="badge {{ niveau_badge.css_class }}">{{ niveau_badge.label }}</span>
                         {% else %}
-                        <span style="color: var(--text-muted);">—</span>
+                        <span class="text-muted">—</span>
                         {% endif %}
                     </td>
                     <td>
                         {% if eq.saison %}
                         <span class="badge badge-purple">{{ eq.saison.code }}</span>
                         {% else %}
-                        <span style="color: var(--text-muted);">—</span>
+                        <span class="text-muted">—</span>
                         {% endif %}
                     </td>
                     <td class="text-right">
@@ -144,7 +144,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="7" class="text-center py-8" style="color: var(--text-muted);">
+                    <td colspan="7" class="text-center py-8 text-muted">
                         {% if query or genre or niveau or categorie %}
                         Aucune équipe trouvée pour ces critères
                         {% else %}

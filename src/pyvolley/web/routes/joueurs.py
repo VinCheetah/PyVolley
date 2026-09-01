@@ -1,5 +1,5 @@
-"""
-Routes web — Joueurs (liste et détail).
+﻿"""
+Routes web â€” Joueurs (liste et dÃ©tail).
 """
 
 import unicodedata
@@ -30,12 +30,10 @@ from pyvolley.web.helpers.niveau import (
     niveau_reference_labels,
 )
 from pyvolley.web.helpers.club_branding import parse_club_colors
+from pyvolley.web.helpers.common import season_sort_key, season_end_year, role_label
 
 router = APIRouter()
 
-
-SEASON_CODE_RE = re.compile(r"(\d{4})\s*[-/]\s*(\d{4})")
-SEASON_SHORT_CODE_RE = re.compile(r"\b(\d{2})\s*[-/]\s*(\d{2})\b")
 YOUTH_CATEGORY_RE = re.compile(r"\b(?:M|U)\s*(1[0-9]|20|21)\b", re.IGNORECASE)
 
 
@@ -106,45 +104,10 @@ def _parse_date(value: Optional[str]) -> Optional[dt_date]:
         return None
 
 
-def _season_sort_key(code: Optional[str]) -> tuple[int, int, str]:
-    if not code:
-        return (0, 0, "")
-    match = SEASON_CODE_RE.search(code)
-    if match:
-        return (int(match.group(1)), int(match.group(2)), code)
-    digits = "".join(ch for ch in code if ch.isdigit())
-    if len(digits) >= 4:
-        year = int(digits[:4])
-        return (year, year, code)
-    return (0, 0, code)
-
-
-def _season_end_year_from_code(code: Optional[str]) -> Optional[int]:
-    if not code:
-        return None
-
-    match = SEASON_CODE_RE.search(code)
-    if match:
-        return int(match.group(2))
-
-    short_match = SEASON_SHORT_CODE_RE.search(code)
-    if short_match:
-        start_year = 2000 + int(short_match.group(1))
-        end_year = 2000 + int(short_match.group(2))
-        if end_year < start_year:
-            end_year += 100
-        return end_year
-
-    digits = "".join(ch for ch in code if ch.isdigit())
-    if len(digits) >= 4:
-        return int(digits[:4])
-    return None
-
-
 def _season_end_year_from_row(row: dict) -> Optional[int]:
     saison = row.get("saison")
     season_code = getattr(saison, "code", None) if saison else None
-    end_year = _season_end_year_from_code(season_code)
+    end_year = season_end_year(season_code)
     if end_year is not None:
         return end_year
 
@@ -153,8 +116,11 @@ def _season_end_year_from_row(row: dict) -> Optional[int]:
     if match_date is None:
         return None
 
-    # Saison sportive: les matchs d'août à décembre se terminent l'année suivante.
+    # Saison sportive: les matchs d'aoÃ»t Ã  dÃ©cembre se terminent l'annÃ©e suivante.
     return match_date.year + 1 if match_date.month >= 8 else match_date.year
+
+
+
 
 
 def _extract_youth_ages_from_text(value: Optional[str]) -> list[int]:
@@ -252,7 +218,7 @@ def _estimate_player_max_age(profile_rows: list[dict], reference_date: Optional[
             for item in strongest_candidates
             if item.get("season_code")
         },
-        key=_season_sort_key,
+        key=season_sort_key,
         reverse=True,
     )
 
@@ -353,19 +319,7 @@ def _infer_side_from_participation(match, participation) -> Optional[str]:
     return None
 
 
-_ROLE_LABELS = {
-    "PASSEUR": "Passeur",
-    "POINTU": "Pointu",
-    "CENTRAL": "Central",
-    "RECEPTIONNEUR_ATTAQUANT": "Receptionneur-attaquant",
-    "LIBERO": "Libero",
-}
 
-
-def _role_label(role_code: Optional[str]) -> str:
-    if not role_code:
-        return "Non determine"
-    return _ROLE_LABELS.get(role_code, role_code.replace("_", " ").title())
 
 
 def _role_hint_source(hint: str) -> str:
@@ -446,7 +400,7 @@ async def joueur_detail(
     if not joueur:
         return templates.TemplateResponse(
             "error.html",
-            {"request": request, "message": "Joueur non trouvé"},
+            {"request": request, "message": "Joueur non trouvÃ©"},
             status_code=404,
         )
 
@@ -636,7 +590,7 @@ async def joueur_detail(
             continue
         code = saison.code
         candidate = (
-            _season_sort_key(code),
+            season_sort_key(code),
             match.date_match or dt_date.min,
             code,
         )
@@ -764,7 +718,7 @@ async def joueur_detail(
     for club_data in [current_club] + former_clubs:
         if not club_data:
             continue
-        club_data["saisons"] = sorted(club_data["saisons"], key=_season_sort_key, reverse=True)
+        club_data["saisons"] = sorted(club_data["saisons"], key=season_sort_key, reverse=True)
 
     level_distribution_counts: dict[str, dict[str, int | Optional[int]]] = {}
     for row in stats_rows_filtered:
@@ -967,7 +921,7 @@ async def joueur_detail(
             {
                 "numero": "?",
                 "club_id": fallback_club.id if fallback_club else None,
-                "club_nom": fallback_club.nom if fallback_club else "Club non identifié",
+                "club_nom": fallback_club.nom if fallback_club else "Club non identifiÃ©",
                 "primary": fallback_palette["primary"],
                 "secondary": fallback_palette["secondary"],
                 "text_on_primary": fallback_palette["text_on_primary"],
@@ -1196,7 +1150,7 @@ async def joueur_detail(
                     "points_gagnes_sideout": points_gagnes_sideout,
                     "sideout_contribution_pct": sideout_contribution_pct,
                     "role_code": role_code,
-                    "role_label": _role_label(role_code),
+                    "role_label": role_label(role_code),
                     "role_plausibility_pct": round(role_confidence * 100, 1),
                     "role_sources": role_sources,
                     "role_indices": role_indices,
@@ -1236,7 +1190,7 @@ async def joueur_detail(
             role_rows = [
                 {
                     "code": role_code,
-                    "label": _role_label(role_code),
+                    "label": role_label(role_code),
                     "score_pct": round(float(role_scores_moyens.get(role_code, 0.0)) * 100, 1),
                     "matches": int(
                         role_distribution_matchs.get(
@@ -1271,7 +1225,7 @@ async def joueur_detail(
             role_overview = {
                 "available": bool(role_principal_global or role_rows),
                 "principal_code": role_principal_global,
-                "principal_label": _role_label(role_principal_global),
+                "principal_label": role_label(role_principal_global),
                 "plausibility_pct": plausibility_pct,
                 "consistency_pct": round(consistency_ratio * 100, 1),
                 "average_confidence_pct": round(average_confidence * 100, 1),
@@ -1329,15 +1283,15 @@ async def joueur_detail(
         if side == "A":
             score_for = match.sets_equipe_a
             score_against = match.sets_equipe_b
-            score = f"{score_for}-{score_against}" if match.match_joue else "—"
+            score = f"{score_for}-{score_against}" if match.match_joue else "â€”"
             domicile_exterieur = "Domicile"
         elif side == "B":
             score_for = match.sets_equipe_b
             score_against = match.sets_equipe_a
-            score = f"{score_for}-{score_against}" if match.match_joue else "—"
-            domicile_exterieur = "Extérieur"
+            score = f"{score_for}-{score_against}" if match.match_joue else "â€”"
+            domicile_exterieur = "ExtÃ©rieur"
         else:
-            score = f"{match.sets_equipe_a or 0}-{match.sets_equipe_b or 0}" if match.match_joue else "—"
+            score = f"{match.sets_equipe_a or 0}-{match.sets_equipe_b or 0}" if match.match_joue else "â€”"
             domicile_exterieur = "Inconnu"
         recent_matchs.append(
             {
@@ -1365,15 +1319,15 @@ async def joueur_detail(
         if side == "A":
             score_for = match.sets_equipe_a
             score_against = match.sets_equipe_b
-            score = f"{score_for}-{score_against}" if match.match_joue else "—"
+            score = f"{score_for}-{score_against}" if match.match_joue else "â€”"
             domicile_exterieur = "Domicile"
         elif side == "B":
             score_for = match.sets_equipe_b
             score_against = match.sets_equipe_a
-            score = f"{score_for}-{score_against}" if match.match_joue else "—"
-            domicile_exterieur = "Extérieur"
+            score = f"{score_for}-{score_against}" if match.match_joue else "â€”"
+            domicile_exterieur = "ExtÃ©rieur"
         else:
-            score = f"{match.sets_equipe_a or 0}-{match.sets_equipe_b or 0}" if match.match_joue else "—"
+            score = f"{match.sets_equipe_a or 0}-{match.sets_equipe_b or 0}" if match.match_joue else "â€”"
             domicile_exterieur = "Inconnu"
         match_rows.append(
             {
@@ -1421,7 +1375,7 @@ async def joueur_detail(
                     f"{row['equipe_joueur'].nom if row['equipe_joueur'] else '?'} vs {row['adversaire'].nom if row['adversaire'] else '?'}"
                     f"</a></strong><br>"
                     f"{match.date_match.strftime('%d/%m/%Y') if match.date_match else 'Date inconnue'}"
-                    f"<br>{'Domicile' if row['side'] == 'A' else ('Extérieur' if row['side'] == 'B' else 'Inconnu')}"
+                    f"<br>{'Domicile' if row['side'] == 'A' else ('ExtÃ©rieur' if row['side'] == 'B' else 'Inconnu')}"
                 ),
             }
         )

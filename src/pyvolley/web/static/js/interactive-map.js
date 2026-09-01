@@ -132,6 +132,26 @@
           }
 
           this.markerLayer.addTo(this.map);
+
+          // Observe container visibility transitions (e.g. Alpine tab switch) to auto-invalidate map size
+          if (typeof IntersectionObserver !== 'undefined') {
+            var self = this;
+            var observer = new IntersectionObserver(function(entries) {
+              entries.forEach(function(entry) {
+                if (entry.isIntersecting && self.map) {
+                  try {
+                    self.map.invalidateSize();
+                    if (self.markers && self.markers.length > 1) {
+                      var group = L.featureGroup(self.markers);
+                      self.map.fitBounds(group.getBounds().pad(0.1));
+                    }
+                  } catch (e) {}
+                }
+              });
+            }, { threshold: 0.05 });
+            observer.observe(container);
+            this._visibilityObserver = observer;
+          }
         },
 
         // ── Data Loading ─────────────────────────────────────

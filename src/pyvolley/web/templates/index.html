@@ -12,17 +12,16 @@
             <h1 class="text-4xl md:text-5xl font-black tracking-tight mb-3">
                 <span class="gradient-text">PyVolley</span>
             </h1>
-            <p class="text-lg mb-8" style="color: var(--text-secondary);">
+            <p class="text-lg text-secondary mb-8">
                 Explorez les données du volleyball français — matchs, joueurs, clubs et statistiques
             </p>
             <form action="/search" method="get" class="max-w-xl relative">
-                <i data-lucide="search" class="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2" style="color: var(--text-muted);"></i>
+                <i data-lucide="search" class="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-muted"></i>
                 <input type="text" name="q"
                        placeholder="Rechercher un joueur, une équipe, un club..."
                        class="search-input text-lg py-4 pl-12 pr-32">
                 <button type="submit"
-                        class="absolute right-2 top-1/2 -translate-y-1/2 px-6 py-2 rounded-lg font-semibold text-white text-sm transition"
-                        style="background: var(--accent-blue);">
+                        class="absolute right-2 top-1/2 -translate-y-1/2 px-6 py-2 rounded-lg font-semibold text-white text-sm transition btn-primary">
                     Rechercher
                 </button>
             </form>
@@ -45,7 +44,7 @@
     <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <!-- Matchs par saison -->
         <div class="card p-6">
-            <h3 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+            <h3 class="section-title mb-4">
                 <i data-lucide="bar-chart-3" class="w-4 h-4 inline-block mr-1"></i>
                 Matchs par saison
             </h3>
@@ -56,7 +55,7 @@
 
         <!-- Matchs par mois -->
         <div class="card p-6">
-            <h3 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+            <h3 class="section-title mb-4">
                 <i data-lucide="trending-up" class="w-4 h-4 inline-block mr-1"></i>
                 Activité mensuelle
             </h3>
@@ -69,33 +68,30 @@
     <!-- Quick Navigation -->
     <section class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <a href="/joueurs" class="card card-interactive p-6 flex items-start gap-4 no-underline">
-            <div class="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
-                 style="background: rgba(59,130,246,0.15);">
-                <i data-lucide="users" class="w-6 h-6" style="color: var(--accent-blue);"></i>
+            <div class="icon-highlight-box bg-tint-blue">
+                <i data-lucide="users" class="w-6 h-6 text-accent-blue"></i>
             </div>
             <div>
                 <h3 class="font-semibold text-white mb-1">Joueurs</h3>
-                <p class="text-sm" style="color: var(--text-secondary);">Rechercher et consulter les fiches joueurs et leurs statistiques</p>
+                <p class="text-sm text-secondary">Rechercher et consulter les fiches joueurs et leurs statistiques</p>
             </div>
         </a>
         <a href="/matchs" class="card card-interactive p-6 flex items-start gap-4 no-underline">
-            <div class="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
-                 style="background: rgba(239,68,68,0.15);">
-                <i data-lucide="swords" class="w-6 h-6" style="color: var(--accent-red);"></i>
+            <div class="icon-highlight-box bg-tint-red">
+                <i data-lucide="swords" class="w-6 h-6 text-accent-red"></i>
             </div>
             <div>
                 <h3 class="font-semibold text-white mb-1">Matchs</h3>
-                <p class="text-sm" style="color: var(--text-secondary);">Feuilles de match détaillées avec simulation interactive</p>
+                <p class="text-sm text-secondary">Feuilles de match détaillées avec simulation interactive</p>
             </div>
         </a>
         <a href="/statistiques" class="card card-interactive p-6 flex items-start gap-4 no-underline">
-            <div class="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
-                 style="background: rgba(245,158,11,0.15);">
-                <i data-lucide="bar-chart" class="w-6 h-6" style="color: var(--accent-gold);"></i>
+            <div class="icon-highlight-box bg-tint-gold">
+                <i data-lucide="bar-chart" class="w-6 h-6 text-accent-gold"></i>
             </div>
             <div>
                 <h3 class="font-semibold text-white mb-1">Statistiques</h3>
-                <p class="text-sm" style="color: var(--text-secondary);">Graphiques et analyses des données volleyball</p>
+                <p class="text-sm text-secondary">Graphiques et analyses des données volleyball</p>
             </div>
         </a>
     </section>
@@ -103,12 +99,12 @@
     <!-- Derniers matchs -->
     {% if derniers_matchs %}
     <section class="card overflow-hidden">
-        <div class="px-6 py-4 flex items-center justify-between" style="border-bottom: 1px solid var(--border-color);">
+        <div class="px-6 py-4 flex items-center justify-between border-b">
             <h2 class="font-semibold flex items-center gap-2">
-                <i data-lucide="clock" class="w-4 h-4" style="color: var(--accent-blue);"></i>
+                <i data-lucide="clock" class="w-4 h-4 text-accent-blue"></i>
                 Derniers matchs
             </h2>
-            <a href="/matchs" class="text-sm transition" style="color: var(--accent-blue);">Voir tous →</a>
+            <a href="/matchs" class="text-sm text-accent-blue transition">Voir tous →</a>
         </div>
         <div class="overflow-x-auto">
             <table class="data-table">
@@ -125,7 +121,7 @@
                 <tbody>
                     {% for match in derniers_matchs %}
                     <tr>
-                        <td class="whitespace-nowrap" style="color: var(--text-secondary);">
+                        <td class="whitespace-nowrap text-secondary">
                             {{ match.date_match|format_date }}
                         </td>
                         <td>
@@ -139,10 +135,10 @@
                             {% if match.score_sets %}
                             <span class="font-bold text-lg">
                                 <span class="score-team-a">{{ match.sets_equipe_a }}</span>
-                                <span style="color: var(--text-muted);">-</span>
+                                <span class="text-muted">-</span>
                                 <span class="score-team-b">{{ match.sets_equipe_b }}</span>
                             </span>
-                            {% else %}<span style="color: var(--text-muted);">—</span>{% endif %}
+                            {% else %}<span class="text-muted">—</span>{% endif %}
                         </td>
                         <td>
                             {% if match.equipe_b %}
@@ -151,7 +147,7 @@
                             </a>
                             {% else %}-{% endif %}
                         </td>
-                        <td style="color: var(--text-secondary);">{{ match.lieu|truncate_name(20) }}</td>
+                        <td class="text-secondary">{{ match.lieu|truncate_name(20) }}</td>
                         <td class="text-center">
                             <a href="{{ path_for_entity('match', match.id) }}" class="badge badge-blue">
                                 {% if match.has_details %}Détails{% else %}Voir{% endif %}

@@ -25,6 +25,8 @@ from pyvolley.database.repositories import (
     ArbitreRepository,
 )
 
+from pyvolley.web.helpers.cache import stats_cache
+
 router = APIRouter()
 
 
@@ -39,34 +41,35 @@ async def index(
     competition_repo: CompetitionRepository = Depends(get_competition_repo),
     arbitre_repo: ArbitreRepository = Depends(get_arbitre_repo),
 ):
-    stats = {
-        "matchs": match_repo.count(),
-        "joueurs": joueur_repo.count(),
-        "clubs": club_repo.count(),
-        "equipes": equipe_repo.count(),
-        "arbitres": arbitre_repo.count(),
-        "competitions": competition_repo.count(),
-    }
-    derniers_matchs = match_repo.search(limit=10)
-    saisons = saison_repo.get_all(limit=20)
+    def _load_dashboard_data():
+        return {
+            "stats": {
+                "matchs": match_repo.count(),
+                "joueurs": joueur_repo.count(),
+                "clubs": club_repo.count(),
+                "equipes": equipe_repo.count(),
+                "arbitres": arbitre_repo.count(),
+                "competitions": competition_repo.count(),
+            },
+            "derniers_matchs": match_repo.search(limit=10),
+            "saisons": saison_repo.get_all(limit=20),
+            "matchs_par_saison": [
+                {"saison": code, "count": count}
+                for code, count in match_repo.count_by_saison()
+            ],
+            "matchs_par_mois": [
+                {"year": int(y), "month": int(m), "count": c}
+                for y, m, c in match_repo.get_stats_by_month()
+            ],
+        }
 
-    matchs_par_saison = match_repo.count_by_saison()
-    matchs_par_mois = match_repo.get_stats_by_month()
+    data = stats_cache.get_or_compute("dashboard_data", _load_dashboard_data, ttl=300)
 
     return templates.TemplateResponse(
         "index.html",
         {
             "request": request,
-            "stats": stats,
-            "derniers_matchs": derniers_matchs,
-            "saisons": saisons,
-            "matchs_par_saison": [
-                {"saison": code, "count": count}
-                for code, count in matchs_par_saison
-            ],
-            "matchs_par_mois": [
-                {"year": int(y), "month": int(m), "count": c}
-                for y, m, c in matchs_par_mois
-            ],
+            **data,
         },
     )
+

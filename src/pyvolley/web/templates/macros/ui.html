@@ -9,13 +9,13 @@
    items: list of (label, url) tuples. Last item's url is ignored (current page).
    Example: breadcrumb([('Accueil', '/'), ('Matchs', '/matchs'), ('Match 123', '')]) #}
 {% macro breadcrumb(items) %}
-<nav class="text-sm flex items-center gap-2" style="color: var(--text-muted);">
+<nav class="text-sm flex items-center gap-2 text-muted">
     {% for label, url in items %}
     {% if not loop.last %}
     <a href="{{ url }}" class="hover:text-white transition">{{ label }}</a>
     <i data-lucide="chevron-right" class="w-3 h-3"></i>
     {% else %}
-    <span style="color: var(--text-secondary);">{{ label }}</span>
+    <span class="text-secondary">{{ label }}</span>
     {% endif %}
     {% endfor %}
 </nav>
@@ -25,8 +25,10 @@
 {# ── Pagination ──
    Standard prev/next pagination for list pages.
    base_url: the page URL without query params (e.g. '/joueurs')
+   total_pages: optional total number of pages
+   total_count: optional total count of items
    guard: if true, only show when no search query is active (for list pages with search) #}
-{% macro pagination(page, has_prev, has_next, base_url, guard=false) %}
+{% macro pagination(page, has_prev, has_next, base_url, total_pages=none, total_count=none, guard=false) %}
 {% set preserved = [] %}
 {% if request is defined and request.query_params is defined %}
 {% for key, value in request.query_params.multi_items() %}
@@ -36,17 +38,36 @@
 {% endfor %}
 {% endif %}
 {% set prefix = '?' ~ ('&'.join(preserved) ~ '&' if preserved else '') %}
-<div class="flex justify-center gap-2">
-    {% if has_prev %}
-    <a href="{{ base_url }}{{ prefix }}page={{ page - 1 }}" class="pagination-btn">
-        <i data-lucide="chevron-left" class="w-4 h-4"></i> Précédent
-    </a>
-    {% endif %}
-    <span class="pagination-btn opacity-60">Page {{ page }}</span>
-    {% if has_next %}
-    <a href="{{ base_url }}{{ prefix }}page={{ page + 1 }}" class="pagination-btn">
-        Suivant <i data-lucide="chevron-right" class="w-4 h-4"></i>
-    </a>
+<div class="flex flex-col items-center gap-2 mt-4">
+    <div class="flex justify-center items-center gap-2">
+        {% if has_prev %}
+        <a href="{{ base_url }}{{ prefix }}page={{ page - 1 }}" class="pagination-btn">
+            <i data-lucide="chevron-left" class="w-4 h-4"></i> Précédent
+        </a>
+        {% else %}
+        <span class="pagination-btn opacity-40 cursor-not-allowed">
+            <i data-lucide="chevron-left" class="w-4 h-4"></i> Précédent
+        </span>
+        {% endif %}
+
+        <span class="pagination-btn font-semibold text-primary">
+            Page {{ page }}{% if total_pages %} <span class="text-muted">/ {{ total_pages }}</span>{% endif %}
+        </span>
+
+        {% if has_next %}
+        <a href="{{ base_url }}{{ prefix }}page={{ page + 1 }}" class="pagination-btn">
+            Suivant <i data-lucide="chevron-right" class="w-4 h-4"></i>
+        </a>
+        {% else %}
+        <span class="pagination-btn opacity-40 cursor-not-allowed">
+            Suivant <i data-lucide="chevron-right" class="w-4 h-4"></i>
+        </span>
+        {% endif %}
+    </div>
+    {% if total_count is not none %}
+    <span class="text-xs text-muted">
+        {{ total_count }} résultat{% if total_count > 1 %}s{% endif %} au total
+    </span>
     {% endif %}
 </div>
 {% endmacro %}
@@ -80,7 +101,7 @@
    title: main message
    message: optional sub-message #}
 {% macro empty_state(icon, title, message=None) %}
-<div class="card p-12 text-center" style="color: var(--text-muted);">
+<div class="card p-12 text-center text-muted">
     <i data-lucide="{{ icon }}" class="w-12 h-12 mx-auto mb-4 opacity-30"></i>
     <p class="text-lg font-semibold mb-2">{{ title }}</p>
     {% if message %}
@@ -94,7 +115,7 @@
    icon: lucide icon name
    title: section title text #}
 {% macro section_header(icon, title) %}
-<h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+<h2 class="section-title">
     <i data-lucide="{{ icon }}" class="w-4 h-4 inline-block mr-1"></i>
     {{ title }}
 </h2>

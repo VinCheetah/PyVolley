@@ -568,6 +568,9 @@
             },
         });
 
+        if (window.PyVolleyCharts && window.PyVolleyCharts.observeCanvas) {
+            window.PyVolleyCharts.observeCanvas(canvas, chart);
+        }
         charts.push(chart);
         diag.chartsBuilt += 1;
     }

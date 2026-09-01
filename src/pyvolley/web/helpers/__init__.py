@@ -17,6 +17,17 @@ from pyvolley.web.helpers.club_branding import (
     parse_club_colors,
     build_club_branding,
 )
+from pyvolley.web.helpers.common import (
+    safe_int,
+    safe_float,
+    pct,
+    strip_accents,
+    normalize_text_upper,
+    role_label,
+    ROLE_LABELS,
+    season_sort_key,
+    season_end_year,
+)
 
 __all__ = [
     "resolve_niveau_badge",
@@ -28,4 +39,14 @@ __all__ = [
     "niveau_rank",
     "parse_club_colors",
     "build_club_branding",
+    "safe_int",
+    "safe_float",
+    "pct",
+    "strip_accents",
+    "normalize_text_upper",
+    "role_label",
+    "ROLE_LABELS",
+    "season_sort_key",
+    "season_end_year",
 ]
+

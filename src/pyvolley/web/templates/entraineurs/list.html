@@ -9,10 +9,10 @@
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
             <h1 class="text-2xl font-bold">
-                <i data-lucide="clipboard-list" class="w-6 h-6 inline-block mr-2" style="color: var(--accent-green);"></i>
+                <i data-lucide="clipboard-list" class="w-6 h-6 inline-block mr-2 text-accent-green"></i>
                 Entraîneurs
             </h1>
-            <p style="color: var(--text-muted);">{{ total }} entraîneurs enregistrés</p>
+            <p class="text-muted">{{ total }} entraîneurs enregistrés</p>
         </div>
     </div>
 
@@ -48,9 +48,9 @@
                 {% for e in entraineurs %}
                 <tr>
                     <td class="font-semibold text-white">{{ e.nom }}</td>
-                    <td style="color: var(--text-secondary);">{{ e.prenom or '—' }}</td>
+                    <td class="text-secondary">{{ e.prenom or '—' }}</td>
                     <td>
-                        <span class="font-mono text-xs" style="color: var(--text-muted);">{{ e.licence or '—' }}</span>
+                        <span class="font-mono text-xs text-muted">{{ e.licence or '—' }}</span>
                     </td>
                     <td class="text-center">
                         <span class="badge badge-green">{{ e.matchs_count }}</span>
@@ -63,7 +63,7 @@
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="5" class="text-center py-8" style="color: var(--text-muted);">
+                    <td colspan="5" class="text-center py-8 text-muted">
                         {% if query %}
                         Aucun entraîneur trouvé pour ces critères
                         {% else %}

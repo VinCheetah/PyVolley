@@ -1,10 +1,10 @@
 from datetime import date as dt_date
 from types import SimpleNamespace
 
+from pyvolley.web.helpers.common import season_end_year as _season_end_year_from_code
 from pyvolley.web.routes.joueurs import (
     _estimate_player_max_age,
     _extract_youth_ages_from_text,
-    _season_end_year_from_code,
 )
 
 
