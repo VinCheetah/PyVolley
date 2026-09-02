@@ -10,7 +10,14 @@
 
 {% block content %}
 {% set momentum_debug = request.query_params.get('momentum_debug') == '1' %}
-<div class="space-y-6" x-data="{ activeSet: {{ match.sets[0].numero if match.sets else 0 }}, activeTab: 'resume' }">
+<div class="space-y-6" x-data="{
+    activeSet: {{ match.sets[0].numero if match.sets else 0 }},
+    activeTab: ['resume', 'sets', 'joueurs', 'officiels', 'sanctions', 'statistiques', 'simulation'].includes(window.location.hash.replace('#', '')) ? window.location.hash.replace('#', '') : 'resume',
+    setTab(tab) {
+        this.activeTab = tab;
+        try { history.replaceState(null, '', '#' + tab); } catch(e) {}
+    }
+}">
 
     {{ breadcrumb([('Accueil', '/'), ('Matchs', '/matchs'), (match.code_match, '')]) }}
 
@@ -19,36 +26,36 @@
 
     <!-- ═══════════════ Tabs Navigation ═══════════════ -->
     <div class="tab-nav">
-        <button @click="activeTab = 'resume'" class="tab-btn" :class="{ 'active': activeTab === 'resume' }">
+        <button @click="setTab('resume')" class="tab-btn" :class="{ 'active': activeTab === 'resume' }">
             <i data-lucide="file-text" class="w-4 h-4"></i> Résumé
         </button>
         {% if match.sets %}
-        <button @click="activeTab = 'sets'" class="tab-btn" :class="{ 'active': activeTab === 'sets' }">
+        <button @click="setTab('sets')" class="tab-btn" :class="{ 'active': activeTab === 'sets' }">
             <i data-lucide="layers" class="w-4 h-4"></i> Sets
         </button>
         {% endif %}
         {% if participants_a or participants_b %}
-        <button @click="activeTab = 'joueurs'" class="tab-btn" :class="{ 'active': activeTab === 'joueurs' }">
+        <button @click="setTab('joueurs')" class="tab-btn" :class="{ 'active': activeTab === 'joueurs' }">
             <i data-lucide="users" class="w-4 h-4"></i> Joueurs
         </button>
         {% endif %}
         {% if match.arbitrages %}
-        <button @click="activeTab = 'officiels'" class="tab-btn" :class="{ 'active': activeTab === 'officiels' }">
+        <button @click="setTab('officiels')" class="tab-btn" :class="{ 'active': activeTab === 'officiels' }">
             <i data-lucide="shield" class="w-4 h-4"></i> Officiels
         </button>
         {% endif %}
         {% if match.sanctions %}
-        <button @click="activeTab = 'sanctions'" class="tab-btn" :class="{ 'active': activeTab === 'sanctions' }">
+        <button @click="setTab('sanctions')" class="tab-btn" :class="{ 'active': activeTab === 'sanctions' }">
             <i data-lucide="alert-triangle" class="w-4 h-4"></i> Sanctions
         </button>
         {% endif %}
         {% if match.has_details %}
-        <button @click="activeTab = 'statistiques'" class="tab-btn" :class="{ 'active': activeTab === 'statistiques' }">
+        <button @click="setTab('statistiques')" class="tab-btn" :class="{ 'active': activeTab === 'statistiques' }">
             <i data-lucide="bar-chart-3" class="w-4 h-4"></i> Statistiques
         </button>
         {% endif %}
         {% if match.has_details %}
-        <button @click="activeTab = 'simulation'" class="tab-btn" :class="{ 'active': activeTab === 'simulation' }">
+        <button @click="setTab('simulation')" class="tab-btn" :class="{ 'active': activeTab === 'simulation' }">
             <i data-lucide="play-circle" class="w-4 h-4"></i> Simulation
         </button>
         {% endif %}

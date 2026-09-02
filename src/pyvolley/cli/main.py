@@ -3099,10 +3099,16 @@ def profile_parser_cli(
     import pymupdf
     from pyvolley.parsers.fast_parser import FastMatchSheetParser
     from pyvolley.parsers.layout_config import DEFAULT_FFVB_LAYOUT
-    from pyvolley.parsers.extractors.zone_extractor import extract_hierarchical_data
-    from pyvolley.parsers.extractors.equipes_geometry import extract_team_roster_geometry
+    from pyvolley.parsers.extractors.fast import (
+        normalize_words,
+        extract_fast_header,
+        extract_fast_rosters,
+        extract_fast_arbitres,
+        extract_fast_resultats,
+        extract_fast_sets,
+    )
 
-    console.print(Panel("[bold cyan][PROFILER] PROFILAGE DÉTAILLÉ DE LA VITESSE D'EXÉCUTION DU PARSER (DEV CLI)[/bold cyan]"))
+    console.print(Panel("[bold cyan][PROFILER] PROFILAGE DÉTAILLÉ DE LA VITESSE D'EXÉCUTION DU PARSER FAST (DEV CLI)[/bold cyan]"))
 
     pdf_files = [pdf_path] if pdf_path else [Path(p) for p in sorted(glob.glob("data/data_sample/*.pdf"))]
     if not pdf_files:
@@ -3110,10 +3116,10 @@ def profile_parser_cli(
         return
 
     table = Table(title="Performance par Fichier PDF", show_header=True, header_style="bold magenta")
-    table.add_column("Fichier PDF", style="cyan", width=18)
+    table.add_column("Fichier PDF", style="cyan", width=16)
     table.add_column("PyMuPDF IO", justify="right", width=12)
-    table.add_column("Extraction Zones", justify="right", width=16)
-    table.add_column("Roster & Capitaines", justify="right", width=18)
+    table.add_column("Extraction Fast", justify="right", width=16)
+    table.add_column("Modèle Match", justify="right", width=14)
     table.add_column("Temps Total", justify="right", width=12, style="bold green")
 
     results = []
@@ -3123,57 +3129,63 @@ def profile_parser_cli(
         if not pfile.exists():
             continue
 
-        tot_io, tot_zones, tot_rost, tot_full = 0.0, 0.0, 0.0, 0.0
+        tot_io, tot_extract, tot_model, tot_full = 0.0, 0.0, 0.0, 0.0
         for _ in range(iterations):
+            # Benchmark Parse direct
+            t_start = time.perf_counter_ns()
+            res = parser.parse(pfile)
+            t_end = time.perf_counter_ns()
+            tot_full += (t_end - t_start) / 1e6
+
+            # Décomposition des sous-étapes
             t0 = time.perf_counter_ns()
             doc = pymupdf.open(pfile)
             page = doc[0]
             raw_words = page.get_text("words")
-            words = [{"x0": w[0], "y0": w[1], "x1": w[2], "y1": w[3], "text": w[4]} for w in raw_words]
-            drawings = page.get_drawings()
-            raw = page.get_text("rawdict")
-            image_blocks = []
-            for b in raw.get("blocks", []):
-                if b.get("type") == 1:
-                    bbox = b["bbox"]
-                    w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-                    if bbox[0] > 550 and 270 <= bbox[1] <= 410 and 5 <= w <= 25 and 5 <= h <= 25:
-                        image_blocks.append((bbox[0], bbox[1], bbox[2], bbox[3]))
+            sorted_words, y0_list = normalize_words(raw_words)
+            image_info_list = page.get_image_info(hashes=True)
+            captain_image_bboxes = [img["bbox"] for img in image_info_list if "bbox" in img]
             doc.close()
             t1 = time.perf_counter_ns()
 
-            h_data = extract_hierarchical_data(words, DEFAULT_FFVB_LAYOUT, drawings=drawings)
+            # Extraction modulaire complète
+            hdr = extract_fast_header(sorted_words, y0_list, DEFAULT_FFVB_LAYOUT, image_blocks=image_info_list)
+            eq_a, eq_b, _, _ = extract_fast_rosters(
+                sorted_words, y0_list, DEFAULT_FFVB_LAYOUT,
+                nom_gauche=hdr.nom_gauche, nom_droite=hdr.nom_droite,
+                gauche_est_equipe_a=hdr.gauche_est_equipe_a,
+                captain_image_bboxes=captain_image_bboxes
+            )
+            arbs = extract_fast_arbitres(sorted_words, y0_list, DEFAULT_FFVB_LAYOUT)
+            res_data = extract_fast_resultats(sorted_words, y0_list, DEFAULT_FFVB_LAYOUT)
+            sets_list = extract_fast_sets(
+                sorted_words, y0_list, DEFAULT_FFVB_LAYOUT,
+                gauche_est_equipe_a=hdr.gauche_est_equipe_a,
+                sets_summary=res_data.sets_summary
+            )
             t2 = time.perf_counter_ns()
 
-            r_g = extract_team_roster_geometry(words, team_suffix="gauche", config=DEFAULT_FFVB_LAYOUT, drawings=drawings, image_blocks=image_blocks)
-            r_d = extract_team_roster_geometry(words, team_suffix="droite", config=DEFAULT_FFVB_LAYOUT, drawings=drawings, image_blocks=image_blocks)
-            t3 = time.perf_counter_ns()
-
-            res = parser.parse(pfile)
-            t4 = time.perf_counter_ns()
-
             tot_io += (t1 - t0) / 1e6
-            tot_zones += (t2 - t1) / 1e6
-            tot_rost += (t3 - t2) / 1e6
-            tot_full += (t4 - t0) / 1e6
+            tot_extract += (t2 - t1) / 1e6
+            tot_model += max(0.0, ((t_end - t_start) / 1e6) - ((t1 - t0) / 1e6) - ((t2 - t1) / 1e6))
 
         avg_io = tot_io / iterations
-        avg_zones = tot_zones / iterations
-        avg_rost = tot_rost / iterations
+        avg_extract = tot_extract / iterations
+        avg_model = tot_model / iterations
         avg_full = tot_full / iterations
 
         results.append({
             "file": pfile.name,
             "io": avg_io,
-            "zones": avg_zones,
-            "rost": avg_rost,
+            "extract": avg_extract,
+            "model": avg_model,
             "full": avg_full,
         })
         table.add_row(
             pfile.name,
             f"{avg_io:.2f} ms",
-            f"{avg_zones:.2f} ms",
-            f"{avg_rost:.2f} ms",
+            f"{avg_extract:.2f} ms",
+            f"{avg_model:.2f} ms",
             f"{avg_full:.2f} ms",
         )
 
@@ -3181,8 +3193,8 @@ def profile_parser_cli(
 
     if results:
         mean_io = sum(r["io"] for r in results) / len(results)
-        mean_zones = sum(r["zones"] for r in results) / len(results)
-        mean_rost = sum(r["rost"] for r in results) / len(results)
+        mean_extract = sum(r["extract"] for r in results) / len(results)
+        mean_model = sum(r["model"] for r in results) / len(results)
         mean_full = sum(r["full"] for r in results) / len(results)
 
         summary_table = Table(title="[STATISTIQUES] Répartition Moyenne du Temps d'Exécution", show_header=True, header_style="bold yellow")
@@ -3190,10 +3202,9 @@ def profile_parser_cli(
         summary_table.add_column("Temps Moyen", justify="right", style="cyan")
         summary_table.add_column("Pourcentage", justify="right", style="bold green")
 
-        summary_table.add_row("1. Lecture IO PyMuPDF (words + rawdict)", f"{mean_io:.2f} ms", f"{mean_io/mean_full*100:.1f}%")
-        summary_table.add_row("2. Extraction des Zones Hiérarchisées", f"{mean_zones:.2f} ms", f"{mean_zones/mean_full*100:.1f}%")
-        summary_table.add_row("3. Roster & Détection Capitaines (Image Blocks)", f"{mean_rost:.2f} ms", f"{mean_rost/mean_full*100:.1f}%")
-        summary_table.add_row("4. Modèles Pydantic & Instanciation Match", f"{(mean_full - mean_io - mean_zones - mean_rost):.2f} ms", f"{((mean_full - mean_io - mean_zones - mean_rost)/mean_full*100):.1f}%")
+        summary_table.add_row("1. Lecture IO PyMuPDF (words + hashes)", f"{mean_io:.2f} ms", f"{mean_io/mean_full*100:.1f}%")
+        summary_table.add_row("2. Extraction directe (Header, Rosters, Sets, Arbitres, Résultats)", f"{mean_extract:.2f} ms", f"{mean_extract/mean_full*100:.1f}%")
+        summary_table.add_row("3. Modèles Pydantic & Instanciation Match", f"{mean_model:.2f} ms", f"{mean_model/mean_full*100:.1f}%")
         summary_table.add_row("[bold]TOTAL MOYEN PER PDF[/bold]", f"[bold]{mean_full:.2f} ms[/bold]", "[bold]100.0%[/bold]")
 
         console.print(summary_table)
@@ -3408,6 +3419,97 @@ def db_import_history(
     except Exception as e:
         console.print(f"[red]✗ {e}[/red]")
         raise typer.Exit(1)
+
+
+@db_app.command("vacuum")
+def db_vacuum():
+    """Nettoie et compacte la base de donnees SQLite (recupere l'espace libre)."""
+    from pyvolley.database.connection import vacuum_db
+
+    console.print("[cyan][...] Demarrage du VACUUM de la base de donnees...[/cyan]")
+    res = vacuum_db()
+    if res.get("status") == "success":
+        console.print(
+            Panel(
+                f"[bold green]Base compactee avec succes ![/bold green]\n"
+                f"Taille avant : [bold]{res['size_before_mb']} Mo[/bold]\n"
+                f"Taille apres : [bold]{res['size_after_mb']} Mo[/bold]\n"
+                f"Espace libere : [bold cyan]{res['freed_mb']} Mo[/bold cyan]",
+                title="Resultat VACUUM",
+            )
+        )
+    else:
+        console.print(f"[yellow]Ignore : {res.get('reason')}[/yellow]")
+
+
+@db_app.command("compute-rollups")
+def db_compute_rollups(
+    saison: Optional[str] = typer.Option(
+        None, "--saison", "-s", help="Code de la saison (ex: 2025-2026)."
+    ),
+):
+    """Calcule et genere les statistiques agglomerees (joueur-saison, equipes, carrieres)."""
+    from pyvolley.database.connection import get_db
+    from pyvolley.database.models import SaisonDB
+    from pyvolley.database.rollup_service import RollupStatsService
+    from sqlalchemy import select
+
+    with get_db() as session:
+        saison_id = None
+        if saison:
+            s_obj = session.scalars(select(SaisonDB).where(SaisonDB.code == saison)).first()
+            if not s_obj:
+                console.print(f"[red]Saison '{saison}' introuvable.[/red]")
+                raise typer.Exit(1)
+            saison_id = s_obj.id
+
+        service = RollupStatsService(session)
+        console.print("[cyan][...] Calcul et synchronisation des stats joueur par match...[/cyan]")
+        n_jms = service.compute_all_player_match_stats(saison_id=saison_id)
+        console.print(f"[green][OK] {n_jms} lignes joueur_match_stats synchronisees.[/green]")
+
+        console.print("[cyan][...] Calcul des statistiques joueur par saison...[/cyan]")
+        n_js = service.compute_player_season_stats(saison_id=saison_id)
+        console.print(f"[green][OK] {n_js} lignes stats_joueur_saison calculees.[/green]")
+
+        console.print("[cyan][...] Calcul des bilans d'equipe par saison...[/cyan]")
+        n_es = service.compute_team_season_stats(saison_id=saison_id)
+        console.print(f"[green][OK] {n_es} lignes stats_equipe_saison calculees.[/green]")
+
+        console.print("[cyan][...] Calcul des syntheses de carriere joueur...[/cyan]")
+        n_jc = service.compute_player_career_stats()
+        console.print(f"[green][OK] {n_jc} lignes stats_joueur_carriere calculees.[/green]")
+
+    console.print(
+        Panel(
+            f"[bold green]Statistiques agglomerees generees avec succes ![/bold green]\n"
+            f"- Stats Joueur/Match  : [bold]{n_jms}[/bold]\n"
+            f"- Stats Joueur/Saison : [bold]{n_js}[/bold]\n"
+            f"- Stats Equipe/Saison : [bold]{n_es}[/bold]\n"
+            f"- Stats Carriere      : [bold]{n_jc}[/bold]",
+            title="Bilan des Rollups",
+        )
+    )
+
+
+@app.command("compute-rollups")
+def app_compute_rollups(
+    saison: Optional[str] = typer.Option(
+        None, "--saison", "-s", help="Code de la saison (ex: 2025-2026)."
+    ),
+):
+    """Calcule et synchronise les statistiques de match et agglomerees (raccourci vers db compute-rollups)."""
+    db_compute_rollups(saison=saison)
+
+
+@app.command("compute-player-stats")
+def app_compute_player_stats(
+    saison: Optional[str] = typer.Option(
+        None, "--saison", "-s", help="Code de la saison (ex: 2025-2026)."
+    ),
+):
+    """Calcule et synchronise les statistiques joueur par match (raccourci)."""
+    db_compute_rollups(saison=saison)
 
 
 # ════════════════════════════════════════════════════════════════════

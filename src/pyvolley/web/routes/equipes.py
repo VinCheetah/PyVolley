@@ -357,8 +357,7 @@ async def equipe_detail(
             )
         )
         for role_row in role_rows:
-            if isinstance(role_row.stats_data, dict):
-                role_samples_by_player[role_row.joueur_id].append(role_row.stats_data)
+            role_samples_by_player[role_row.joueur_id].append(role_row.as_dict())
 
     roster, roster_role_groups = _build_roster_role_groups(roster, role_samples_by_player)
     players_with_role_data = sum(
@@ -401,12 +400,16 @@ async def equipe_detail(
             club_code_ffvb=equipe.club.code_ffvb,
         )
 
+    from pyvolley.database.repositories import EquipeSaisonStatsRepository
+    equipe_saison_stats = EquipeSaisonStatsRepository(equipe_repo.session).get_for_equipe(equipe.id)
+
     return templates.TemplateResponse(
         "equipes/detail.html",
         {
             "request": request,
             "equipe": equipe,
             "matchs": matchs,
+            "saison_stats": equipe_saison_stats,
             "victoires": victoires,
             "defaites": len([m for m in matchs if m.match_joue]) - victoires,
             "roster": roster,
@@ -420,3 +423,4 @@ async def equipe_detail(
             "url_ffvb": url_ffvb,
         },
     )
+

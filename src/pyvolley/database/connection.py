@@ -62,12 +62,17 @@ def get_engine() -> Engine:
                 connect_args=connect_args,
             )
         
-        # Activer les foreign keys pour SQLite
+        # Activer les foreign keys, le mode WAL et optimiser SQLite
         @event.listens_for(_engine, "connect")
         def set_sqlite_pragma(dbapi_connection, connection_record):
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA busy_timeout=15000")
+            cursor.execute("PRAGMA cache_size=-64000")  # 64MB memory cache
             cursor.close()
+
     
     elif database_url.startswith("postgresql"):
         # PostgreSQL - mode production
@@ -320,3 +325,43 @@ def check_connection() -> bool:
     except Exception as e:
         logger.error(f"Database connection failed: {e}")
         return False
+
+
+def vacuum_db() -> dict:
+    """
+    Exécute un VACUUM et optimise les pages de la base de données SQLite.
+    
+    Returns:
+        Dictionnaire avec les tailles avant/après et l'espace récupéré.
+    """
+    database_url = settings.database_url
+    if not database_url.startswith("sqlite"):
+        return {"status": "skipped", "reason": "Not a SQLite database"}
+
+    db_path = database_url.replace("sqlite:///", "")
+    if not db_path or db_path == ":memory:" or not os.path.exists(db_path):
+        return {"status": "skipped", "reason": "Database file not found"}
+
+
+    size_before = os.path.getsize(db_path)
+    logger.info(f"Starting VACUUM on {db_path} (Current size: {size_before / (1024*1024):.2f} MB)...")
+
+    engine = get_engine()
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        conn.execute(text("VACUUM"))
+        conn.execute(text("ANALYZE"))
+
+    size_after = os.path.getsize(db_path)
+    freed_mb = (size_before - size_after) / (1024 * 1024)
+    logger.info(
+        f"VACUUM completed! New size: {size_after / (1024*1024):.2f} MB "
+        f"(Freed: {freed_mb:.2f} MB)"
+    )
+
+    return {
+        "status": "success",
+        "size_before_mb": round(size_before / (1024 * 1024), 2),
+        "size_after_mb": round(size_after / (1024 * 1024), 2),
+        "freed_mb": round(freed_mb, 2),
+    }
+

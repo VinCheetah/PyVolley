@@ -835,7 +835,7 @@ async def match_detail(
         for row in prev_rows:
             if row.equipe_id is None:
                 continue
-            prev_team_rows[(row.match_id, row.equipe_id)].append({"stats": row.stats_data})
+            prev_team_rows[(row.match_id, row.equipe_id)].append({"stats": row.as_dict()})
 
         previous_a = []
         for prev in prev_matches_a:
@@ -885,14 +885,14 @@ async def match_detail(
             "face_to_face": _build_face_to_face_rows(match, summary_a, summary_b),
             "teams": {
                 "A": {
-                    "name": match.equipe_a.nom if match.equipe_a else "Ã‰quipe A",
+                    "name": match.equipe_a.nom if match.equipe_a else "Équipe A",
                     "summary": summary_a,
                     "positions": _build_position_stats(match, "A", player_stats_a),
                     "history": _build_team_history_rows(summary_a, previous_a),
                     "levels": _build_team_levels_snapshot(match, participants_a, repo.session),
                 },
                 "B": {
-                    "name": match.equipe_b.nom if match.equipe_b else "Ã‰quipe B",
+                    "name": match.equipe_b.nom if match.equipe_b else "Équipe B",
                     "summary": summary_b,
                     "positions": _build_position_stats(match, "B", player_stats_b),
                     "history": _build_team_history_rows(summary_b, previous_b),
@@ -917,26 +917,20 @@ async def match_detail(
             ))
             player_history = []
             for stat_row, history_match in history_rows:
-                history_services = safe_int(
-                    stat_row.stats_data.get("services") or stat_row.stats_data.get("nb_services"),
-                )
-                history_break_points = safe_int(stat_row.stats_data.get("points_gagnes_service"))
-                history_points_gagnes = safe_int(stat_row.stats_data.get("points_gagnes"))
-                history_sideout_raw = stat_row.stats_data.get("points_gagnes_sideout")
-                if history_sideout_raw is None:
-                    history_sideout_points = max(0, history_points_gagnes - history_break_points)
-                else:
-                    history_sideout_points = max(0, safe_int(history_sideout_raw))
+                history_services = safe_int(stat_row.services)
+                history_break_points = safe_int(stat_row.points_gagnes_service)
+                history_points_gagnes = safe_int(stat_row.points_gagnes)
+                history_sideout_points = safe_int(stat_row.points_gagnes_sideout)
                 label = history_match.date_match.strftime("%d/%m") if history_match.date_match else history_match.code_match
                 player_history.append({
                     "label": label,
-                    "points_joues": safe_int(stat_row.stats_data.get("points_joues")),
-                    "efficacite_pct": round(pct(history_points_gagnes, safe_int(stat_row.stats_data.get("points_joues"))), 1),
+                    "points_joues": safe_int(stat_row.points_joues),
+                    "efficacite_pct": round(pct(history_points_gagnes, safe_int(stat_row.points_joues)), 1),
                     "services": history_services,
                     "break_point_ratio_pct": round(pct(history_break_points, history_services), 1),
                     "points_gagnes_sideout": max(0, history_sideout_points),
-                    "max_serie": safe_int(stat_row.stats_data.get("max_serie") or stat_row.stats_data.get("meilleure_serie")),
-                    "temps_jeu": round(safe_float(stat_row.stats_data.get("temps_jeu_estime")), 1),
+                    "max_serie": safe_int(stat_row.max_serie),
+                    "temps_jeu": round(safe_float(stat_row.temps_jeu_estime), 1),
                 })
 
             player_services = safe_int(stats.get("services") or stats.get("nb_services"))

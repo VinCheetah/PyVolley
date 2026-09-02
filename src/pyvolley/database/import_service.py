@@ -32,6 +32,7 @@ from .models import (
     PersonneDB,
 )
 from .player_stats_service import JoueurMatchStatsService
+from .rollup_service import RollupStatsService
 
 logger = logging.getLogger(__name__)
 
@@ -198,6 +199,14 @@ class MatchImportService:
                     "Aucune statistique joueur générée pour le match %s (id=%s) malgré %d participation(s)",
                     match_db.code_match, match_db.id, len(match_db.participations),
                 )
+
+        # 12. Actualisation incrémentale des statistiques agglomérées (Rollups)
+        if match_db.match_joue:
+            try:
+                rollup_service = RollupStatsService(self.session)
+                rollup_service.apply_match_delta(match_db.id)
+            except Exception as exc:
+                logger.warning("Erreur lors de l'actualisation des rollups pour le match %s: %s", match_db.id, exc)
 
         return match_db
 
@@ -1559,6 +1568,14 @@ class MatchImportService:
                         "Aucune statistique joueur générée pour le match %s (id=%s) malgré %d participation(s)",
                         match_db.code_match, match_db.id, len(match_db.participations),
                     )
+
+            # Actualisation incrémentale des rollups
+            if match_db.match_joue:
+                try:
+                    rollup_service = RollupStatsService(self.session)
+                    rollup_service.apply_match_delta(match_db.id)
+                except Exception as exc:
+                    logger.warning("Erreur lors de l'actualisation des rollups pour le match %s: %s", match_db.id, exc)
 
         return updated
 

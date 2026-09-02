@@ -307,6 +307,10 @@ class EquipeDB(Base):
     saison: Mapped[Optional["SaisonDB"]] = relationship(back_populates="equipes")
     competition: Mapped[Optional["CompetitionDB"]] = relationship(back_populates="equipes")
     participations: Mapped[List["ParticipationMatchDB"]] = relationship(back_populates="equipe")
+    saison_stats: Mapped[List["EquipeSaisonStatsDB"]] = relationship(
+        back_populates="equipe", cascade="all, delete-orphan"
+    )
+
 
     __table_args__ = (
         UniqueConstraint("nom", "saison_id", "competition_id", name="uq_equipe_nom_saison_competition"),
@@ -336,6 +340,12 @@ class JoueurDB(Base):
     participations: Mapped[List["ParticipationMatchDB"]] = relationship(back_populates="joueur")
     match_stats: Mapped[List["JoueurMatchStatsDB"]] = relationship(
         back_populates="joueur", cascade="all, delete-orphan"
+    )
+    saison_stats: Mapped[List["JoueurSaisonStatsDB"]] = relationship(
+        back_populates="joueur", cascade="all, delete-orphan"
+    )
+    carriere_stats: Mapped[Optional["JoueurCarriereStatsDB"]] = relationship(
+        back_populates="joueur", uselist=False, cascade="all, delete-orphan"
     )
     personne: Mapped[Optional["PersonneDB"]] = relationship(back_populates="joueurs")
 
@@ -780,28 +790,63 @@ class JoueurMatchStatsDB(Base):
     """Statistiques détaillées persistées d'un joueur pour un match.
 
     Les statistiques sont calculées à partir des données détaillées de feuille
-    de match (sets, formations, changements, services) et stockées en JSON
-    afin d'éviter les recalculs coûteux côté interface/API.
+    de match (sets, formations, changements, services). Stocke les métriques
+    directement dans des colonnes SQL typées sans dépendance à un blob JSON.
     """
     __tablename__ = "joueur_match_stats"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    match_id: Mapped[int] = mapped_column(ForeignKey("matchs.id", ondelete="CASCADE"))
-    joueur_id: Mapped[int] = mapped_column(ForeignKey("joueurs.id", ondelete="CASCADE"))
+    match_id: Mapped[int] = mapped_column(ForeignKey("matchs.id", ondelete="CASCADE"), index=True)
+    joueur_id: Mapped[int] = mapped_column(ForeignKey("joueurs.id", ondelete="CASCADE"), index=True)
     equipe_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("equipes.id", ondelete="CASCADE"), nullable=True
+        ForeignKey("equipes.id", ondelete="CASCADE"), nullable=True, index=True
     )
 
-    stats_data: Mapped[dict] = mapped_column(JSON, nullable=False)
+    # Contexte joueur / match
+    numero: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)
+    side: Mapped[Optional[str]] = mapped_column(String(1), nullable=True)  # 'A' ou 'B'
+    est_capitaine: Mapped[bool] = mapped_column(Boolean, default=False)
+    est_libero: Mapped[bool] = mapped_column(Boolean, default=False)
+    victoire: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    score_match: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+
+    # Points & Ratios
     points_gagnes: Mapped[int] = mapped_column(Integer, default=0)
     points_perdus: Mapped[int] = mapped_column(Integer, default=0)
     points_joues: Mapped[int] = mapped_column(Integer, default=0)
     points_gagnes_service: Mapped[int] = mapped_column(Integer, default=0)
+    points_gagnes_sideout: Mapped[int] = mapped_column(Integer, default=0)
+    ratio_points_gagnes: Mapped[float] = mapped_column(Float, default=0.0)
+    break_point_ratio: Mapped[float] = mapped_column(Float, default=0.0)
+    sideout_contribution_ratio: Mapped[float] = mapped_column(Float, default=0.0)
+
+    # Services & Séries
     services: Mapped[int] = mapped_column(Integer, default=0)
     series: Mapped[int] = mapped_column(Integer, default=0)
     max_serie: Mapped[int] = mapped_column(Integer, default=0)
     moyenne_services_par_serie: Mapped[float] = mapped_column(Float, default=0.0)
-    ratio_points_gagnes: Mapped[float] = mapped_column(Float, default=0.0)
+    temps_morts_provoques: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Sets & Présence
+    sets_joues: Mapped[int] = mapped_column(Integer, default=0)
+    sets_titulaire: Mapped[int] = mapped_column(Integer, default=0)
+    temps_jeu_estime: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    nb_entrees: Mapped[int] = mapped_column(Integer, default=0)
+    nb_sorties: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Rôles & Inférences
+    role_principal: Mapped[Optional[str]] = mapped_column(String(30), nullable=True, index=True)
+    role_confiance: Mapped[float] = mapped_column(Float, default=0.0)
+    roles_possibles: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    role_scores: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    indices_roles: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+
+    # Détails structurés complémentaires
+    detail_services_par_set: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    presence_par_set: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    temps_jeu_par_set: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
+    # Horodatages
     match_updated_at: Mapped[Optional[dt]] = mapped_column(DateTime, nullable=True)
     computed_at: Mapped[dt] = mapped_column(DateTime, default=dt.now)
 
@@ -813,13 +858,97 @@ class JoueurMatchStatsDB(Base):
         UniqueConstraint("match_id", "joueur_id", name="uq_joueur_match_stats"),
         Index("ix_joueur_match_stats_match", "match_id"),
         Index("ix_joueur_match_stats_joueur", "joueur_id"),
-        Index("ix_joueur_match_stats_services", "services"),
+        Index("ix_joueur_match_stats_equipe", "equipe_id"),
         Index("ix_joueur_match_stats_points_gagnes", "points_gagnes"),
-        Index("ix_joueur_match_stats_match_updated", "match_updated_at"),
+        Index("ix_joueur_match_stats_services", "services"),
+        Index("ix_joueur_match_stats_role", "role_principal"),
     )
 
+    def to_detailed_stats(self) -> "JoueurMatchDetailedStats":
+        """Convertit l'entité SQL en modèle Pydantic d'analyse."""
+        from pyvolley.analysis.models import JoueurMatchDetailedStats
+        return JoueurMatchDetailedStats(
+            numero=self.numero or "",
+            nom=self.joueur.nom if self.joueur else "",
+            prenom=self.joueur.prenom if self.joueur and self.joueur.prenom else "",
+            licence=self.joueur.licence if self.joueur and self.joueur.licence else "",
+            equipe=self.equipe.nom if self.equipe else "",
+            side=self.side or "",
+            est_libero=self.est_libero,
+            est_capitaine=self.est_capitaine,
+            victoire=bool(self.victoire),
+            score_match=self.score_match,
+            points_gagnes=self.points_gagnes,
+            points_gagnes_service=self.points_gagnes_service,
+            points_perdus=self.points_perdus,
+            points_joues=self.points_joues,
+            points_gagnes_sideout=self.points_gagnes_sideout,
+            ratio_points_gagnes=self.ratio_points_gagnes,
+            break_point_ratio=self.break_point_ratio,
+            sideout_contribution_ratio=self.sideout_contribution_ratio,
+            services=self.services,
+            serie=self.series,
+            max_serie=self.max_serie,
+            moyenne_services_par_serie=self.moyenne_services_par_serie,
+            nb_services=self.services,
+            meilleure_serie=self.max_serie,
+            detail_services_par_set=self.detail_services_par_set or [],
+            sets_joues=self.sets_joues,
+            sets_titulaire=self.sets_titulaire,
+            presence_par_set=self.presence_par_set or [],
+            temps_jeu_estime=self.temps_jeu_estime,
+            temps_jeu_par_set=self.temps_jeu_par_set or {},
+            nb_entrees=self.nb_entrees,
+            nb_sorties=self.nb_sorties,
+            nb_changements_total=self.nb_entrees + self.nb_sorties,
+            temps_morts_provoques=self.temps_morts_provoques,
+            role_principal=self.role_principal,
+            roles_possibles=self.roles_possibles or [],
+            role_scores=self.role_scores or {},
+            role_confiance=self.role_confiance,
+            indices_roles=self.indices_roles or [],
+        )
+
+    def as_dict(self) -> dict:
+        """Retourne un dictionnaire complet des métriques de match."""
+        return {
+            "joueur_id": self.joueur_id,
+            "match_id": self.match_id,
+            "equipe_id": self.equipe_id,
+            "numero": self.numero,
+            "side": self.side,
+            "est_capitaine": self.est_capitaine,
+            "est_libero": self.est_libero,
+            "victoire": self.victoire,
+            "score_match": self.score_match,
+            "points_gagnes": self.points_gagnes,
+            "points_perdus": self.points_perdus,
+            "points_joues": self.points_joues,
+            "points_gagnes_service": self.points_gagnes_service,
+            "points_gagnes_sideout": self.points_gagnes_sideout,
+            "ratio_points_gagnes": self.ratio_points_gagnes,
+            "break_point_ratio": self.break_point_ratio,
+            "sideout_contribution_ratio": self.sideout_contribution_ratio,
+            "services": self.services,
+            "series": self.series,
+            "max_serie": self.max_serie,
+            "moyenne_services_par_serie": self.moyenne_services_par_serie,
+            "sets_joues": self.sets_joues,
+            "sets_titulaire": self.sets_titulaire,
+            "temps_jeu_estime": self.temps_jeu_estime,
+            "nb_entrees": self.nb_entrees,
+            "nb_sorties": self.nb_sorties,
+            "temps_morts_provoques": self.temps_morts_provoques,
+            "role_principal": self.role_principal,
+            "role_confiance": self.role_confiance,
+            "roles_possibles": self.roles_possibles,
+            "role_scores": self.role_scores,
+            "indices_roles": self.indices_roles,
+        }
+
     def __repr__(self) -> str:
-        return f"<JoueurMatchStats joueur={self.joueur_id} match={self.match_id}>"
+        return f"<JoueurMatchStats joueur={self.joueur_id} match={self.match_id} pts={self.points_gagnes}>"
+
 
 
 # =====================================================================
@@ -907,43 +1036,180 @@ class StatsCacheDB(Base):
         return f"<StatsCache key={self.filter_key!r} computed={self.computed_at:%Y-%m-%d %H:%M}>"
 
 
+
+
 # =====================================================================
-# Cache des statistiques joueur pré-calculées
+# Statistiques agglomérées par joueur et par saison / compétition / équipe
 # =====================================================================
 
-class JoueurStatsCacheDB(Base):
-    """Cache des statistiques de performance pré-calculées pour un joueur.
+class JoueurSaisonStatsDB(Base):
+    """Statistiques agglomérées (rollup) d'un joueur pour une saison, compétition et équipe données.
 
-    Stocke les résultats de l'analyse détaillée (``analyze_joueur_match``)
-    pour chaque joueur afin d'accélérer le chargement de la page joueur.
-    Le cache est invalidé lorsque le nombre de matchs du joueur change.
+    Permet des requêtes instantanées en O(1) pour les pages profils, classements par division,
+    et palmarès sans rescanner l'intégralité des participations.
     """
-    __tablename__ = "joueur_stats_cache"
+    __tablename__ = "stats_joueur_saison"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-
-    # Joueur concerné
-    joueur_id: Mapped[int] = mapped_column(
-        ForeignKey("joueurs.id", ondelete="CASCADE"), unique=True, index=True,
+    joueur_id: Mapped[int] = mapped_column(ForeignKey("joueurs.id", ondelete="CASCADE"), index=True)
+    saison_id: Mapped[int] = mapped_column(ForeignKey("saisons.id", ondelete="CASCADE"), index=True)
+    competition_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("competitions.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    equipe_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("equipes.id", ondelete="CASCADE"), nullable=True, index=True
     )
 
-    # Statistiques agrégées (JSON sérialisé)
-    aggregated_stats: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    # Métriques de participation
+    matchs_joues: Mapped[int] = mapped_column(Integer, default=0)
+    matchs_titulaire: Mapped[int] = mapped_column(Integer, default=0)
+    victoires: Mapped[int] = mapped_column(Integer, default=0)
+    defaites: Mapped[int] = mapped_column(Integer, default=0)
+    sets_joues: Mapped[int] = mapped_column(Integer, default=0)
+    sets_titulaire: Mapped[int] = mapped_column(Integer, default=0)
 
-    # Statistiques par match (liste JSON)
-    per_match_stats: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    # Métriques de score & points
+    points_gagnes: Mapped[int] = mapped_column(Integer, default=0)
+    points_perdus: Mapped[int] = mapped_column(Integer, default=0)
+    points_joues: Mapped[int] = mapped_column(Integer, default=0)
+    points_service: Mapped[int] = mapped_column(Integer, default=0)
+    points_sideout: Mapped[int] = mapped_column(Integer, default=0)
 
-    # Nombre de matchs lors du calcul (pour détection d'obsolescence)
-    match_count: Mapped[int] = mapped_column(Integer, default=0)
+    # Services & Séries
+    services: Mapped[int] = mapped_column(Integer, default=0)
+    series: Mapped[int] = mapped_column(Integer, default=0)
+    max_serie: Mapped[int] = mapped_column(Integer, default=0)
+    moyenne_services_par_serie: Mapped[float] = mapped_column(Float, default=0.0)
+    ratio_points_gagnes: Mapped[float] = mapped_column(Float, default=0.0)
 
-    # Horodatage du calcul
+    # Rôles
+    role_principal: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    roles_frequence: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
+    # Horodatage
     computed_at: Mapped[dt] = mapped_column(DateTime, default=dt.now)
+    updated_at: Mapped[dt] = mapped_column(DateTime, default=dt.now, onupdate=dt.now)
 
-    joueur: Mapped["JoueurDB"] = relationship()
+    # Relations
+    joueur: Mapped["JoueurDB"] = relationship(back_populates="saison_stats")
+    saison: Mapped["SaisonDB"] = relationship()
+    competition: Mapped[Optional["CompetitionDB"]] = relationship()
+    equipe: Mapped[Optional["EquipeDB"]] = relationship()
 
     __table_args__ = (
-        Index("ix_joueur_stats_cache_computed_at", "computed_at"),
+        UniqueConstraint("joueur_id", "saison_id", "competition_id", "equipe_id", name="uq_stats_joueur_saison_comp_eq"),
+        Index("ix_sjs_saison_competition", "saison_id", "competition_id"),
+        Index("ix_sjs_joueur_saison", "joueur_id", "saison_id"),
+        Index("ix_sjs_points_gagnes", "points_gagnes"),
+        Index("ix_sjs_services", "services"),
     )
 
     def __repr__(self) -> str:
-        return f"<JoueurStatsCache joueur_id={self.joueur_id} matchs={self.match_count}>"
+        return f"<JoueurSaisonStats joueur={self.joueur_id} saison={self.saison_id} pts={self.points_gagnes}>"
+
+
+# =====================================================================
+# Statistiques agglomérées carrière d'un joueur
+# =====================================================================
+
+class JoueurCarriereStatsDB(Base):
+    """Synthèse globale sur l'ensemble de la carrière d'un joueur."""
+    __tablename__ = "stats_joueur_carriere"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    joueur_id: Mapped[int] = mapped_column(
+        ForeignKey("joueurs.id", ondelete="CASCADE"), unique=True, index=True
+    )
+
+    total_matchs: Mapped[int] = mapped_column(Integer, default=0)
+    total_victoires: Mapped[int] = mapped_column(Integer, default=0)
+    total_defaites: Mapped[int] = mapped_column(Integer, default=0)
+    total_sets: Mapped[int] = mapped_column(Integer, default=0)
+    total_points_gagnes: Mapped[int] = mapped_column(Integer, default=0)
+    total_points_joues: Mapped[int] = mapped_column(Integer, default=0)
+    total_services: Mapped[int] = mapped_column(Integer, default=0)
+    total_series: Mapped[int] = mapped_column(Integer, default=0)
+    max_serie_carriere: Mapped[int] = mapped_column(Integer, default=0)
+    max_points_match: Mapped[int] = mapped_column(Integer, default=0)
+
+    clubs_frequentes_count: Mapped[int] = mapped_column(Integer, default=0)
+    saisons_count: Mapped[int] = mapped_column(Integer, default=0)
+    premier_match_date: Mapped[Optional[dt_date]] = mapped_column(Date, nullable=True)
+    dernier_match_date: Mapped[Optional[dt_date]] = mapped_column(Date, nullable=True)
+
+    computed_at: Mapped[dt] = mapped_column(DateTime, default=dt.now)
+    updated_at: Mapped[dt] = mapped_column(DateTime, default=dt.now, onupdate=dt.now)
+
+    joueur: Mapped["JoueurDB"] = relationship(back_populates="carriere_stats")
+
+    __table_args__ = (
+        Index("ix_sjc_total_matchs", "total_matchs"),
+        Index("ix_sjc_total_points", "total_points_gagnes"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<JoueurCarriereStats joueur={self.joueur_id} matchs={self.total_matchs} pts={self.total_points_gagnes}>"
+
+
+# =====================================================================
+# Statistiques agglomérées par équipe et par saison
+# =====================================================================
+
+class EquipeSaisonStatsDB(Base):
+    """Statistiques agglomérées (rollup) d'une équipe pour une saison et compétition données."""
+    __tablename__ = "stats_equipe_saison"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    equipe_id: Mapped[int] = mapped_column(ForeignKey("equipes.id", ondelete="CASCADE"), index=True)
+    saison_id: Mapped[int] = mapped_column(ForeignKey("saisons.id", ondelete="CASCADE"), index=True)
+    competition_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("competitions.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    poule_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("poules.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+
+    matchs_joues: Mapped[int] = mapped_column(Integer, default=0)
+    victoires: Mapped[int] = mapped_column(Integer, default=0)
+    defaites: Mapped[int] = mapped_column(Integer, default=0)
+    victoires_domicile: Mapped[int] = mapped_column(Integer, default=0)
+    victoires_exterieur: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Répartition des scores
+    victoires_3_0: Mapped[int] = mapped_column(Integer, default=0)
+    victoires_3_1: Mapped[int] = mapped_column(Integer, default=0)
+    victoires_3_2: Mapped[int] = mapped_column(Integer, default=0)
+    defaites_2_3: Mapped[int] = mapped_column(Integer, default=0)
+    defaites_1_3: Mapped[int] = mapped_column(Integer, default=0)
+    defaites_0_3: Mapped[int] = mapped_column(Integer, default=0)
+    forfaits: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Sets & Points
+    sets_pour: Mapped[int] = mapped_column(Integer, default=0)
+    sets_contre: Mapped[int] = mapped_column(Integer, default=0)
+    ratio_sets: Mapped[float] = mapped_column(Float, default=0.0)
+    points_pour: Mapped[int] = mapped_column(Integer, default=0)
+    points_contre: Mapped[int] = mapped_column(Integer, default=0)
+    ratio_points: Mapped[float] = mapped_column(Float, default=0.0)
+
+    # Séries
+    serie_victoires_max: Mapped[int] = mapped_column(Integer, default=0)
+    serie_en_cours: Mapped[int] = mapped_column(Integer, default=0)
+
+    computed_at: Mapped[dt] = mapped_column(DateTime, default=dt.now)
+    updated_at: Mapped[dt] = mapped_column(DateTime, default=dt.now, onupdate=dt.now)
+
+    equipe: Mapped["EquipeDB"] = relationship(back_populates="saison_stats")
+    saison: Mapped["SaisonDB"] = relationship()
+    competition: Mapped[Optional["CompetitionDB"]] = relationship()
+    poule: Mapped[Optional["PouleDB"]] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("equipe_id", "saison_id", "competition_id", name="uq_stats_equipe_saison_comp"),
+        Index("ix_ses_saison_competition", "saison_id", "competition_id"),
+        Index("ix_ses_victoires", "victoires"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<EquipeSaisonStats equipe={self.equipe_id} V/D={self.victoires}/{self.defaites}>"
+

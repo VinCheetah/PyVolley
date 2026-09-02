@@ -90,7 +90,7 @@ class JoueurMatchStatsService:
                     {
                         "joueur_id": participation.joueur_id,
                         "equipe_id": participation.equipe_id,
-                        "stats_data": stats.model_dump(mode="json"),
+                        "stats": stats,
                     }
                 )
             except Exception as exc:
@@ -117,13 +117,13 @@ class JoueurMatchStatsService:
         stats_b: list[dict] = []
 
         for entry in entries:
-            side = entry.stats_data.get("side")
+            side = entry.side
             if side not in {"A", "B"}:
                 if entry.equipe_id is not None and entry.equipe_id == match_db.equipe_a_id:
                     side = "A"
                 elif entry.equipe_id is not None and entry.equipe_id == match_db.equipe_b_id:
                     side = "B"
-            payload = {"joueur_id": entry.joueur_id, "stats": entry.stats_data}
+            payload = {"joueur_id": entry.joueur_id, "stats": entry.as_dict()}
             if side == "A":
                 stats_a.append(payload)
             elif side == "B":
@@ -136,9 +136,10 @@ class JoueurMatchStatsService:
         entry = self.repo.get_for_match_joueur(match_id, joueur_id)
         if not entry:
             return None
-        return JoueurMatchDetailedStats.model_validate(entry.stats_data)
+        return entry.to_detailed_stats()
 
     def get_joueur_all_stats(self, joueur_id: int, limit: int = 500) -> list[JoueurMatchDetailedStats]:
         """Retourne toutes les stats détaillées persistées d'un joueur."""
         rows = self.repo.get_for_joueur(joueur_id, limit=limit)
-        return [JoueurMatchDetailedStats.model_validate(r.stats_data) for r in rows]
+        return [r.to_detailed_stats() for r in rows]
+

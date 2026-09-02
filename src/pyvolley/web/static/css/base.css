@@ -4,12 +4,15 @@
    ═══════════════════════════════════════════════════════════════ */
 
 :root {
+  color-scheme: dark;
+
   /* ── Backgrounds ── */
   --bg-primary: #0b0e17;
   --bg-secondary: #131829;
   --bg-card: #1a1f35;
   --bg-card-hover: #222845;
   --border-color: #2a3050;
+  --border-color-subtle: rgba(42, 48, 80, 0.6);
 
   /* ── Text ── */
   --text-primary: #e8eaf0;
@@ -35,19 +38,32 @@
   --team-b-light: #f87171;
   --team-b-bg: rgba(239, 68, 68, 0.12);
 
+  /* ── Gradients ── */
+  --grad-primary: linear-gradient(135deg, #3b82f6, #06b6d4);
+  --grad-gold: linear-gradient(135deg, #f59e0b, #ef4444);
+  --grad-card-hero: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(6, 182, 212, 0.06));
+
   /* ── Shared tokens ── */
   --radius: 12px;
   --radius-sm: 8px;
-  --shadow: 0 4px 24px rgba(0,0,0,0.3);
-  --shadow-sm: 0 2px 8px rgba(0,0,0,0.2);
-  --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --radius-lg: 16px;
+  --shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
+  --shadow-glow-blue: 0 0 20px rgba(59, 130, 246, 0.25);
+  --transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* ── Base ── */
+html {
+  color-scheme: dark;
+}
+
 body {
   background: var(--bg-primary);
   color: var(--text-primary);
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* ── Scrollbar ── */

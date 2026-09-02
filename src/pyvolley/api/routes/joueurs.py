@@ -13,7 +13,8 @@ from pyvolley.api.converters import match_to_response
 from pyvolley.database.repositories import (
     JoueurRepository,
     MatchRepository,
-    JoueurStatsCacheRepository,
+    JoueurSaisonStatsRepository,
+    JoueurCarriereStatsRepository,
 )
 from pyvolley.database.models import ParticipationMatchDB
 from pyvolley.analysis.joueur_stats import aggregate_joueur_stats
@@ -172,20 +173,11 @@ async def get_joueur_aggregated_stats(
     if not joueur:
         raise HTTPException(status_code=404, detail="Joueur non trouvé")
 
-    cache_repo = JoueurStatsCacheRepository(match_repo.session)
     current_match_count = match_repo.session.scalar(
         select(func.count())
         .select_from(ParticipationMatchDB)
         .where(ParticipationMatchDB.joueur_id == joueur_id)
     ) or 0
-
-    cache_entry = cache_repo.get_by_joueur(joueur_id)
-    if (
-        cache_entry
-        and cache_entry.match_count == current_match_count
-        and cache_entry.aggregated_stats
-    ):
-        return cache_entry.aggregated_stats
 
     stats_service = JoueurMatchStatsService(match_repo.session)
     all_stats = stats_service.get_joueur_all_stats(
@@ -193,13 +185,6 @@ async def get_joueur_aggregated_stats(
         limit=max(500, current_match_count + 50),
     )
     aggregated = aggregate_joueur_stats(all_stats)
-
-    cache_repo.upsert(
-        joueur_id=joueur_id,
-        aggregated_stats=aggregated.model_dump(mode="json") if aggregated else None,
-        per_match_stats=None,
-        match_count=current_match_count,
-    )
 
     if not aggregated:
         return {"message": "Aucune statistique disponible"}
@@ -230,3 +215,79 @@ async def get_match_all_player_stats(
         "stats_a": stats_a,
         "stats_b": stats_b,
     }
+
+
+@router.get("/joueurs/{joueur_id}/saisons-stats")
+async def get_joueur_saisons_stats(
+    joueur_id: int,
+    saison_id: Optional[int] = Query(None),
+    match_repo: MatchRepository = Depends(get_match_repo),
+):
+    """Statistiques agglomérées par saison d'un joueur."""
+    from pyvolley.database.repositories import JoueurSaisonStatsRepository
+
+    repo = JoueurSaisonStatsRepository(match_repo.session)
+    rows = repo.get_for_joueur(joueur_id, saison_id=saison_id)
+    return [
+        {
+            "id": r.id,
+            "saison_id": r.saison_id,
+            "saison_code": r.saison.code if r.saison else None,
+            "competition_id": r.competition_id,
+            "competition_nom": r.competition.nom if r.competition else None,
+            "equipe_id": r.equipe_id,
+            "equipe_nom": r.equipe.nom if r.equipe else None,
+            "matchs_joues": r.matchs_joues,
+            "matchs_titulaire": r.matchs_titulaire,
+            "victoires": r.victoires,
+            "defaites": r.defaites,
+            "sets_joues": r.sets_joues,
+            "sets_titulaire": r.sets_titulaire,
+            "points_gagnes": r.points_gagnes,
+            "points_perdus": r.points_perdus,
+            "points_joues": r.points_joues,
+            "points_service": r.points_service,
+            "points_sideout": r.points_sideout,
+            "services": r.services,
+            "series": r.series,
+            "max_serie": r.max_serie,
+            "moyenne_services_par_serie": r.moyenne_services_par_serie,
+            "ratio_points_gagnes": r.ratio_points_gagnes,
+            "role_principal": r.role_principal,
+            "roles_frequence": r.roles_frequence,
+        }
+        for r in rows
+    ]
+
+
+@router.get("/joueurs/{joueur_id}/carriere-stats")
+async def get_joueur_carriere_stats(
+    joueur_id: int,
+    match_repo: MatchRepository = Depends(get_match_repo),
+):
+    """Synthèse globale sur l'ensemble de la carrière d'un joueur."""
+    from pyvolley.database.repositories import JoueurCarriereStatsRepository
+
+    repo = JoueurCarriereStatsRepository(match_repo.session)
+    r = repo.get_for_joueur(joueur_id)
+    if not r:
+        raise HTTPException(status_code=404, detail="Statistiques carrière non trouvées")
+
+    return {
+        "joueur_id": r.joueur_id,
+        "total_matchs": r.total_matchs,
+        "total_victoires": r.total_victoires,
+        "total_defaites": r.total_defaites,
+        "total_sets": r.total_sets,
+        "total_points_gagnes": r.total_points_gagnes,
+        "total_points_joues": r.total_points_joues,
+        "total_services": r.total_services,
+        "total_series": r.total_series,
+        "max_serie_carriere": r.max_serie_carriere,
+        "max_points_match": r.max_points_match,
+        "clubs_frequentes_count": r.clubs_frequentes_count,
+        "saisons_count": r.saisons_count,
+        "premier_match_date": r.premier_match_date.isoformat() if r.premier_match_date else None,
+        "dernier_match_date": r.dernier_match_date.isoformat() if r.dernier_match_date else None,
+    }
+

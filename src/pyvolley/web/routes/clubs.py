@@ -1,5 +1,5 @@
-﻿"""
-Routes web â€” Clubs (liste et dÃ©tail).
+"""
+Routes web — Clubs (liste et détail).
 """
 
 from typing import Optional
@@ -39,13 +39,13 @@ def _level_score_from_label(level_label: str | None) -> float | None:
         "N3": 5.0,
         "NATIONAL": 4.8,
         "PRENAT": 4.0,
-        "PRÃ‰NAT": 4.0,
+        "PRÉNAT": 4.0,
         "PREREG": 3.0,
-        "PRÃ‰REG": 3.0,
+        "PRÉREG": 3.0,
         "REGIONAL": 2.0,
-        "RÃ‰GIONAL": 2.0,
+        "RÉGIONAL": 2.0,
         "DEP": 1.0,
-        "DÃ‰P": 1.0,
+        "DÉP": 1.0,
         "LOISIR": 0.5,
     }
     return mapping.get(normalized)
@@ -170,7 +170,7 @@ async def club_detail(
     if not club:
         return templates.TemplateResponse(
             "error.html",
-            {"request": request, "message": "Club non trouvÃ©"},
+            {"request": request, "message": "Club non trouvé"},
             status_code=404,
         )
     equipes = equipe_repo.get_by_club(club_id)
@@ -195,7 +195,7 @@ async def club_detail(
             categorie,
             eq.division or (eq.competition.division if eq.competition else None),
         )
-        niveau_label = niveau_badge["label"] if niveau_badge else "Non classÃ©"
+        niveau_label = niveau_badge["label"] if niveau_badge else "Non classé"
         team_rows.append(
             {
                 "id": eq.id,

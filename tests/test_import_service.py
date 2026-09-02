@@ -307,8 +307,8 @@ class TestJoueurImport:
             select(JoueurMatchStatsDB).where(JoueurMatchStatsDB.match_id == result.id)
         ).all()
         assert len(stats_rows) >= 10
-        assert all("side" in r.stats_data for r in stats_rows)
-        assert all("points_gagnes" in r.stats_data for r in stats_rows)
+        assert all(r.side in ("A", "B") for r in stats_rows)
+        assert all(r.points_gagnes is not None for r in stats_rows)
 
     def test_compute_player_stats_clears_orphan_rows_when_no_participants(self, test_session):
         """Le calcul purge les stats existantes si le match n'a plus de participants exploitables."""
@@ -330,7 +330,7 @@ class TestJoueurImport:
             match_id=match.id,
             joueur_id=joueur.id,
             equipe_id=None,
-            stats_data={"side": "A", "points_gagnes": 1},
+            side="A",
             points_gagnes=1,
             points_perdus=0,
             points_joues=1,
@@ -539,7 +539,7 @@ class TestEnrichFromPDF:
             select(JoueurMatchStatsDB).where(JoueurMatchStatsDB.match_id == match_db.id)
         ).all()
         assert len(stats_rows) == 1
-        assert stats_rows[0].stats_data.get("licence") == "100099"
+        assert stats_rows[0].joueur.licence == "100099"
 
     def test_enrich_does_not_overwrite_parsed(self, test_session):
         """L'enrichissement ne re-traite pas un match déjà parsé (sans force)."""

@@ -25,12 +25,12 @@
             </div>
             <div>
                 <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Du</label>
-                <input type="date" name="after_date" value="{{ time_filter.date_from }}" class="filter-select filter-date-input" lang="fr" title="Format : jj/mm/aaaa">
+                <input type="date" name="after_date" value="{{ time_filter.date_from }}" class="filter-select filter-date-input" lang="fr" title="Format : AAAA-MM-JJ">
             </div>
             <div>
                 <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Au</label>
-                <input type="date" name="before_date" value="{{ time_filter.date_to }}" class="filter-select filter-date-input" lang="fr" title="Format : jj/mm/aaaa">
-                <span class="filter-date-hint">Format : jj/mm/aaaa</span>
+                <input type="date" name="before_date" value="{{ time_filter.date_to }}" class="filter-select filter-date-input" lang="fr" title="Format : AAAA-MM-JJ">
+                <span class="filter-date-hint">Format : AAAA-MM-JJ</span>
             </div>
             <div class="flex gap-2">
                 <button type="submit" class="pagination-btn btn-primary">Filtrer</button>
@@ -209,45 +209,23 @@
 {% block extra_scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    const chartFont = { family: 'Inter, system-ui, sans-serif', size: 11 };
-    const gridColor = 'rgba(148, 163, 184, 0.1)';
-    const textColor = '#64748b';
+    const C = PyVolleyCharts;
 
     // Saison chart
     {% if matchs_par_saison %}
     const saisonData = {{ matchs_par_saison | tojson }};
     if (saisonData.length > 0) {
-        const ctx1 = document.getElementById('saisonChart').getContext('2d');
-        new Chart(ctx1, {
-            type: 'bar',
+        C.create('saisonChart', 'bar', {
             data: {
                 labels: saisonData.map(d => d.saison),
                 datasets: [{
                     label: 'Matchs',
                     data: saisonData.map(d => d.count),
-                    backgroundColor: 'rgba(59, 130, 246, 0.6)',
-                    borderColor: '#3b82f6',
+                    backgroundColor: 'rgba(59, 130, 246, 0.65)',
+                    borderColor: C.colors.blue,
                     borderWidth: 1,
                     borderRadius: 6,
                 }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false },
-                },
-                scales: {
-                    x: {
-                        grid: { display: false },
-                        ticks: { color: textColor, font: chartFont }
-                    },
-                    y: {
-                        beginAtZero: true,
-                        grid: { color: gridColor },
-                        ticks: { color: textColor, font: chartFont }
-                    }
-                }
             }
         });
     }
@@ -258,39 +236,19 @@ document.addEventListener('DOMContentLoaded', function() {
     const monthData = {{ matchs_par_mois | tojson }};
     if (monthData.length > 0) {
         const monthNames = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
-        const ctx2 = document.getElementById('monthChart').getContext('2d');
-        new Chart(ctx2, {
-            type: 'line',
+        C.create('monthChart', 'line', {
             data: {
                 labels: monthData.map(d => `${monthNames[d.month - 1]} ${d.year}`),
                 datasets: [{
                     label: 'Matchs',
                     data: monthData.map(d => d.count),
-                    borderColor: '#a855f7',
-                    backgroundColor: 'rgba(168, 85, 247, 0.1)',
+                    borderColor: C.colors.purple,
+                    backgroundColor: 'rgba(168, 85, 247, 0.12)',
                     fill: true,
                     tension: 0.4,
                     pointRadius: 3,
-                    pointBackgroundColor: '#a855f7',
+                    pointBackgroundColor: C.colors.purple,
                 }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false },
-                },
-                scales: {
-                    x: {
-                        grid: { display: false },
-                        ticks: { color: textColor, font: chartFont, maxTicksLimit: 12 }
-                    },
-                    y: {
-                        beginAtZero: true,
-                        grid: { color: gridColor },
-                        ticks: { color: textColor, font: chartFont }
-                    }
-                }
             }
         });
     }

@@ -400,12 +400,12 @@ class TestJoueurMatchStatsRepository:
 
         persisted = repo.get_for_match_joueur(match.id, joueur.id)
         assert persisted is not None
-        assert persisted.stats_data["points_gagnes"] == 12
         assert persisted.points_gagnes == 12
         assert persisted.points_gagnes_service == 4
         assert persisted.services == 11
         assert persisted.series == 5
         assert persisted.max_serie == 4
+        assert persisted.as_dict()["points_gagnes"] == 12
 
     def test_is_match_stale_false_when_synced(self, test_session: Session):
         from pyvolley.database.repositories import JoueurMatchStatsRepository

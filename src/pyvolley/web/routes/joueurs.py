@@ -1,5 +1,5 @@
-﻿"""
-Routes web â€” Joueurs (liste et dÃ©tail).
+"""
+Routes web — Joueurs (liste et détail).
 """
 
 import unicodedata
@@ -116,7 +116,7 @@ def _season_end_year_from_row(row: dict) -> Optional[int]:
     if match_date is None:
         return None
 
-    # Saison sportive: les matchs d'aoÃ»t Ã  dÃ©cembre se terminent l'annÃ©e suivante.
+    # Saison sportive: les matchs d'août à décembre se terminent l'année suivante.
     return match_date.year + 1 if match_date.month >= 8 else match_date.year
 
 
@@ -400,7 +400,7 @@ async def joueur_detail(
     if not joueur:
         return templates.TemplateResponse(
             "error.html",
-            {"request": request, "message": "Joueur non trouvÃ©"},
+            {"request": request, "message": "Joueur non trouvé"},
             status_code=404,
         )
 
@@ -921,7 +921,7 @@ async def joueur_detail(
             {
                 "numero": "?",
                 "club_id": fallback_club.id if fallback_club else None,
-                "club_nom": fallback_club.nom if fallback_club else "Club non identifiÃ©",
+                "club_nom": fallback_club.nom if fallback_club else "Club non identifié",
                 "primary": fallback_palette["primary"],
                 "secondary": fallback_palette["secondary"],
                 "text_on_primary": fallback_palette["text_on_primary"],
@@ -988,7 +988,7 @@ async def joueur_detail(
     if stats_rows:
         filtered_stats_rows = [row for row in stats_rows if row.match_id in filtered_match_ids]
         detailed_models = [
-            JoueurMatchDetailedStats.model_validate(row.stats_data)
+            row.to_detailed_stats()
             for row in filtered_stats_rows
         ]
         aggregated = aggregate_joueur_stats(detailed_models)
@@ -1020,7 +1020,7 @@ async def joueur_detail(
         matchs_by_id = {m.id: m for m in matchs}
         for row in filtered_stats_rows:
             match = matchs_by_id.get(row.match_id)
-            side = row.stats_data.get("side")
+            side = row.side
             adversaire = "?"
             niveau_competition = None
             if match and match.competition:
@@ -1043,14 +1043,14 @@ async def joueur_detail(
                     niveau_equipe_badge = resolve_niveau_badge(
                         match.equipe_a.niveau,
                         match.equipe_a.nom,
-                        match.equipe_a.categorie,
-                        match.equipe_a.division,
+                        match.competition.categorie if match.competition else None,
+                        match.competition.division if match.competition else None,
                     )
                     niveau_adverse_badge = resolve_niveau_badge(
                         match.equipe_b.niveau,
                         match.equipe_b.nom,
-                        match.equipe_b.categorie,
-                        match.equipe_b.division,
+                        match.competition.categorie if match.competition else None,
+                        match.competition.division if match.competition else None,
                     )
                     niveau_equipe = niveau_equipe_badge["label"] if niveau_equipe_badge else match.equipe_a.niveau
                     niveau_adverse = niveau_adverse_badge["label"] if niveau_adverse_badge else match.equipe_b.niveau
@@ -1059,14 +1059,14 @@ async def joueur_detail(
                     niveau_equipe_badge = resolve_niveau_badge(
                         match.equipe_b.niveau,
                         match.equipe_b.nom,
-                        match.equipe_b.categorie,
-                        match.equipe_b.division,
+                        match.competition.categorie if match.competition else None,
+                        match.competition.division if match.competition else None,
                     )
                     niveau_adverse_badge = resolve_niveau_badge(
                         match.equipe_a.niveau,
                         match.equipe_a.nom,
-                        match.equipe_a.categorie,
-                        match.equipe_a.division,
+                        match.competition.categorie if match.competition else None,
+                        match.competition.division if match.competition else None,
                     )
                     niveau_equipe = niveau_equipe_badge["label"] if niveau_equipe_badge else match.equipe_b.niveau
                     niveau_adverse = niveau_adverse_badge["label"] if niveau_adverse_badge else match.equipe_a.niveau
@@ -1076,25 +1076,17 @@ async def joueur_detail(
             participation = participation_by_match_id.get(row.match_id)
             if participation and participation.numero_maillot:
                 numero_participation = participation.numero_maillot.strip() or None
-            numero_stats_data = (row.stats_data.get("numero") or "").strip() or None
+            numero_stats_data = (row.numero or "").strip() or None
             numero_display = numero_participation or numero_stats_data
 
-            points_gagnes = int(row.stats_data.get("points_gagnes") or 0)
-            points_gagnes_service = int(row.stats_data.get("points_gagnes_service") or 0)
-            points_gagnes_sideout_raw = row.stats_data.get("points_gagnes_sideout")
-            if points_gagnes_sideout_raw is None:
-                points_gagnes_sideout = max(0, points_gagnes - points_gagnes_service)
-            else:
-                points_gagnes_sideout = max(0, int(points_gagnes_sideout_raw))
-            services_total = int(
-                row.stats_data.get("services")
-                or row.stats_data.get("nb_services")
-                or 0
-            )
+            points_gagnes = int(row.points_gagnes or 0)
+            points_gagnes_service = int(row.points_gagnes_service or 0)
+            points_gagnes_sideout = int(row.points_gagnes_sideout or 0)
+            services_total = int(row.services or 0)
 
-            ratio_points_gagnes = row.stats_data.get("ratio_points_gagnes") or 0
+            ratio_points_gagnes = row.ratio_points_gagnes or 0
             ratio_points_pct = round(float(ratio_points_gagnes) * 100, 1)
-            break_point_ratio_raw = row.stats_data.get("break_point_ratio")
+            break_point_ratio_raw = row.break_point_ratio
             if break_point_ratio_raw is not None:
                 break_point_ratio_pct = round(float(break_point_ratio_raw) * 100, 1)
             elif services_total > 0:
@@ -1102,7 +1094,7 @@ async def joueur_detail(
             else:
                 break_point_ratio_pct = 0.0
 
-            sideout_contribution_raw = row.stats_data.get("sideout_contribution_ratio")
+            sideout_contribution_raw = row.sideout_contribution_ratio
             if sideout_contribution_raw is not None:
                 sideout_contribution_pct = round(float(sideout_contribution_raw) * 100, 1)
             elif points_gagnes > 0:
@@ -1110,11 +1102,11 @@ async def joueur_detail(
             else:
                 sideout_contribution_pct = 0.0
 
-            role_code = row.stats_data.get("role_principal")
-            role_confidence = float(row.stats_data.get("role_confiance") or 0.0)
+            role_code = row.role_principal
+            role_confidence = float(row.role_confiance or 0.0)
             role_indices = [
                 str(item).strip()
-                for item in (row.stats_data.get("indices_roles") or [])
+                for item in (row.indices_roles or [])
                 if str(item).strip()
             ]
             role_sources: list[str] = []
@@ -1154,7 +1146,7 @@ async def joueur_detail(
                     "role_plausibility_pct": round(role_confidence * 100, 1),
                     "role_sources": role_sources,
                     "role_indices": role_indices,
-                    "stats": row.stats_data,
+                    "stats": row.as_dict(),
                 }
             )
 
@@ -1283,15 +1275,15 @@ async def joueur_detail(
         if side == "A":
             score_for = match.sets_equipe_a
             score_against = match.sets_equipe_b
-            score = f"{score_for}-{score_against}" if match.match_joue else "â€”"
+            score = f"{score_for}-{score_against}" if match.match_joue else "—"
             domicile_exterieur = "Domicile"
         elif side == "B":
             score_for = match.sets_equipe_b
             score_against = match.sets_equipe_a
-            score = f"{score_for}-{score_against}" if match.match_joue else "â€”"
-            domicile_exterieur = "ExtÃ©rieur"
+            score = f"{score_for}-{score_against}" if match.match_joue else "—"
+            domicile_exterieur = "Extérieur"
         else:
-            score = f"{match.sets_equipe_a or 0}-{match.sets_equipe_b or 0}" if match.match_joue else "â€”"
+            score = f"{match.sets_equipe_a or 0}-{match.sets_equipe_b or 0}" if match.match_joue else "—"
             domicile_exterieur = "Inconnu"
         recent_matchs.append(
             {
@@ -1319,15 +1311,15 @@ async def joueur_detail(
         if side == "A":
             score_for = match.sets_equipe_a
             score_against = match.sets_equipe_b
-            score = f"{score_for}-{score_against}" if match.match_joue else "â€”"
+            score = f"{score_for}-{score_against}" if match.match_joue else "—"
             domicile_exterieur = "Domicile"
         elif side == "B":
             score_for = match.sets_equipe_b
             score_against = match.sets_equipe_a
-            score = f"{score_for}-{score_against}" if match.match_joue else "â€”"
-            domicile_exterieur = "ExtÃ©rieur"
+            score = f"{score_for}-{score_against}" if match.match_joue else "—"
+            domicile_exterieur = "Extérieur"
         else:
-            score = f"{match.sets_equipe_a or 0}-{match.sets_equipe_b or 0}" if match.match_joue else "â€”"
+            score = f"{match.sets_equipe_a or 0}-{match.sets_equipe_b or 0}" if match.match_joue else "—"
             domicile_exterieur = "Inconnu"
         match_rows.append(
             {
@@ -1375,7 +1367,7 @@ async def joueur_detail(
                     f"{row['equipe_joueur'].nom if row['equipe_joueur'] else '?'} vs {row['adversaire'].nom if row['adversaire'] else '?'}"
                     f"</a></strong><br>"
                     f"{match.date_match.strftime('%d/%m/%Y') if match.date_match else 'Date inconnue'}"
-                    f"<br>{'Domicile' if row['side'] == 'A' else ('ExtÃ©rieur' if row['side'] == 'B' else 'Inconnu')}"
+                    f"<br>{'Domicile' if row['side'] == 'A' else ('Extérieur' if row['side'] == 'B' else 'Inconnu')}"
                 ),
             }
         )
@@ -1401,6 +1393,10 @@ async def joueur_detail(
     allowed_tabs = {"resume", "stats", "matchs", "carte"}
     initial_tab = tab if tab in allowed_tabs else "resume"
 
+    from pyvolley.database.repositories import JoueurCarriereStatsRepository, JoueurSaisonStatsRepository
+    carriere_stats_obj = JoueurCarriereStatsRepository(session).get_for_joueur(joueur_id)
+    saison_stats_rows = JoueurSaisonStatsRepository(session).get_for_joueur(joueur_id)
+
     return templates.TemplateResponse(
         "joueurs/detail.html",
         {
@@ -1408,6 +1404,8 @@ async def joueur_detail(
             "joueur": joueur,
             "matchs": matchs,
             "stats": stats,
+            "carriere_stats": carriere_stats_obj,
+            "saison_stats": saison_stats_rows,
             "recent_matchs": recent_matchs,
             "match_rows": match_rows,
             "player_profile": player_profile,
@@ -1442,3 +1440,4 @@ async def joueur_detail(
             "map_markers": map_markers,
         },
     )
+

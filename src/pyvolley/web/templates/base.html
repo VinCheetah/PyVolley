@@ -36,19 +36,19 @@
     <!-- ═══════════════ Navigation ═══════════════ -->
     <nav class="navbar sticky top-0 z-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6">
-            <div class="flex items-center justify-between h-16">
+            <div class="flex items-center justify-between h-16 gap-4">
 
                 <!-- Logo -->
-                <a href="/" class="flex items-center gap-3 group">
-                    <div class="w-9 h-9 rounded-lg flex items-center justify-center text-white font-black text-sm gradient-text-blue"
-                         style="background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));">
+                <a href="/" class="flex items-center gap-3 group no-underline flex-shrink-0">
+                    <div class="w-9 h-9 rounded-xl flex items-center justify-center text-white font-black text-sm tracking-wider"
+                         style="background: linear-gradient(135deg, #3b82f6, #06b6d4); box-shadow: 0 4px 14px rgba(59, 130, 246, 0.35);">
                         PV
                     </div>
                     <span class="font-extrabold text-lg tracking-tight gradient-text hidden sm:inline">PyVolley</span>
                 </a>
 
                 <!-- Desktop Nav Links -->
-                <div class="hidden lg:flex items-center gap-2 xl:gap-3">
+                <div class="hidden lg:flex items-center gap-1 xl:gap-2">
                     <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">Accueil</a>
                     <a href="/matchs" class="nav-link {% if '/matchs' in request.url.path %}active{% endif %}">Matchs</a>
                     <a href="/joueurs" class="nav-link {% if '/joueurs' in request.url.path %}active{% endif %}">Joueurs</a>
@@ -62,15 +62,18 @@
                 </div>
 
                 <!-- Search + Mobile menu -->
-                <div class="flex items-center gap-3">
+                <div class="flex items-center gap-2">
                     <!-- Search toggle -->
-                    <button @click="searchOpen = !searchOpen" class="p-2 rounded-lg transition text-secondary"
-                            :style="searchOpen && 'color: var(--accent-blue)'">
+                    <button @click="searchOpen = !searchOpen; if(searchOpen) $nextTick(() => $refs.searchInput.focus())"
+                            class="p-2 rounded-lg transition text-secondary hover:text-white hover:bg-white/5"
+                            :style="searchOpen ? 'color: var(--accent-blue); background: rgba(59, 130, 246, 0.12);' : ''"
+                            title="Recherche rapide (ouvre la barre de recherche)">
                         <i data-lucide="search" class="w-5 h-5"></i>
                     </button>
 
                     <!-- Mobile menu toggle -->
-                    <button @click="mobileMenu = !mobileMenu" class="lg:hidden p-2 rounded-lg text-secondary">
+                    <button @click="mobileMenu = !mobileMenu" class="lg:hidden p-2 rounded-lg text-secondary hover:text-white hover:bg-white/5"
+                            aria-label="Menu de navigation">
                         <i data-lucide="menu" class="w-5 h-5" x-show="!mobileMenu"></i>
                         <i data-lucide="x" class="w-5 h-5" x-show="mobileMenu" x-cloak></i>
                     </button>
@@ -78,28 +81,35 @@
             </div>
 
             <!-- Search bar (expandable) -->
-            <div x-show="searchOpen" x-cloak x-transition.opacity class="pb-4">
-                <form action="/search" method="get" class="relative max-w-2xl mx-auto">
-                    <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted"></i>
-                    <input type="text" name="q" placeholder="Rechercher un joueur, club, équipe, arbitre..."
-                           class="search-input" autofocus
-                           x-ref="searchInput"
-                           @keydown.escape="searchOpen = false">
-                </form>
+            <div x-show="searchOpen" x-cloak x-transition.opacity class="pb-4 pt-1">
+                <div class="search-panel-dropdown p-3 max-w-2xl mx-auto">
+                    <form action="/search" method="get" class="relative">
+                        <i data-lucide="search" class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted"></i>
+                        <input type="text" name="q" placeholder="Rechercher un joueur, club, équipe, arbitre, compétition..."
+                               class="search-input text-sm py-2.5 pl-10 pr-24"
+                               x-ref="searchInput"
+                               @keydown.escape="searchOpen = false">
+                        <button type="submit" class="btn-primary absolute right-1.5 top-1/2 -translate-y-1/2 px-3 py-1.5 text-xs">
+                            Chercher
+                        </button>
+                    </form>
+                </div>
             </div>
 
             <!-- Mobile menu -->
-            <div x-show="mobileMenu" x-cloak x-transition class="lg:hidden pb-4 space-y-1">
-                <a href="/" class="block px-3 py-2 rounded-lg text-sm nav-link {% if request.url.path == '/' %}active{% endif %}">Accueil</a>
-                <a href="/matchs" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/matchs' in request.url.path %}active{% endif %}">Matchs</a>
-                <a href="/joueurs" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/joueurs' in request.url.path %}active{% endif %}">Joueurs</a>
-                <a href="/equipes" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/equipes' in request.url.path %}active{% endif %}">Équipes</a>
-                <a href="/clubs" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/clubs' in request.url.path %}active{% endif %}">Clubs</a>
-                <a href="/arbitres" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/arbitres' in request.url.path %}active{% endif %}">Arbitres</a>
-                <a href="/entraineurs" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/entraineurs' in request.url.path %}active{% endif %}">Entraîneurs</a>
-                <a href="/competitions" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/competitions' in request.url.path %}active{% endif %}">Compétitions</a>
-                <a href="/statistiques" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/statistiques' in request.url.path %}active{% endif %}">Statistiques</a>
-                <a href="/palmares" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/palmares' in request.url.path %}active{% endif %}">Palmarès</a>
+            <div x-show="mobileMenu" x-cloak x-transition class="lg:hidden pb-4">
+                <div class="mobile-nav-panel space-y-1">
+                    <a href="/" class="block px-3 py-2 rounded-lg text-sm nav-link {% if request.url.path == '/' %}active{% endif %}">Accueil</a>
+                    <a href="/matchs" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/matchs' in request.url.path %}active{% endif %}">Matchs</a>
+                    <a href="/joueurs" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/joueurs' in request.url.path %}active{% endif %}">Joueurs</a>
+                    <a href="/equipes" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/equipes' in request.url.path %}active{% endif %}">Équipes</a>
+                    <a href="/clubs" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/clubs' in request.url.path %}active{% endif %}">Clubs</a>
+                    <a href="/arbitres" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/arbitres' in request.url.path %}active{% endif %}">Arbitres</a>
+                    <a href="/entraineurs" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/entraineurs' in request.url.path %}active{% endif %}">Entraîneurs</a>
+                    <a href="/competitions" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/competitions' in request.url.path %}active{% endif %}">Compétitions</a>
+                    <a href="/statistiques" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/statistiques' in request.url.path %}active{% endif %}">Statistiques</a>
+                    <a href="/palmares" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/palmares' in request.url.path %}active{% endif %}">Palmarès</a>
+                </div>
             </div>
         </div>
     </nav>

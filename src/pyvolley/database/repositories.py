@@ -16,7 +16,8 @@ from pyvolley.database.models import (
     SaisonDB, CompetitionDB, PouleDB, EntiteFFVBDB, SetDB,
     ParticipationMatchDB, OfficielMatchDB, ArbitreDB, ArbitreMatchDB,
     SanctionDB, FormationDB, ChangementDB, TimeoutDB, StatsCacheDB,
-    JoueurStatsCacheDB, JoueurMatchStatsDB,
+    JoueurMatchStatsDB, JoueurSaisonStatsDB,
+    JoueurCarriereStatsDB, EquipeSaisonStatsDB,
 )
 from pyvolley.analysis.classement import (
     MatchData, ClassementComplet, calculer_classement_complet,
@@ -1486,59 +1487,6 @@ class StatsCacheRepository(BaseRepository[StatsCacheDB]):
 
 
 # =====================================================================
-# JoueurStatsCacheRepository
-# =====================================================================
-
-class JoueurStatsCacheRepository(BaseRepository[JoueurStatsCacheDB]):
-    """Repository pour le cache des statistiques joueur pré-calculées."""
-
-    def __init__(self, session: Session):
-        super().__init__(session, JoueurStatsCacheDB)
-
-    def get_by_joueur(self, joueur_id: int) -> Optional[JoueurStatsCacheDB]:
-        """Récupère le cache pour un joueur donné."""
-        return self.session.scalar(
-            select(JoueurStatsCacheDB).where(
-                JoueurStatsCacheDB.joueur_id == joueur_id
-            )
-        )
-
-    def upsert(
-        self,
-        joueur_id: int,
-        aggregated_stats: Optional[dict],
-        per_match_stats: Optional[list],
-        match_count: int,
-    ) -> JoueurStatsCacheDB:
-        """Crée ou met à jour le cache pour un joueur."""
-        from datetime import datetime
-
-        entry = self.get_by_joueur(joueur_id)
-        if entry is None:
-            entry = JoueurStatsCacheDB(
-                joueur_id=joueur_id,
-                aggregated_stats=aggregated_stats,
-                per_match_stats=per_match_stats,
-                match_count=match_count,
-                computed_at=datetime.now(),
-            )
-            self.session.add(entry)
-        else:
-            entry.aggregated_stats = aggregated_stats
-            entry.per_match_stats = per_match_stats
-            entry.match_count = match_count
-            entry.computed_at = datetime.now()
-        self.session.flush()
-        return entry
-
-    def is_stale(self, joueur_id: int, current_match_count: int) -> bool:
-        """Retourne True si le cache est absent ou obsolète."""
-        entry = self.get_by_joueur(joueur_id)
-        if entry is None:
-            return True
-        return entry.match_count != current_match_count
-
-
 # =====================================================================
 # JoueurMatchStatsRepository
 # =====================================================================
@@ -1609,21 +1557,53 @@ class JoueurMatchStatsRepository(BaseRepository[JoueurMatchStatsDB]):
         computed_at = datetime.now()
         entities: list[JoueurMatchStatsDB] = []
         for row in rows:
-            stats_data = row["stats_data"]
+            stats = row.get("stats")
+            if stats is None and "stats_data" in row:
+                stats = row["stats_data"]
+
+            if hasattr(stats, "model_dump"):
+                d = stats.model_dump(mode="python")
+            elif isinstance(stats, dict):
+                d = stats
+            else:
+                d = {}
+
             entity = JoueurMatchStatsDB(
                 match_id=match_id,
                 joueur_id=row["joueur_id"],
                 equipe_id=row.get("equipe_id"),
-                stats_data=stats_data,
-                points_gagnes=int(stats_data.get("points_gagnes") or 0),
-                points_perdus=int(stats_data.get("points_perdus") or 0),
-                points_joues=int(stats_data.get("points_joues") or 0),
-                points_gagnes_service=int(stats_data.get("points_gagnes_service") or 0),
-                services=int(stats_data.get("services") or stats_data.get("nb_services") or 0),
-                series=int(stats_data.get("serie") or 0),
-                max_serie=int(stats_data.get("max_serie") or stats_data.get("meilleure_serie") or 0),
-                moyenne_services_par_serie=float(stats_data.get("moyenne_services_par_serie") or 0.0),
-                ratio_points_gagnes=float(stats_data.get("ratio_points_gagnes") or 0.0),
+                numero=str(d.get("numero") or "").strip() or None,
+                side=str(d.get("side") or "").strip() or None,
+                est_capitaine=bool(d.get("est_capitaine")),
+                est_libero=bool(d.get("est_libero")),
+                victoire=d.get("victoire"),
+                score_match=d.get("score_match"),
+                points_gagnes=int(d.get("points_gagnes") or 0),
+                points_perdus=int(d.get("points_perdus") or 0),
+                points_joues=int(d.get("points_joues") or 0),
+                points_gagnes_service=int(d.get("points_gagnes_service") or 0),
+                points_gagnes_sideout=int(d.get("points_gagnes_sideout") or 0),
+                ratio_points_gagnes=float(d.get("ratio_points_gagnes") or 0.0),
+                break_point_ratio=float(d.get("break_point_ratio") or 0.0),
+                sideout_contribution_ratio=float(d.get("sideout_contribution_ratio") or 0.0),
+                services=int(d.get("services") or d.get("nb_services") or 0),
+                series=int(d.get("serie") or d.get("series") or 0),
+                max_serie=int(d.get("max_serie") or d.get("meilleure_serie") or 0),
+                moyenne_services_par_serie=float(d.get("moyenne_services_par_serie") or 0.0),
+                temps_morts_provoques=int(d.get("temps_morts_provoques") or 0),
+                sets_joues=int(d.get("sets_joues") or 0),
+                sets_titulaire=int(d.get("sets_titulaire") or 0),
+                temps_jeu_estime=float(d["temps_jeu_estime"]) if d.get("temps_jeu_estime") is not None else None,
+                nb_entrees=int(d.get("nb_entrees") or 0),
+                nb_sorties=int(d.get("nb_sorties") or 0),
+                role_principal=d.get("role_principal"),
+                role_confiance=float(d.get("role_confiance") or 0.0),
+                roles_possibles=d.get("roles_possibles"),
+                role_scores=d.get("role_scores"),
+                indices_roles=d.get("indices_roles"),
+                detail_services_par_set=d.get("detail_services_par_set"),
+                presence_par_set=d.get("presence_par_set"),
+                temps_jeu_par_set=d.get("temps_jeu_par_set"),
                 match_updated_at=match_updated_at,
                 computed_at=computed_at,
             )
@@ -1943,3 +1923,272 @@ class EntraineurRepository:
                 or_(OfficielMatchDB.licence.is_(None), OfficielMatchDB.licence == "")
             )
         return conditions
+
+
+# =====================================================================
+# Repositories pour les statistiques agglomérées (Rollups)
+# =====================================================================
+
+class JoueurSaisonStatsRepository(BaseRepository[JoueurSaisonStatsDB]):
+    """Repository pour les statistiques par joueur et par saison/compétition."""
+
+    def __init__(self, session: Session):
+        super().__init__(session, JoueurSaisonStatsDB)
+
+    def get_by_key(
+        self,
+        joueur_id: int,
+        saison_id: int,
+        competition_id: Optional[int] = None,
+        equipe_id: Optional[int] = None,
+    ) -> Optional[JoueurSaisonStatsDB]:
+        stmt = select(JoueurSaisonStatsDB).where(
+            JoueurSaisonStatsDB.joueur_id == joueur_id,
+            JoueurSaisonStatsDB.saison_id == saison_id,
+            JoueurSaisonStatsDB.competition_id == competition_id,
+            JoueurSaisonStatsDB.equipe_id == equipe_id,
+        )
+        return self.session.scalars(stmt).first()
+
+    def get_for_joueur(self, joueur_id: int, saison_id: Optional[int] = None) -> List[JoueurSaisonStatsDB]:
+        stmt = select(JoueurSaisonStatsDB).where(JoueurSaisonStatsDB.joueur_id == joueur_id)
+        if saison_id is not None:
+            stmt = stmt.where(JoueurSaisonStatsDB.saison_id == saison_id)
+        stmt = stmt.options(joinedload(JoueurSaisonStatsDB.saison), joinedload(JoueurSaisonStatsDB.competition), joinedload(JoueurSaisonStatsDB.equipe))
+        return list(self.session.scalars(stmt).unique())
+
+    def get_top_scorers(
+        self,
+        saison_id: Optional[int] = None,
+        competition_id: Optional[int] = None,
+        limit: int = 20,
+    ) -> List[dict]:
+        """Retourne le top des meilleurs marqueurs."""
+        stmt = (
+            select(
+                JoueurDB.id.label("joueur_id"),
+                JoueurDB.nom,
+                JoueurDB.prenom,
+                JoueurDB.licence,
+                EquipeDB.nom.label("equipe_nom"),
+                func.sum(JoueurSaisonStatsDB.points_gagnes).label("total_points"),
+                func.sum(JoueurSaisonStatsDB.matchs_joues).label("total_matchs"),
+                func.sum(JoueurSaisonStatsDB.sets_joues).label("total_sets"),
+            )
+            .join(JoueurDB, JoueurSaisonStatsDB.joueur_id == JoueurDB.id)
+            .outerjoin(EquipeDB, JoueurSaisonStatsDB.equipe_id == EquipeDB.id)
+        )
+        if saison_id:
+            stmt = stmt.where(JoueurSaisonStatsDB.saison_id == saison_id)
+        if competition_id:
+            stmt = stmt.where(JoueurSaisonStatsDB.competition_id == competition_id)
+
+        stmt = (
+            stmt.group_by(JoueurDB.id, JoueurDB.nom, JoueurDB.prenom, JoueurDB.licence, EquipeDB.nom)
+            .order_by(desc("total_points"))
+            .limit(limit)
+        )
+        rows = self.session.execute(stmt).all()
+        return [
+            {
+                "joueur_id": r.joueur_id,
+                "nom": r.nom,
+                "prenom": r.prenom,
+                "licence": r.licence,
+                "equipe": r.equipe_nom,
+                "points": int(r.total_points or 0),
+                "matchs": int(r.total_matchs or 0),
+                "sets": int(r.total_sets or 0),
+                "ppm": round(float(r.total_points or 0) / max(1, int(r.total_matchs or 1)), 2),
+            }
+            for r in rows
+        ]
+
+    def get_top_servers(
+        self,
+        saison_id: Optional[int] = None,
+        competition_id: Optional[int] = None,
+        limit: int = 20,
+    ) -> List[dict]:
+        """Retourne le top des meilleurs serveurs (nombre de services et max série)."""
+        stmt = (
+            select(
+                JoueurDB.id.label("joueur_id"),
+                JoueurDB.nom,
+                JoueurDB.prenom,
+                JoueurDB.licence,
+                EquipeDB.nom.label("equipe_nom"),
+                func.sum(JoueurSaisonStatsDB.services).label("total_services"),
+                func.max(JoueurSaisonStatsDB.max_serie).label("record_serie"),
+                func.sum(JoueurSaisonStatsDB.matchs_joues).label("total_matchs"),
+            )
+            .join(JoueurDB, JoueurSaisonStatsDB.joueur_id == JoueurDB.id)
+            .outerjoin(EquipeDB, JoueurSaisonStatsDB.equipe_id == EquipeDB.id)
+        )
+        if saison_id:
+            stmt = stmt.where(JoueurSaisonStatsDB.saison_id == saison_id)
+        if competition_id:
+            stmt = stmt.where(JoueurSaisonStatsDB.competition_id == competition_id)
+
+        stmt = (
+            stmt.group_by(JoueurDB.id, JoueurDB.nom, JoueurDB.prenom, JoueurDB.licence, EquipeDB.nom)
+            .order_by(desc("total_services"))
+            .limit(limit)
+        )
+        rows = self.session.execute(stmt).all()
+        return [
+            {
+                "joueur_id": r.joueur_id,
+                "nom": r.nom,
+                "prenom": r.prenom,
+                "licence": r.licence,
+                "equipe": r.equipe_nom,
+                "services": int(r.total_services or 0),
+                "max_serie": int(r.record_serie or 0),
+                "matchs": int(r.total_matchs or 0),
+            }
+            for r in rows
+        ]
+
+    def upsert(self, data: dict) -> JoueurSaisonStatsDB:
+        joueur_id = data["joueur_id"]
+        saison_id = data["saison_id"]
+        competition_id = data.get("competition_id")
+        equipe_id = data.get("equipe_id")
+
+        existing = self.get_by_key(joueur_id, saison_id, competition_id, equipe_id)
+        if existing:
+            for k, v in data.items():
+                setattr(existing, k, v)
+            existing.updated_at = datetime.now()
+            self.session.flush()
+            return existing
+        else:
+            entry = JoueurSaisonStatsDB(**data)
+            self.session.add(entry)
+            self.session.flush()
+            return entry
+
+
+class JoueurCarriereStatsRepository(BaseRepository[JoueurCarriereStatsDB]):
+    """Repository pour les synthèses globales de carrière de joueur."""
+
+    def __init__(self, session: Session):
+        super().__init__(session, JoueurCarriereStatsDB)
+
+    def get_for_joueur(self, joueur_id: int) -> Optional[JoueurCarriereStatsDB]:
+        stmt = select(JoueurCarriereStatsDB).where(JoueurCarriereStatsDB.joueur_id == joueur_id)
+        return self.session.scalars(stmt).first()
+
+    def get_top_career_scorers(self, limit: int = 20) -> List[dict]:
+        stmt = (
+            select(
+                JoueurDB.id.label("joueur_id"),
+                JoueurDB.nom,
+                JoueurDB.prenom,
+                JoueurDB.licence,
+                JoueurCarriereStatsDB.total_points_gagnes,
+                JoueurCarriereStatsDB.total_matchs,
+                JoueurCarriereStatsDB.max_points_match,
+                JoueurCarriereStatsDB.saisons_count,
+            )
+            .join(JoueurDB, JoueurCarriereStatsDB.joueur_id == JoueurDB.id)
+            .order_by(desc(JoueurCarriereStatsDB.total_points_gagnes))
+            .limit(limit)
+        )
+        rows = self.session.execute(stmt).all()
+        return [
+            {
+                "joueur_id": r.joueur_id,
+                "nom": r.nom,
+                "prenom": r.prenom,
+                "licence": r.licence,
+                "total_points": r.total_points_gagnes,
+                "total_matchs": r.total_matchs,
+                "max_points_match": r.max_points_match,
+                "saisons_count": r.saisons_count,
+            }
+            for r in rows
+        ]
+
+    def upsert(self, data: dict) -> JoueurCarriereStatsDB:
+        joueur_id = data["joueur_id"]
+        existing = self.get_for_joueur(joueur_id)
+        if existing:
+            for k, v in data.items():
+                setattr(existing, k, v)
+            existing.updated_at = datetime.now()
+            self.session.flush()
+            return existing
+        else:
+            entry = JoueurCarriereStatsDB(**data)
+            self.session.add(entry)
+            self.session.flush()
+            return entry
+
+
+class EquipeSaisonStatsRepository(BaseRepository[EquipeSaisonStatsDB]):
+    """Repository pour les statistiques par équipe et par saison."""
+
+    def __init__(self, session: Session):
+        super().__init__(session, EquipeSaisonStatsDB)
+
+    def get_by_key(
+        self, equipe_id: int, saison_id: int, competition_id: Optional[int] = None
+    ) -> Optional[EquipeSaisonStatsDB]:
+        stmt = select(EquipeSaisonStatsDB).where(
+            EquipeSaisonStatsDB.equipe_id == equipe_id,
+            EquipeSaisonStatsDB.saison_id == saison_id,
+            EquipeSaisonStatsDB.competition_id == competition_id,
+        )
+        return self.session.scalars(stmt).first()
+
+    def get_for_equipe(self, equipe_id: int) -> List[EquipeSaisonStatsDB]:
+        stmt = (
+            select(EquipeSaisonStatsDB)
+            .where(EquipeSaisonStatsDB.equipe_id == equipe_id)
+            .options(
+                joinedload(EquipeSaisonStatsDB.saison),
+                joinedload(EquipeSaisonStatsDB.competition),
+                joinedload(EquipeSaisonStatsDB.poule),
+            )
+        )
+        return list(self.session.scalars(stmt).unique())
+
+    def get_standings(
+        self,
+        saison_id: int,
+        competition_id: Optional[int] = None,
+        poule_id: Optional[int] = None,
+    ) -> List[EquipeSaisonStatsDB]:
+        stmt = select(EquipeSaisonStatsDB).where(EquipeSaisonStatsDB.saison_id == saison_id)
+        if competition_id:
+            stmt = stmt.where(EquipeSaisonStatsDB.competition_id == competition_id)
+        if poule_id:
+            stmt = stmt.where(EquipeSaisonStatsDB.poule_id == poule_id)
+
+        stmt = stmt.options(joinedload(EquipeSaisonStatsDB.equipe)).order_by(
+            desc(EquipeSaisonStatsDB.victoires),
+            desc(EquipeSaisonStatsDB.ratio_sets),
+            desc(EquipeSaisonStatsDB.ratio_points),
+        )
+        return list(self.session.scalars(stmt).unique())
+
+    def upsert(self, data: dict) -> EquipeSaisonStatsDB:
+        equipe_id = data["equipe_id"]
+        saison_id = data["saison_id"]
+        competition_id = data.get("competition_id")
+
+        existing = self.get_by_key(equipe_id, saison_id, competition_id)
+        if existing:
+            for k, v in data.items():
+                setattr(existing, k, v)
+            existing.updated_at = datetime.now()
+            self.session.flush()
+            return existing
+        else:
+            entry = EquipeSaisonStatsDB(**data)
+            self.session.add(entry)
+            self.session.flush()
+            return entry
+

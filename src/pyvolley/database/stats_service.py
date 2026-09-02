@@ -420,6 +420,123 @@ class StatsAmusantesService:
             for r in rows
         ]
 
+    def top_joueurs_marqueurs(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
+        """Joueurs ayant marqué le plus grand nombre total de points."""
+        match_ids = self._filtered_match_ids(filters)
+
+        # Si pas de filtres personnalisés complexes, requêter d'abord JoueurSaisonStatsDB
+        if match_ids is None and not (filters.genre or filters.categorie or filters.niveau_min or filters.niveau_max or filters.departement or filters.date_from or filters.date_to):
+            from pyvolley.database.repositories import JoueurSaisonStatsRepository
+            repo = JoueurSaisonStatsRepository(self.session)
+            scorers = repo.get_top_scorers(saison_id=filters.saison_id, limit=limit)
+            if scorers:
+                return [
+                    {
+                        "id": s["joueur_id"],
+                        "nom": s["nom"],
+                        "prenom": s["prenom"],
+                        "valeur": s["points"],
+                        "matchs": s["matchs"],
+                        "ppm": s["ppm"],
+                        "equipe_nom": s.get("equipe"),
+                    }
+                    for s in scorers
+                ]
+
+        from pyvolley.database.models import JoueurMatchStatsDB
+        stmt = (
+            select(
+                JoueurDB.id,
+                JoueurDB.nom,
+                JoueurDB.prenom,
+                func.sum(JoueurMatchStatsDB.points_gagnes).label("total_points"),
+                func.count(distinct(JoueurMatchStatsDB.match_id)).label("nb_matchs"),
+            )
+            .join(JoueurMatchStatsDB, JoueurMatchStatsDB.joueur_id == JoueurDB.id)
+            .join(MatchDB, JoueurMatchStatsDB.match_id == MatchDB.id)
+            .where(MatchDB.match_joue == True)
+            .where(JoueurMatchStatsDB.points_gagnes > 0)
+        )
+        if match_ids is not None:
+            stmt = stmt.where(MatchDB.id.in_(match_ids))
+
+        stmt = (
+            stmt.group_by(JoueurDB.id, JoueurDB.nom, JoueurDB.prenom)
+            .order_by(desc("total_points"))
+            .limit(limit)
+        )
+        rows = self.session.execute(stmt).all()
+        return [
+            {
+                "id": r.id,
+                "nom": r.nom,
+                "prenom": r.prenom,
+                "valeur": int(r.total_points or 0),
+                "matchs": r.nb_matchs,
+                "ppm": round(float(r.total_points or 0) / max(1, r.nb_matchs or 1), 2),
+            }
+            for r in rows
+        ]
+
+    def top_joueurs_serveurs(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
+        """Joueurs ayant effectué le plus grand nombre de services."""
+        match_ids = self._filtered_match_ids(filters)
+
+        if match_ids is None and not (filters.genre or filters.categorie or filters.niveau_min or filters.niveau_max or filters.departement or filters.date_from or filters.date_to):
+            from pyvolley.database.repositories import JoueurSaisonStatsRepository
+            repo = JoueurSaisonStatsRepository(self.session)
+            servers = repo.get_top_servers(saison_id=filters.saison_id, limit=limit)
+            if servers:
+                return [
+                    {
+                        "id": s["joueur_id"],
+                        "nom": s["nom"],
+                        "prenom": s["prenom"],
+                        "valeur": s["services"],
+                        "max_serie": s["max_serie"],
+                        "matchs": s["matchs"],
+                        "equipe_nom": s.get("equipe"),
+                    }
+                    for s in servers
+                ]
+
+        from pyvolley.database.models import JoueurMatchStatsDB
+        stmt = (
+            select(
+                JoueurDB.id,
+                JoueurDB.nom,
+                JoueurDB.prenom,
+                func.sum(JoueurMatchStatsDB.services).label("total_services"),
+                func.max(JoueurMatchStatsDB.max_serie).label("record_serie"),
+                func.count(distinct(JoueurMatchStatsDB.match_id)).label("nb_matchs"),
+            )
+            .join(JoueurMatchStatsDB, JoueurMatchStatsDB.joueur_id == JoueurDB.id)
+            .join(MatchDB, JoueurMatchStatsDB.match_id == MatchDB.id)
+            .where(MatchDB.match_joue == True)
+            .where(JoueurMatchStatsDB.services > 0)
+        )
+        if match_ids is not None:
+            stmt = stmt.where(MatchDB.id.in_(match_ids))
+
+        stmt = (
+            stmt.group_by(JoueurDB.id, JoueurDB.nom, JoueurDB.prenom)
+            .order_by(desc("total_services"))
+            .limit(limit)
+        )
+        rows = self.session.execute(stmt).all()
+        return [
+            {
+                "id": r.id,
+                "nom": r.nom,
+                "prenom": r.prenom,
+                "valeur": int(r.total_services or 0),
+                "max_serie": int(r.record_serie or 0),
+                "matchs": r.nb_matchs,
+            }
+            for r in rows
+        ]
+
+
     def meilleure_serie_victoires(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
         """Meilleure série de victoires consécutives (actuelle et record) par joueur.
 
@@ -1098,6 +1215,8 @@ class StatsAmusantesService:
             "top_capitaines": self.top_joueurs_capitaine(filters),
             "top_liberos": self.top_joueurs_libero(filters),
             "top_fideles": self.top_joueurs_fideles(filters),
+            "top_marqueurs": self.top_joueurs_marqueurs(filters),
+            "top_serveurs": self.top_joueurs_serveurs(filters),
             "series_record": series_record,
             "series_actuelles": series_actuelles,
             "matchs_serres": self.matchs_les_plus_serres(filters),

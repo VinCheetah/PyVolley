@@ -38,6 +38,9 @@ from .models import (
     ParticipationMatchDB,
     OfficielMatchDB,
     JoueurMatchStatsDB,
+    JoueurSaisonStatsDB,
+    JoueurCarriereStatsDB,
+    EquipeSaisonStatsDB,
 )
 from .repositories import (
     JoueurRepository,
@@ -49,10 +52,14 @@ from .repositories import (
     PouleRepository,
     EntiteFFVBRepository,
     JoueurMatchStatsRepository,
+    JoueurSaisonStatsRepository,
+    JoueurCarriereStatsRepository,
+    EquipeSaisonStatsRepository,
 )
 from .import_service import MatchImportService, BulkImportService
 from .export_import_service import ExportImportService
 from .player_stats_service import JoueurMatchStatsService
+from .rollup_service import RollupStatsService
 from .migrations import (
     create_migration,
     upgrade,
@@ -91,6 +98,9 @@ __all__ = [
     "ParticipationMatchDB",
     "OfficielMatchDB",
     "JoueurMatchStatsDB",
+    "JoueurSaisonStatsDB",
+    "JoueurCarriereStatsDB",
+    "EquipeSaisonStatsDB",
     # Repositories
     "JoueurRepository",
     "ClubRepository",
@@ -101,11 +111,15 @@ __all__ = [
     "PouleRepository",
     "EntiteFFVBRepository",
     "JoueurMatchStatsRepository",
+    "JoueurSaisonStatsRepository",
+    "JoueurCarriereStatsRepository",
+    "EquipeSaisonStatsRepository",
     # Services
     "MatchImportService",
     "BulkImportService",
     "ExportImportService",
     "JoueurMatchStatsService",
+    "RollupStatsService",
     # Migrations
     "create_migration",
     "upgrade",
@@ -114,3 +128,4 @@ __all__ = [
     "get_database_status",
     "ensure_database_ready",
 ]
+
