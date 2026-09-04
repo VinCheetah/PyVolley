@@ -18,7 +18,7 @@ from pyvolley.web.templateconfig import templates
 from pyvolley.web.helpers.time_filter import build_time_filter
 from pyvolley.web.helpers.match_utils import build_simulation_data, build_momentum_data
 from pyvolley.web.helpers.niveau import resolve_niveau_badge, niveau_sort_rank
-from pyvolley.web.helpers.common import safe_int, safe_float, pct
+from pyvolley.web.helpers.common import safe_int, safe_float, pct, normalize_numero, normalize_text_upper
 from pyvolley.shared.helpers import parse_optional_int
 from pyvolley.api.dependencies import get_match_repo, get_saison_repo
 from pyvolley.database.repositories import MatchRepository, SaisonRepository
@@ -27,15 +27,6 @@ from pyvolley.database.converters import match_db_to_core
 from pyvolley.analysis.joueur_stats import build_set_timeline
 
 router = APIRouter()
-
-
-def _normalize_numero(value: object) -> str:
-    raw = str(value or "").strip()
-    if not raw:
-        return ""
-    if raw.isdigit():
-        return str(int(raw))
-    return raw
 
 
 def _team_points_from_sets(match: MatchDB, side: str) -> tuple[int, int, int]:
@@ -541,7 +532,7 @@ def _build_position_stats(match: MatchDB, side: str, items: list[dict]) -> list[
     by_num = {}
     for item in items:
         stats = item.get("stats", {})
-        numero = _normalize_numero(stats.get("numero"))
+        numero = normalize_numero(stats.get("numero"))
         if numero:
             by_num[numero] = stats
 
@@ -563,7 +554,7 @@ def _build_position_stats(match: MatchDB, side: str, items: list[dict]) -> list[
         if formation:
             for pos in range(1, 7):
                 numero_raw = getattr(formation, f"position_{pos}", None)
-                numero = _normalize_numero(numero_raw)
+                numero = normalize_numero(numero_raw)
                 if not numero:
                     continue
                 bucket = positions[pos]
@@ -648,7 +639,7 @@ def _build_face_to_face_rows(match: MatchDB, summary_a: dict, summary_b: dict) -
 
 
 @router.get("/matchs", response_class=HTMLResponse)
-async def matchs_list(
+def matchs_list(
     request: Request,
     page: int = Query(1, ge=1),
     saison_id: Optional[str] = Query(None),
@@ -733,7 +724,7 @@ async def matchs_list(
 
 
 @router.get("/matchs/{match_id}", response_class=HTMLResponse)
-async def match_detail(
+def match_detail(
     request: Request,
     match_id: int,
     repo: MatchRepository = Depends(get_match_repo),

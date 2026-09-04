@@ -564,9 +564,20 @@ def _build_match(
         except Exception:
             pass
 
+    from pyvolley.shared.categorisation import normalize_categorie, extract_division_number
+    from pyvolley.shared.niveau import classify_level
+
     genre = try_enum(Genre, header.get("genre"))
-    categorie = try_enum(Categorie, header.get("categorie"))
-    niveau = try_enum(Niveau, header.get("niveau"))
+    comp_nom = header.get("competition")
+    cat_str = normalize_categorie(header.get("categorie")) or normalize_categorie(comp_nom)
+    div_num = extract_division_number(comp_nom)
+    classification = classify_level(
+        competition_name=comp_nom,
+        niveau=header.get("niveau"),
+        categorie=cat_str,
+        division=div_num,
+    )
+    niveau = try_enum(Niveau, classification.categorie_principale)
 
     # Remarques enrichies
     all_remarks: list[str] = []
@@ -603,8 +614,11 @@ def _build_match(
         lieu=header.get("lieu"),
         salle=header.get("salle"),
         genre=genre,
-        categorie=categorie,
-        niveau=niveau,
+        categorie=cat_str,
+        niveau=niveau.value if niveau else classification.categorie_principale,
+        division=classification.division,
+        niveau_badge=classification.label,
+        niveau_rank=classification.rank,
         organisateur=header.get("organisateur"),
         equipe_a=equipe_a,
         equipe_b=equipe_b,

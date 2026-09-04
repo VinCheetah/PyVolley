@@ -186,7 +186,10 @@ def display_entities(scraper, console: Console) -> None:
 # ── Index des PDFs locaux ───────────────────────────────────────────
 
 
-def build_pdf_index(pdf_base_dir: Path) -> dict[tuple[Optional[str], str], Path]:
+def build_pdf_index(
+    pdf_base_dir: Path,
+    saison_filter: Optional[str] = None,
+) -> dict[tuple[Optional[str], str], Path]:
     """Construit un index {(saison, code_match): chemin} des PDFs locaux.
 
     La saison est déduite du premier niveau de dossier sous ``pdf_base_dir``
@@ -199,13 +202,22 @@ def build_pdf_index(pdf_base_dir: Path) -> dict[tuple[Optional[str], str], Path]
     (ancien format ``{entity}_{code}.pdf``), la partie après l'underscore
     est aussi indexée.
 
+    Si ``saison_filter`` est spécifié, seul le sous-dossier correspondant est scanné
+    pour éviter de parcourir tout le disque.
+
     Les PDFs sans dossier de saison (legacy) sont indexés avec ``saison=None``.
     """
     index: dict[tuple[Optional[str], str], Path] = {}
     if not pdf_base_dir.exists():
         return index
 
-    for pdf_file in pdf_base_dir.glob("**/*.pdf"):
+    target_dir = pdf_base_dir
+    if saison_filter:
+        s_dir = pdf_base_dir / saison_filter
+        if s_dir.exists():
+            target_dir = s_dir
+
+    for pdf_file in target_dir.glob("**/*.pdf"):
         rel = pdf_file.relative_to(pdf_base_dir)
         saison_code: Optional[str] = (
             rel.parts[0]
@@ -230,14 +242,14 @@ def build_pdf_index(pdf_base_dir: Path) -> dict[tuple[Optional[str], str], Path]
 def find_pdf_for_match(
     match_db,
     pdf_base_dir: Path,
-    pdf_index: dict[tuple[Optional[str], str], Path],
+    pdf_index: Optional[dict[tuple[Optional[str], str], Path]] = None,
     saison_code: Optional[str] = None,
 ) -> Optional[Path]:
     """Localise le PDF d'un match en utilisant plusieurs stratégies.
 
     1. Chemin stocké en DB (source_pdf)
     2. Chemin structuré attendu (saison/entite/poule/code_match)
-    3. Recherche par (saison, code_match) dans l'index
+    3. Recherche par (saison, code_match) dans l'index (si fourni)
     4. Fallback legacy sans saison
     """
     code = match_db.code_match
@@ -277,16 +289,17 @@ def find_pdf_for_match(
         if legacy_expected.exists():
             return legacy_expected
 
-    # 3. Index saisonnier (couvre aussi les noms legacy {entity}_{code}.pdf)
-    if saison_code:
-        seasonal_key = (saison_code, code)
-        if seasonal_key in pdf_index:
-            return pdf_index[seasonal_key]
+    # 3. Index saisonnier (si fourni)
+    if pdf_index is not None:
+        if saison_code:
+            seasonal_key = (saison_code, code)
+            if seasonal_key in pdf_index:
+                return pdf_index[seasonal_key]
 
-    # 4. Fallback legacy sans saison
-    legacy_key = (None, code)
-    if legacy_key in pdf_index:
-        return pdf_index[legacy_key]
+        # 4. Fallback legacy sans saison
+        legacy_key = (None, code)
+        if legacy_key in pdf_index:
+            return pdf_index[legacy_key]
 
     return None
 

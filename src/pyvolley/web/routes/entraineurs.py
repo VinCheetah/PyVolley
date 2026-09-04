@@ -15,7 +15,7 @@ router = APIRouter()
 
 
 @router.get("/entraineurs", response_class=HTMLResponse)
-async def entraineurs_list(
+def entraineurs_list(
     request: Request,
     q: Optional[str] = None,
     page: int = Query(1, ge=1),
@@ -44,7 +44,7 @@ async def entraineurs_list(
 
 
 @router.get("/entraineurs/{entraineur_id:path}", response_class=HTMLResponse)
-async def entraineur_detail(
+def entraineur_detail(
     request: Request,
     entraineur_id: str,
     repo: EntraineurRepository = Depends(get_entraineur_repo),

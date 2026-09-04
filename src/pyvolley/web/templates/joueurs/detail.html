@@ -449,46 +449,6 @@ document.addEventListener('DOMContentLoaded', function () {
         });
     }
     {% endif %}
-
-    const markers = {{ safe_map_markers | tojson }};
-    const mapContainer = document.getElementById('joueurMatchMap');
-    if (mapContainer && markers.length > 0 && typeof L !== 'undefined') {
-        const map = L.map(mapContainer, {
-            center: [46.6, 2.3],
-            zoom: 6,
-            scrollWheelZoom: true,
-            zoomControl: true,
-        });
-
-        L.tileLayer(
-            'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-            {
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
-                subdomains: 'abcd',
-                maxZoom: 19,
-            }
-        ).addTo(map);
-
-        const leafletMarkers = [];
-        markers.forEach((item) => {
-            const marker = L.circleMarker([item.lat, item.lng], {
-                radius: 7,
-                color: item.color || '#3b82f6',
-                fillColor: item.color || '#3b82f6',
-                fillOpacity: 0.7,
-                weight: 2,
-            }).addTo(map);
-            marker.bindPopup(item.popup_html || item.label || 'Match');
-            leafletMarkers.push(marker);
-        });
-
-        if (leafletMarkers.length > 1) {
-            const group = L.featureGroup(leafletMarkers);
-            map.fitBounds(group.getBounds().pad(0.15));
-        } else {
-            map.setView([markers[0].lat, markers[0].lng], 11);
-        }
-    }
 });
 </script>
 {% endblock %}

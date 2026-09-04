@@ -15,19 +15,15 @@ from typing import Optional
 
 from ..core.models import Match, SetTeamData
 from .models import RoleInference
+from .role_solver import TeamRoleSolver, extract_team_context
 
-ROLE_SETTER = "PASSEUR"
-ROLE_OPPOSITE = "POINTU"
-ROLE_MIDDLE = "CENTRAL"
-ROLE_OUTSIDE = "RECEPTIONNEUR_ATTAQUANT"
-ROLE_LIBERO = "LIBERO"
-
-ALL_ROLES = (
+from pyvolley.core.constants import (
     ROLE_SETTER,
     ROLE_OPPOSITE,
     ROLE_MIDDLE,
     ROLE_OUTSIDE,
     ROLE_LIBERO,
+    ALL_SPECIFIC_ROLES as ALL_ROLES,
 )
 
 _FRONT_POSITIONS = {2, 3, 4}
@@ -415,295 +411,18 @@ def _propagate_middle_outside_roles(
         accumulators[numero].add(ROLE_OUTSIDE, outside_weight, hint)
 
 
-def infer_team_roles(match: Match, side: str) -> dict[str, RoleInference]:
+def infer_team_roles(
+    match: Match,
+    side: str,
+    player_priors: Optional[dict[str, dict[str, float]]] = None,
+) -> dict[str, RoleInference]:
     """Infer likely roles for each player number of one side.
 
     Returns a mapping keyed by normalized jersey number.
+    Uses volleyball compositional constraints, teammate rotation pairing,
+    and optional player priors.
     """
-    team = match.equipe(side)
-    if team is None:
-        return {}
+    ctx = extract_team_context(match, side)
+    solver = TeamRoleSolver(ctx, player_priors=player_priors)
+    return solver.solve()
 
-    accumulators: dict[str, _RoleAccumulator] = {}
-    player_is_libero: dict[str, bool] = {}
-    formation_snapshots: list[tuple[int, dict[int, str]]] = []
-    team_sets: list[tuple[int, SetTeamData]] = []
-    middle_hints: dict[str, float] = defaultdict(float)
-    setter_opposite_pairs: dict[tuple[str, str], int] = defaultdict(int)
-
-    def register_player(numero: Optional[str], is_libero: bool = False) -> str:
-        normalized = _norm(numero)
-        if not normalized:
-            return ""
-        if normalized not in accumulators:
-            accumulators[normalized] = _RoleAccumulator()
-        player_is_libero[normalized] = player_is_libero.get(normalized, False) or is_libero
-        return normalized
-
-    for joueur in team.joueurs:
-        register_player(joueur.numero, is_libero=bool(joueur.est_libero))
-    for libero in team.liberos:
-        register_player(libero.numero, is_libero=True)
-
-    for set_ in match.sets:
-        td = set_.team_data(side)
-        if td is None:
-            continue
-        team_sets.append((set_.numero, td))
-
-        if td.formation:
-            formation_map: dict[int, str] = {}
-            for pos, numero in enumerate(td.formation.as_list(), start=1):
-                normalized = register_player(numero)
-                if normalized:
-                    formation_map[pos] = normalized
-            if formation_map:
-                formation_snapshots.append((set_.numero, formation_map))
-
-        for ch in td.changements:
-            register_player(ch.joueur_entrant)
-            register_player(ch.joueur_sortant)
-
-    setter_anchor_hint: Optional[str] = None
-    pos1_counts: dict[str, int] = defaultdict(int)
-    for _set_numero, formation in formation_snapshots:
-        numero = formation.get(1)
-        if not numero or player_is_libero.get(numero, False):
-            continue
-        pos1_counts[numero] += 1
-    if pos1_counts:
-        best_numero, best_count = max(
-            pos1_counts.items(), key=lambda item: (item[1], item[0])
-        )
-        # Avoid over-constraining one-set noisy sheets.
-        min_count = 2 if len(formation_snapshots) >= 2 else 1
-        if best_count >= min_count:
-            setter_anchor_hint = best_numero
-
-    opposite_anchor_hint: Optional[str] = None
-    if setter_anchor_hint:
-        opposite_counts: dict[str, int] = defaultdict(int)
-        for _set_numero, formation in formation_snapshots:
-            setter_pos = _find_position(formation, setter_anchor_hint)
-            if setter_pos is None:
-                continue
-            opposite_numero = formation.get(_opposite_position(setter_pos))
-            if opposite_numero and not player_is_libero.get(opposite_numero, False):
-                opposite_counts[opposite_numero] += 1
-        if opposite_counts:
-            opposite_anchor_hint = max(
-                opposite_counts.items(), key=lambda item: (item[1], item[0])
-            )[0]
-
-    for set_numero, td in team_sets:
-        _collect_libero_evidence(
-            td,
-            set_numero,
-            player_is_libero,
-            accumulators,
-            middle_hints,
-        )
-        _collect_passe_pointe_evidence(
-            td,
-            set_numero,
-            accumulators,
-            setter_opposite_pairs,
-            setter_anchor_hint=setter_anchor_hint,
-            opposite_anchor_hint=opposite_anchor_hint,
-        )
-
-    _sharpen_setter_opposite_contrast(accumulators, player_is_libero)
-
-    for numero, is_libero in player_is_libero.items():
-        if is_libero:
-            accumulators[numero].add(
-                ROLE_LIBERO,
-                30.0,
-                "joueur explicitement marque comme libero",
-            )
-
-    non_libero_players = [
-        numero for numero in accumulators if not player_is_libero.get(numero, False)
-    ]
-
-    setter_anchor = _pick_anchor(
-        non_libero_players,
-        accumulators,
-        ROLE_SETTER,
-        min_score=8.0,
-    )
-    opposite_anchor = _pick_anchor(
-        non_libero_players,
-        accumulators,
-        ROLE_OPPOSITE,
-        min_score=8.0,
-    )
-
-    if setter_opposite_pairs:
-        pair, pair_count = max(
-            setter_opposite_pairs.items(),
-            key=lambda item: (
-                item[1],
-                accumulators[item[0][0]].scores.get(ROLE_SETTER, 0.0)
-                + accumulators[item[0][1]].scores.get(ROLE_OPPOSITE, 0.0),
-            ),
-        )
-        if pair_count >= 1:
-            setter_candidate, opposite_candidate = pair
-            if (
-                setter_candidate in accumulators
-                and not player_is_libero.get(setter_candidate, False)
-            ):
-                setter_anchor = setter_candidate if setter_anchor is None else setter_anchor
-                accumulators[setter_candidate].add(
-                    ROLE_SETTER,
-                    2.5,
-                    "coherence des inversions passe-pointe",
-                )
-            if (
-                opposite_candidate in accumulators
-                and not player_is_libero.get(opposite_candidate, False)
-            ):
-                opposite_anchor = opposite_candidate if opposite_anchor is None else opposite_anchor
-                accumulators[opposite_candidate].add(
-                    ROLE_OPPOSITE,
-                    2.5,
-                    "coherence des inversions passe-pointe",
-                )
-
-    if setter_anchor and not opposite_anchor:
-        for set_numero, formation in formation_snapshots:
-            setter_pos = _find_position(formation, setter_anchor)
-            if setter_pos is None:
-                continue
-            opposite_numero = formation.get(_opposite_position(setter_pos))
-            if opposite_numero and not player_is_libero.get(opposite_numero, False):
-                accumulators[opposite_numero].add(
-                    ROLE_OPPOSITE,
-                    4.0,
-                    f"deduction opposee au passeur (set {set_numero})",
-                )
-        opposite_anchor = _pick_anchor(
-            non_libero_players,
-            accumulators,
-            ROLE_OPPOSITE,
-            min_score=4.0,
-        )
-
-    if opposite_anchor and not setter_anchor:
-        for set_numero, formation in formation_snapshots:
-            opposite_pos = _find_position(formation, opposite_anchor)
-            if opposite_pos is None:
-                continue
-            setter_numero = formation.get(_opposite_position(opposite_pos))
-            if setter_numero and not player_is_libero.get(setter_numero, False):
-                accumulators[setter_numero].add(
-                    ROLE_SETTER,
-                    4.0,
-                    f"deduction opposee au pointu (set {set_numero})",
-                )
-        setter_anchor = _pick_anchor(
-            non_libero_players,
-            accumulators,
-            ROLE_SETTER,
-            min_score=4.0,
-        )
-
-    for set_numero, formation in formation_snapshots:
-        setter_numero, setter_weight, setter_hint = _select_setter_for_formation(
-            formation,
-            accumulators,
-            player_is_libero,
-            setter_anchor,
-            opposite_anchor,
-        )
-        if not setter_numero:
-            continue
-
-        setter_pos = _find_position(formation, setter_numero)
-        if setter_pos is None:
-            continue
-
-        accumulators[setter_numero].add(
-            ROLE_SETTER,
-            setter_weight,
-            f"{setter_hint} (set {set_numero})",
-        )
-
-        opposite_numero = formation.get(_opposite_position(setter_pos))
-        if opposite_numero and not player_is_libero.get(opposite_numero, False):
-            accumulators[opposite_numero].add(
-                ROLE_OPPOSITE,
-                max(1.0, setter_weight - 0.5),
-                f"opposition au passeur dans la rotation (set {set_numero})",
-            )
-
-        _propagate_middle_outside_roles(
-            set_numero,
-            formation,
-            setter_pos,
-            accumulators,
-            player_is_libero,
-            middle_hints,
-        )
-
-    results: dict[str, RoleInference] = {}
-    for numero, accumulator in accumulators.items():
-        weighted_scores = {
-            role: max(0.0, score)
-            for role, score in accumulator.scores.items()
-            if score > 0
-        }
-
-        if player_is_libero.get(numero, False):
-            for role in (ROLE_SETTER, ROLE_OPPOSITE, ROLE_MIDDLE, ROLE_OUTSIDE):
-                if role in weighted_scores:
-                    weighted_scores[role] *= 0.35
-            weighted_scores[ROLE_LIBERO] = max(
-                weighted_scores.get(ROLE_LIBERO, 0.0),
-                1.0,
-            )
-
-        if not weighted_scores:
-            results[numero] = RoleInference(
-                role_principal=None,
-                roles_possibles=[],
-                role_scores={},
-                role_confiance=0.0,
-                indices=_compact_hints(accumulator.hints),
-            )
-            continue
-
-        total = sum(weighted_scores.values())
-        normalized_scores = {
-            role: round(score / total, 3)
-            for role, score in sorted(
-                weighted_scores.items(),
-                key=lambda item: (-item[1], item[0]),
-            )
-        }
-
-        sorted_roles = sorted(
-            normalized_scores.items(),
-            key=lambda item: (-item[1], item[0]),
-        )
-        role_principal = sorted_roles[0][0]
-        roles_possibles = [role for role, prob in sorted_roles if prob >= 0.18][:3]
-        if role_principal not in roles_possibles:
-            roles_possibles.insert(0, role_principal)
-
-        evidence_factor = min(1.0, total / 18.0)
-        role_confiance = round(
-            sorted_roles[0][1] * (0.45 + 0.55 * evidence_factor),
-            3,
-        )
-
-        results[numero] = RoleInference(
-            role_principal=role_principal,
-            roles_possibles=roles_possibles,
-            role_scores=normalized_scores,
-            role_confiance=role_confiance,
-            indices=_compact_hints(accumulator.hints),
-        )
-
-    return results

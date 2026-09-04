@@ -1,23 +1,46 @@
 /* ═══════════════════════════════════════════════════════════════
-   PyVolley — Interactive Map Styles
+   PyVolley — Interactive Map Styles (Modern Sports Edition)
    ═══════════════════════════════════════════════════════════════ */
 
-/* ── Map Container ──────────────────────────────────────────── */
+/* ── Map Container & Glassmorphic Wrapper ──────────────────── */
 
 .pyvolley-map-wrapper {
   position: relative;
-  border-radius: 0.75rem;
+  border-radius: 0.875rem;
   overflow: hidden;
   background: var(--bg-card, #131829);
-  border: 1px solid var(--border-color, rgba(255,255,255,0.06));
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  transition: box-shadow 0.3s ease;
+}
+
+.pyvolley-map-wrapper:focus-within {
+  border-color: rgba(59, 130, 246, 0.3);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
 }
 
 .pyvolley-map-wrapper .leaflet-container {
   background: var(--bg-primary, #0b0e17);
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  outline: none;
 }
 
-/* ── Loading / Error Overlays ───────────────────────────────── */
+/* Fullscreen mode support */
+.pyvolley-map-wrapper.is-fullscreen {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 99999 !important;
+  border-radius: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+}
+
+.pyvolley-map-wrapper.is-fullscreen .leaflet-container {
+  height: 100% !important;
+  width: 100% !important;
+}
+
+/* ── Loading / Error Overlays with Blur ────────────────────── */
 
 .pyvolley-map-overlay {
   position: absolute;
@@ -26,23 +49,44 @@
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  background: rgba(11, 14, 23, 0.85);
+  background: rgba(11, 14, 23, 0.78);
+  backdrop-filter: blur(8px);
   pointer-events: none;
 }
 
-.pyvolley-map-overlay span {
-  font-size: 0.875rem;
-  color: var(--text-secondary, #9ca3af);
+.pyvolley-map-overlay-content {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: rgba(19, 24, 41, 0.9);
+  padding: 0.75rem 1.25rem;
+  border-radius: 9999px;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  font-size: 0.85rem;
+  color: var(--text-primary, #e2e8f0);
 }
 
-/* ── Custom Marker Icon ─────────────────────────────────────── */
+/* ── Custom Marker Icons & SVG Pins ────────────────────────── */
 
 .pyvolley-marker-icon {
   background: none !important;
   border: none !important;
 }
 
-/* ── Marker Cluster ─────────────────────────────────────────── */
+.pyvolley-pin {
+  display: block;
+  filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.45));
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform-origin: 14px 38px;
+}
+
+.pyvolley-marker-icon:hover .pyvolley-pin {
+  transform: scale(1.18);
+  filter: drop-shadow(0 8px 18px rgba(59, 130, 246, 0.5));
+}
+
+/* ── Marker Cluster Styling ─────────────────────────────────── */
 
 .pyvolley-cluster-icon {
   background: none !important;
@@ -53,126 +97,497 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
   border-radius: 50%;
-  font-weight: 700;
-  font-size: 0.8rem;
-  color: #fff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-  transition: transform 0.2s ease;
+  font-weight: 800;
+  color: #ffffff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.3);
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease;
+  position: relative;
+}
+
+.pyvolley-cluster::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: inherit;
+  opacity: 0.3;
+  z-index: -1;
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
 .pyvolley-cluster:hover {
   transform: scale(1.15);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6), inset 0 1px 2px rgba(255, 255, 255, 0.4);
+}
+
+.pyvolley-cluster:hover::after {
+  opacity: 0.5;
+  transform: scale(1.2);
 }
 
 .pyvolley-cluster-small {
+  width: 38px;
+  height: 38px;
+  font-size: 0.8rem;
   background: linear-gradient(135deg, #3b82f6, #06b6d4);
 }
 
 .pyvolley-cluster-medium {
-  background: linear-gradient(135deg, #f59e0b, #ef4444);
-  width: 46px;
-  height: 46px;
+  width: 44px;
+  height: 44px;
   font-size: 0.85rem;
+  background: linear-gradient(135deg, #f59e0b, #ea580c);
 }
 
 .pyvolley-cluster-large {
-  background: linear-gradient(135deg, #ef4444, #a855f7);
-  width: 52px;
-  height: 52px;
-  font-size: 0.9rem;
+  width: 50px;
+  height: 50px;
+  font-size: 0.95rem;
+  background: linear-gradient(135deg, #ef4444, #9333ea);
 }
 
-/* ── Popup Styling (matches dark theme) ─────────────────────── */
+/* ── Modern Sports Popups (Dark Card Edition) ───────────────── */
 
 .pyvolley-popup .leaflet-popup-content-wrapper {
-  background: var(--bg-card, #131829);
-  color: var(--text-primary, #e5e7eb);
-  border: 1px solid var(--border-color, rgba(255,255,255,0.06));
-  border-radius: 0.75rem;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-  font-family: 'Inter', system-ui, sans-serif;
-  font-size: 0.85rem;
-  line-height: 1.5;
+  background: rgba(19, 24, 41, 0.96) !important;
+  backdrop-filter: blur(14px);
+  color: var(--text-primary, #e2e8f0) !important;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12)) !important;
+  border-radius: 0.875rem !important;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6) !important;
+  padding: 0 !important;
+  overflow: hidden;
+  font-family: 'Inter', system-ui, sans-serif !important;
+}
+
+.pyvolley-popup .leaflet-popup-content {
+  margin: 0 !important;
+  line-height: 1.4 !important;
+  min-width: 260px;
+  max-width: 310px;
 }
 
 .pyvolley-popup .leaflet-popup-tip {
-  background: var(--bg-card, #131829);
-  border: 1px solid var(--border-color, rgba(255,255,255,0.06));
-}
-
-.pyvolley-popup .leaflet-popup-content a {
-  color: var(--accent-blue, #3b82f6);
-  text-decoration: none;
-  font-weight: 600;
-}
-
-.pyvolley-popup .leaflet-popup-content a:hover {
-  text-decoration: underline;
+  background: rgba(19, 24, 41, 0.96) !important;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.12)) !important;
+  box-shadow: none !important;
 }
 
 .pyvolley-popup .leaflet-popup-close-button {
-  color: var(--text-muted, #6b7280) !important;
-  font-size: 1.2rem;
+  top: 10px !important;
+  right: 10px !important;
+  color: #94a3b8 !important;
+  width: 24px !important;
+  height: 24px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 6px !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  transition: background 0.2s, color 0.2s !important;
+  font-size: 16px !important;
 }
 
 .pyvolley-popup .leaflet-popup-close-button:hover {
-  color: var(--text-primary, #e5e7eb) !important;
+  background: rgba(255, 255, 255, 0.15) !important;
+  color: #ffffff !important;
 }
 
-/* ── Map Toolbar ────────────────────────────────────────────── */
+/* Internal Popup Sports Card */
+.pyvolley-popup-card {
+  padding: 0.875rem 1rem;
+}
+
+.pyvolley-popup-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.pyvolley-popup-category {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #38bdf8;
+}
+
+.pyvolley-popup-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #ffffff !important;
+  text-decoration: none !important;
+  line-height: 1.25;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pyvolley-popup-title:hover {
+  color: #60a5fa !important;
+}
+
+.pyvolley-popup-sub {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin-top: 0.15rem;
+}
+
+.pyvolley-popup-sub a {
+  color: #38bdf8 !important;
+  text-decoration: none !important;
+}
+
+.pyvolley-popup-sub a:hover {
+  text-decoration: underline !important;
+}
+
+.pyvolley-popup-body {
+  font-size: 0.78rem;
+  color: #cbd5e1;
+  margin-bottom: 0.75rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.pyvolley-popup-meta {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.pyvolley-popup-transport {
+  font-size: 0.7rem;
+  color: #a7f3d0;
+  margin-top: 0.3rem;
+}
+
+/* Match Score Board in Popup */
+.pyvolley-popup-match-board {
+  background: rgba(11, 14, 23, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 0.6rem;
+  padding: 0.5rem 0.65rem;
+  margin-bottom: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.pyvolley-popup-team {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.pyvolley-score-digit {
+  font-size: 0.85rem;
+  font-weight: 800;
+  min-width: 1.25rem;
+  text-align: right;
+}
+
+.pyvolley-popup-sets-breakdown {
+  font-size: 0.68rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.4rem;
+  margin-bottom: 0.5rem;
+  text-align: center;
+}
+
+.pyvolley-popup-venue {
+  font-size: 0.72rem;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.6rem;
+}
+
+/* Action Buttons inside Popups */
+.pyvolley-popup-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.pyvolley-btn-popup-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  flex: 1;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  color: #ffffff !important;
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.45rem 0.75rem;
+  border-radius: 0.5rem;
+  text-decoration: none !important;
+  transition: opacity 0.2s, transform 0.15s;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+}
+
+.pyvolley-btn-popup-primary:hover {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+
+.pyvolley-btn-popup-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  flex: 1;
+  background: rgba(255, 255, 255, 0.08);
+  color: #e2e8f0 !important;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.45rem 0.75rem;
+  border-radius: 0.5rem;
+  text-decoration: none !important;
+  transition: background 0.2s, color 0.2s;
+}
+
+.pyvolley-btn-popup-secondary:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff !important;
+}
+
+/* Badge Pills */
+.pyvolley-badge-pill {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.pyvolley-badge-green {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.pyvolley-badge-red {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+}
+
+.pyvolley-badge-blue {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+/* ── Modern Map Toolbar & Controls ──────────────────────────── */
 
 .pyvolley-map-toolbar {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.6rem;
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--border-color, rgba(255,255,255,0.06));
+  background: rgba(19, 24, 41, 0.85);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+  flex-wrap: wrap;
 }
 
-.pyvolley-map-toolbar select {
+.pyvolley-map-toolbar select,
+.pyvolley-map-toolbar input[type="text"] {
   background: var(--bg-primary, #0b0e17);
-  color: var(--text-secondary, #9ca3af);
-  border: 1px solid var(--border-color, rgba(255,255,255,0.06));
+  color: var(--text-primary, #e2e8f0);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
   border-radius: 0.5rem;
-  padding: 0.35rem 0.75rem;
+  padding: 0.38rem 0.75rem;
   font-size: 0.8rem;
-  cursor: pointer;
   outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-.pyvolley-map-toolbar select:focus {
-  border-color: var(--accent-blue, #3b82f6);
+.pyvolley-map-toolbar input[type="text"]::placeholder {
+  color: #64748b;
+}
+
+.pyvolley-map-toolbar select:focus,
+.pyvolley-map-toolbar input[type="text"]:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+/* Toolbar Buttons */
+.pyvolley-map-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  background: var(--bg-primary, #0b0e17);
+  color: #94a3b8;
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  border-radius: 0.5rem;
+  padding: 0.38rem 0.65rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.pyvolley-map-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.2);
 }
 
 .pyvolley-map-counter {
   margin-left: auto;
   font-size: 0.75rem;
-  color: var(--text-muted, #6b7280);
+  font-weight: 600;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 
-/* ── Leaflet Control Overrides (dark theme) ─────────────────── */
+/* ── Floating Controls on Map ───────────────────────────────── */
+
+.pyvolley-floating-controls {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pyvolley-ctrl-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: rgba(19, 24, 41, 0.9) !important;
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: #cbd5e1 !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  transition: background 0.2s, color 0.2s, transform 0.15s;
+}
+
+.pyvolley-ctrl-btn:hover {
+  background: rgba(30, 41, 59, 0.98) !important;
+  color: #ffffff !important;
+  transform: scale(1.05);
+}
+
+/* Floating Legend Pill */
+.pyvolley-floating-legend {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 999;
+  background: rgba(19, 24, 41, 0.88);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 9999px;
+  padding: 0.35rem 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  font-size: 0.72rem;
+  color: #cbd5e1;
+  pointer-events: auto;
+  white-space: nowrap;
+}
+
+.pyvolley-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.pyvolley-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+/* Scroll Overlay Notice */
+.pyvolley-scroll-notice {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1001;
+  background: rgba(11, 14, 23, 0.75);
+  backdrop-filter: blur(4px);
+  color: #ffffff;
+  font-size: 0.85rem;
+  font-weight: 500;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+.pyvolley-scroll-notice.is-visible {
+  opacity: 1;
+}
+
+/* ── Leaflet Native Control Overrides ───────────────────────── */
+
+.pyvolley-map-wrapper .leaflet-control-zoom {
+  border: none !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+  border-radius: 8px !important;
+  overflow: hidden;
+}
 
 .pyvolley-map-wrapper .leaflet-control-zoom a {
-  background: var(--bg-card, #131829) !important;
-  color: var(--text-secondary, #9ca3af) !important;
-  border-color: var(--border-color, rgba(255,255,255,0.06)) !important;
+  background: rgba(19, 24, 41, 0.9) !important;
+  backdrop-filter: blur(8px);
+  color: #94a3b8 !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  width: 32px !important;
+  height: 32px !important;
+  line-height: 30px !important;
+  font-size: 16px !important;
+  transition: background 0.2s, color 0.2s !important;
 }
 
 .pyvolley-map-wrapper .leaflet-control-zoom a:hover {
-  background: var(--bg-card-hover, #1a1f35) !important;
-  color: #fff !important;
+  background: rgba(30, 41, 59, 1) !important;
+  color: #ffffff !important;
 }
 
 .pyvolley-map-wrapper .leaflet-control-attribution {
-  background: rgba(11, 14, 23, 0.8) !important;
-  color: var(--text-muted, #6b7280) !important;
-  font-size: 0.65rem;
+  background: rgba(11, 14, 23, 0.75) !important;
+  backdrop-filter: blur(4px);
+  color: #64748b !important;
+  font-size: 0.65rem !important;
+  padding: 0 6px !important;
+  border-radius: 4px 0 0 0;
 }
 
 .pyvolley-map-wrapper .leaflet-control-attribution a {
-  color: var(--text-secondary, #9ca3af) !important;
+  color: #94a3b8 !important;
 }

@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% from "macros/ui.html" import breadcrumb %}
+{% from "macros/map.html" import map_head, map_card %}
 {% block title %}{{ equipe.nom }} - PyVolley{% endblock %}
+{% block extra_head %}
+{{ map_head() }}
+{% endblock %}
 
 {% block content %}
 {% set roster_role_groups = roster_role_groups|default([], true) %}
@@ -301,7 +305,10 @@
                 {% for m in matchs %}
                 {% set is_team_a = m.equipe_a_id == equipe.id %}
                 {% set opponent = m.equipe_b if is_team_a else m.equipe_a %}
-                {% set won = (is_team_a and m.sets_equipe_a > m.sets_equipe_b) or (not is_team_a and m.sets_equipe_b > m.sets_equipe_a) %}
+                {% set sa = m.sets_equipe_a or 0 %}
+                {% set sb = m.sets_equipe_b or 0 %}
+                {% set has_sets = m.sets_equipe_a is not none and m.sets_equipe_b is not none %}
+                {% set won = has_sets and ((is_team_a and sa > sb) or (not is_team_a and sb > sa)) %}
                 <tr>
                     <td class="text-sm" style="color: var(--text-muted);">
                         {{ m.date_match|format_date }}
@@ -320,14 +327,18 @@
                         {% endif %}
                     </td>
                     <td class="text-center">
-                        {% if is_team_a %}
-                        <span class="set-score {% if m.sets_equipe_a > m.sets_equipe_b %}won-a{% else %}won-b{% endif %}">
-                            {{ m.sets_equipe_a }}-{{ m.sets_equipe_b }}
-                        </span>
+                        {% if has_sets %}
+                            {% if is_team_a %}
+                            <span class="set-score {% if sa > sb %}won-a{% else %}won-b{% endif %}">
+                                {{ m.sets_equipe_a }}-{{ m.sets_equipe_b }}
+                            </span>
+                            {% else %}
+                            <span class="set-score {% if sb > sa %}won-a{% else %}won-b{% endif %}">
+                                {{ m.sets_equipe_b }}-{{ m.sets_equipe_a }}
+                            </span>
+                            {% endif %}
                         {% else %}
-                        <span class="set-score {% if m.sets_equipe_b > m.sets_equipe_a %}won-a{% else %}won-b{% endif %}">
-                            {{ m.sets_equipe_b }}-{{ m.sets_equipe_a }}
-                        </span>
+                            <span class="text-xs" style="color: var(--text-muted);">—</span>
                         {% endif %}
                     </td>
                     <td class="text-center">
@@ -366,6 +377,16 @@
             </tbody>
         </table>
     </div>
+
+    <!-- Carte interactive — Déplacements et matchs de l'équipe -->
+    {{ map_card(
+        equipe_id=equipe.id,
+        title="Carte des déplacements & Salles de la saison",
+        height="420px",
+        show_filter=True,
+        show_search=True,
+        show_legend=True
+    ) }}
 
 </div>
 {% endblock %}

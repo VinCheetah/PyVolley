@@ -31,15 +31,7 @@ from pyvolley.core.config import get_settings
 router = APIRouter()
 
 
-ROLE_SETTER = "PASSEUR"
-ROLE_OPPOSITE = "POINTU"
-ROLE_MIDDLE = "CENTRAL"
-ROLE_OUTSIDE = "RECEPTIONNEUR_ATTAQUANT"
-ROLE_LIBERO = "LIBERO"
-ROLE_MULTI = "POLYVALENT"
-ROLE_UNKNOWN = "INDETERMINE"
-
-_ROLE_GROUP_ORDER = (
+from pyvolley.core.constants import (
     ROLE_SETTER,
     ROLE_OPPOSITE,
     ROLE_MIDDLE,
@@ -47,6 +39,7 @@ _ROLE_GROUP_ORDER = (
     ROLE_LIBERO,
     ROLE_MULTI,
     ROLE_UNKNOWN,
+    ALL_ROLES as _ROLE_GROUP_ORDER,
 )
 
 
@@ -260,7 +253,7 @@ def _build_roster_role_groups(
 
 
 @router.get("/equipes", response_class=HTMLResponse)
-async def equipes_list(
+def equipes_list(
     request: Request,
     q: Optional[str] = None,
     genre: Optional[str] = None,
@@ -322,7 +315,7 @@ async def equipes_list(
 
 
 @router.get("/equipes/{equipe_id}", response_class=HTMLResponse)
-async def equipe_detail(
+def equipe_detail(
     request: Request,
     equipe_id: int,
     equipe_repo: EquipeRepository = Depends(get_equipe_repo),
@@ -369,16 +362,35 @@ async def equipe_detail(
         "pct": round((players_with_role_data / len(roster)) * 100, 1) if roster else 0.0,
     }
 
-    # Sets stats
-    sets_gagnes = 0
-    sets_perdus = 0
-    for m in matchs:
-        if m.equipe_a_id == equipe.id:
-            sets_gagnes += m.sets_equipe_a
-            sets_perdus += m.sets_equipe_b
-        else:
-            sets_gagnes += m.sets_equipe_b
-            sets_perdus += m.sets_equipe_a
+    from pyvolley.database.repositories import EquipeSaisonStatsRepository
+    equipe_saison_stats_list = EquipeSaisonStatsRepository(equipe_repo.session).get_for_equipe(equipe.id)
+    equipe_saison_stats = None
+    if equipe_saison_stats_list:
+        if equipe.saison_id:
+            for s in equipe_saison_stats_list:
+                if s.saison_id == equipe.saison_id:
+                    equipe_saison_stats = s
+                    break
+        if not equipe_saison_stats:
+            equipe_saison_stats = equipe_saison_stats_list[0]
+
+    if equipe_saison_stats:
+        victoires = equipe_saison_stats.victoires
+        defaites = equipe_saison_stats.defaites
+        sets_gagnes = equipe_saison_stats.sets_pour
+        sets_perdus = equipe_saison_stats.sets_contre
+    else:
+        victoires = sum(1 for m in matchs if is_winner(m, equipe))
+        defaites = len([m for m in matchs if m.match_joue]) - victoires
+        sets_gagnes = 0
+        sets_perdus = 0
+        for m in matchs:
+            if m.equipe_a_id == equipe.id:
+                sets_gagnes += (m.sets_equipe_a or 0)
+                sets_perdus += (m.sets_equipe_b or 0)
+            else:
+                sets_gagnes += (m.sets_equipe_b or 0)
+                sets_perdus += (m.sets_equipe_a or 0)
 
     score_evolution = build_match_score_evolution(matchs, equipe)
 
@@ -400,9 +412,6 @@ async def equipe_detail(
             club_code_ffvb=equipe.club.code_ffvb,
         )
 
-    from pyvolley.database.repositories import EquipeSaisonStatsRepository
-    equipe_saison_stats = EquipeSaisonStatsRepository(equipe_repo.session).get_for_equipe(equipe.id)
-
     return templates.TemplateResponse(
         "equipes/detail.html",
         {
@@ -411,7 +420,7 @@ async def equipe_detail(
             "matchs": matchs,
             "saison_stats": equipe_saison_stats,
             "victoires": victoires,
-            "defaites": len([m for m in matchs if m.match_joue]) - victoires,
+            "defaites": defaites,
             "roster": roster,
             "roster_role_groups": roster_role_groups,
             "role_detection_coverage": role_detection_coverage,

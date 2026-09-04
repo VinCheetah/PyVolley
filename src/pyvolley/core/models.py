@@ -18,51 +18,14 @@ from pyvolley.shared.match_scores import resolve_match_score
 
 # ============== Enums ==============
 
-class Genre(str, Enum):
-    """Genre de la compétition."""
-    MASCULIN = "MASCULIN"
-    FEMININ = "FEMININ"
-    MIXTE = "MIXTE"
-
-
-class Categorie(str, Enum):
-    """Catégorie d'âge."""
-    SENIOR = "SENIOR"
-    M21 = "M21"
-    M20 = "M20"
-    M18 = "M18"
-    M17 = "M17"
-    M15 = "M15"
-    M13 = "M13"
-    VETERAN = "VETERAN"
-
-
-class Niveau(str, Enum):
-    """Niveau de compétition."""
-    ELITE = "ELITE"
-    NATIONALE = "NATIONALE"
-    PRE_NATIONALE = "PRE_NATIONALE"
-    REGIONALE = "REGIONALE"
-    DEPARTEMENTALE = "DEPARTEMENTALE"
-    LOISIR = "LOISIR"
-
-
-class TypeSanction(str, Enum):
-    """Type de sanction."""
-    AVERTISSEMENT = "A"  # Carton jaune
-    PENALITE = "P"       # Carton rouge = point adverse
-    EXPULSION = "E"      # Exclusion du set
-    DISQUALIFICATION = "D"  # Exclusion du match
-
-
-class RoleArbitre(str, Enum):
-    """Rôle de l'arbitre."""
-    PREMIER = "1er"
-    SECOND = "2ème"
-    MARQUEUR = "Marqueur"
-    MARQUEUR_ASSISTANT = "Marqueur assistant"
-    RESPONSABLE_SALLE = "Responsable de salle"
-    JUGE_LIGNE = "Juge de ligne"
+from pyvolley.core.constants import (
+    Categorie,
+    Genre,
+    Niveau,
+    RoleArbitre,
+    RoleJoueur,
+    TypeSanction,
+)
 
 
 # ============== Modèles de base ==============
@@ -337,9 +300,12 @@ class Match(MatchBase):
     competition_code: Optional[str] = None  # Code de la poule ("EMA")
     journee: Optional[str] = None
     saison: Optional[str] = None  # "2024-2025"
-    categorie: Optional[Categorie] = None
+    categorie: Optional[str] = None
     genre: Optional[Genre] = None
-    niveau: Optional[Niveau] = None  # ELITE, NATIONALE, PRE_NATIONALE, REGIONALE, DEPARTEMENTALE, LOISIR
+    niveau: Optional[str] = None  # PRO, ELITE, NATIONALE, PRE_NATIONALE, REGIONALE, PRE_REGIONALE, DEPARTEMENTALE, LOISIR
+    division: Optional[str] = None  # "1", "2", "3", etc.
+    niveau_badge: Optional[str] = None  # "Pro A", "Elite", "N2", "Prénat", "R1", "D1", etc.
+    niveau_rank: Optional[int] = None  # 0 à 18
     organisateur: Optional[str] = None  # "Compétitions Nationales", "Ligue ILE-DE-FRANCE", "Comité Seine Paris"
     
     # Équipes

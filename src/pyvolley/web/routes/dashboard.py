@@ -31,7 +31,7 @@ router = APIRouter()
 
 
 @router.get("/", response_class=HTMLResponse)
-async def index(
+def index(
     request: Request,
     joueur_repo: JoueurRepository = Depends(get_joueur_repo),
     club_repo: ClubRepository = Depends(get_club_repo),

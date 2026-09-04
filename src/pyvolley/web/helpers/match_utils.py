@@ -8,15 +8,7 @@ et la hiérarchie des niveaux de volley.
 from typing import Optional, Any
 
 from pyvolley.analysis.joueur_stats import build_set_timeline
-
-
-def _normalize_numero(numero: Optional[str]) -> str:
-    raw = (numero or "").strip()
-    if not raw:
-        return ""
-    if raw.isdigit():
-        return str(int(raw))
-    return raw.lstrip("0") or raw
+from pyvolley.shared.helpers import normalize_numero
 
 
 def _build_player_identity_lookup(match_db) -> dict[str, dict[str, dict[str, str]]]:
@@ -32,7 +24,7 @@ def _build_player_identity_lookup(match_db) -> dict[str, dict[str, dict[str, str
             continue
 
         numero_raw = (participation.numero_maillot or "").strip()
-        numero_norm = _normalize_numero(numero_raw)
+        numero_norm = normalize_numero(numero_raw)
         if not numero_norm:
             continue
 
@@ -70,7 +62,7 @@ def _resolve_server_identity(core_set, turn, lookup: dict[str, dict[str, dict[st
     td = core_set.team_data(turn.team)
     score_sum_start = (turn.score_a_start or 0) + (turn.score_b_start or 0)
     numero_raw = _get_player_at_position_at_score(td, turn.position, score_sum_start)
-    numero_norm = _normalize_numero(numero_raw)
+    numero_norm = normalize_numero(numero_raw)
 
     if numero_norm and numero_norm in lookup.get(turn.team, {}):
         return dict(lookup[turn.team][numero_norm])
@@ -82,29 +74,6 @@ def _resolve_server_identity(core_set, turn, lookup: dict[str, dict[str, dict[st
         "prenom": "",
     }
     return fallback
-
-
-# Hiérarchie des niveaux de volley (du plus bas au plus haut)
-NIVEAU_ORDER: dict[str, int] = {
-    "LOISIR": 0,
-    "DEPARTEMENTAL": 1, "DÉPARTEMENTAL": 1, "DEPARTEMENTALE": 1, "DÉPARTEMENTALE": 1,
-    "PRE_REGIONALE": 2, "PRÉ_RÉGIONALE": 2, "PREREGIONALE": 2,
-    "REGIONAL": 3, "RÉGIONAL": 3, "REGIONALE": 3, "RÉGIONALE": 3,
-    "PRE_NATIONALE": 4, "PRÉNATIONAL": 4, "PRENATIONAL": 4,
-    "PRENATIONALE": 4, "PRÉNATIONALE": 4,
-    "PRE-NATIONAL": 4, "PRÉ-NATIONAL": 4, "PRE-NATIONALE": 4, "PRÉ-NATIONALE": 4,
-    "NATIONAL": 5, "NATIONALE": 5,
-    "N3": 5, "N2": 6, "N1": 7,
-    "ELITE": 8, "ÉLITE": 8,
-    "PRO": 9, "PRO B": 9, "PRO A": 10,
-}
-
-
-def niveau_rank(niveau_str: Optional[str]) -> Optional[int]:
-    """Retourne le rang numérique d'un niveau, ou None si inconnu."""
-    if not niveau_str:
-        return None
-    return NIVEAU_ORDER.get(niveau_str.upper().strip())
 
 
 def build_simulation_data(

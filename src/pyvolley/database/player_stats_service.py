@@ -6,9 +6,12 @@ import logging
 
 from sqlalchemy.orm import Session
 
+from typing import Optional
+
 from pyvolley.analysis.joueur_stats import analyze_joueur_match, build_set_timeline
 from pyvolley.analysis.role_inference import infer_team_roles
 from pyvolley.analysis.models import JoueurMatchDetailedStats
+from pyvolley.core.models import Match
 from pyvolley.database.converters import match_db_to_core, _sanitize_joueur_licence
 from pyvolley.database.models import MatchDB
 from pyvolley.database.repositories import JoueurMatchStatsRepository
@@ -23,8 +26,18 @@ class JoueurMatchStatsService:
         self.session = session
         self.repo = JoueurMatchStatsRepository(session)
 
-    def compute_and_store_for_match(self, match_db: MatchDB, *, force: bool = False) -> int:
+    def compute_and_store_for_match(
+        self,
+        match_db: MatchDB,
+        *,
+        force: bool = False,
+        match_core: Optional[Match] = None,
+        flush: bool = True,
+    ) -> int:
         """Calcule et stocke les stats détaillées de tous les joueurs d'un match.
+
+        Si ``match_core`` est fourni (ex: objet Match déjà extrait par le parser),
+        il est réutilisé directement sans conversion redondante depuis la base de données.
 
         Returns:
             Nombre de lignes persistées.
@@ -51,6 +64,7 @@ class JoueurMatchStatsService:
                 match_db.id,
                 [],
                 match_updated_at=match_db.updated_at,
+                flush=flush,
             )
             return 0
 
@@ -62,9 +76,10 @@ class JoueurMatchStatsService:
         ):
             return len(expected_ids)
 
-        participants_a = [p for p in valid_participants if p.equipe_id == match_db.equipe_a_id]
-        participants_b = [p for p in valid_participants if p.equipe_id == match_db.equipe_b_id]
-        match_core = match_db_to_core(match_db, participants_a, participants_b)
+        if match_core is None:
+            participants_a = [p for p in valid_participants if p.equipe_id == match_db.equipe_a_id]
+            participants_b = [p for p in valid_participants if p.equipe_id == match_db.equipe_b_id]
+            match_core = match_db_to_core(match_db, participants_a, participants_b)
 
         # Pré-calculer les rôles d'équipe et les timelines de set une seule fois par match
         precomputed_roles_a = infer_team_roles(match_core, "A")
@@ -103,6 +118,7 @@ class JoueurMatchStatsService:
             match_db.id,
             rows,
             match_updated_at=match_db.updated_at,
+            flush=flush,
         )
         return len(rows)
 

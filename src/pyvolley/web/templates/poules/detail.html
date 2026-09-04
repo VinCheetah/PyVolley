@@ -1,7 +1,11 @@
 {% extends "base.html" %}
 {% from "macros/ui.html" import breadcrumb %}
 {% from "macros/data.html" import classement_table %}
+{% from "macros/map.html" import map_head, map_card %}
 {% block title %}{{ poule.nom or poule.code }} - {{ competition.nom }} - PyVolley{% endblock %}
+{% block extra_head %}
+{{ map_head() }}
+{% endblock %}
 {% block content %}
 <div class="space-y-6">
 
@@ -217,8 +221,8 @@
                             <td class="text-right">
                                 {% if m.equipe_a %}
                                 <a href="{{ path_for_entity('equipe', m.equipe_a.id if m.equipe_a else None) }}" class="font-medium hover:text-white transition
-                                    {% if m.match_joue and m.sets_equipe_a > m.sets_equipe_b %}text-white{% endif %}"
-                                   style="{% if not (m.match_joue and m.sets_equipe_a > m.sets_equipe_b) %}color: var(--text-secondary);{% endif %}">
+                                    {% if m.match_joue and (m.sets_equipe_a or 0) > (m.sets_equipe_b or 0) %}text-white{% endif %}"
+                                   style="{% if not (m.match_joue and (m.sets_equipe_a or 0) > (m.sets_equipe_b or 0)) %}color: var(--text-secondary);{% endif %}">
                                     {{ m.equipe_a.nom|truncate_name(25) }}
                                 </a>
                                 {% endif %}
@@ -226,8 +230,8 @@
                             <td class="text-center">
                                 {% if m.forfait %}
                                 <span class="badge badge-red" style="font-size: 0.6rem;">Forfait</span>
-                                {% elif m.match_joue %}
-                                <span class="set-score {% if m.sets_equipe_a > m.sets_equipe_b %}won-a{% else %}won-b{% endif %}">
+                                {% elif m.match_joue and m.sets_equipe_a is not none and m.sets_equipe_b is not none %}
+                                <span class="set-score {% if (m.sets_equipe_a or 0) > (m.sets_equipe_b or 0) %}won-a{% else %}won-b{% endif %}">
                                     {{ m.sets_equipe_a }}-{{ m.sets_equipe_b }}
                                 </span>
                                 {% else %}
@@ -237,8 +241,8 @@
                             <td>
                                 {% if m.equipe_b %}
                                 <a href="{{ path_for_entity('equipe', m.equipe_b.id if m.equipe_b else None) }}" class="font-medium hover:text-white transition
-                                    {% if m.match_joue and m.sets_equipe_b > m.sets_equipe_a %}text-white{% endif %}"
-                                   style="{% if not (m.match_joue and m.sets_equipe_b > m.sets_equipe_a) %}color: var(--text-secondary);{% endif %}">
+                                    {% if m.match_joue and (m.sets_equipe_b or 0) > (m.sets_equipe_a or 0) %}text-white{% endif %}"
+                                   style="{% if not (m.match_joue and (m.sets_equipe_b or 0) > (m.sets_equipe_a or 0)) %}color: var(--text-secondary);{% endif %}">
                                     {{ m.equipe_b.nom|truncate_name(25) }}
                                 </a>
                                 {% endif %}
@@ -361,6 +365,16 @@
             {% endif %}
         </div>
     </div>
+
+    <!-- Carte interactive — Répartition géographique des clubs de la poule -->
+    {{ map_card(
+        competition_id=competition.id,
+        title="Carte géographique de la poule",
+        height="420px",
+        show_filter=True,
+        show_search=True,
+        show_legend=True
+    ) }}
 
 </div>
 {% endblock %}

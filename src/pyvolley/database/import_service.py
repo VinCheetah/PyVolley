@@ -13,7 +13,7 @@ from typing import Optional, List, Any, Union
 from datetime import datetime, date as datetime_date, time as datetime_time
 
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy import select, delete
 
 from ..core.models import Match, Joueur, Equipe, Set, Arbitre, Sanction, Officiel
 from ..core.geo_data import extract_entite_code_from_path, get_departments_for_entite
@@ -33,6 +33,12 @@ from .models import (
 )
 from .player_stats_service import JoueurMatchStatsService
 from .rollup_service import RollupStatsService
+from pyvolley.shared.categorisation import (
+    normalize_genre,
+    normalize_categorie,
+    extract_division_number,
+)
+from pyvolley.shared.niveau import classify_level
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +88,12 @@ class MatchImportService:
     # Import principal
     # =================================================================
 
-    def import_match(self, match_data: Match) -> Optional[MatchDB]:
+    def import_match(
+        self,
+        match_data: Match,
+        *,
+        defer_rollups: bool = False,
+    ) -> Optional[MatchDB]:
         """
         Importe un match complet dans la base de données.
 
@@ -134,6 +145,21 @@ class MatchImportService:
         elif not score_source and (has_details or (match_data.sets_a + match_data.sets_b > 0)):
             score_source = "pdf"
 
+        genre_str = match_data.genre.value if hasattr(match_data.genre, "value") else match_data.genre
+        genre_str = normalize_genre(genre_str) or normalize_genre(match_data.competition)
+        cat_str = match_data.categorie.value if hasattr(match_data.categorie, "value") else match_data.categorie
+        cat_str = normalize_categorie(cat_str) or normalize_categorie(match_data.competition)
+        div_str = getattr(match_data, "division", None) or extract_division_number(match_data.competition)
+
+        classification = classify_level(
+            competition_name=match_data.competition,
+            niveau=getattr(match_data, "niveau", None),
+            categorie=cat_str,
+            division=div_str,
+        )
+        if not cat_str and not classification.is_youth:
+            cat_str = "SENIOR"
+
         match_db = MatchDB(
             code_match=match_data.code_match,
             journee=match_data.journee,
@@ -159,6 +185,12 @@ class MatchImportService:
             remarques=match_data.remarques,
             source_pdf=match_data.source_pdf,
             parsed_at=match_data.parsed_at,
+            genre=genre_str,
+            categorie=cat_str,
+            niveau=classification.categorie_principale,
+            division=classification.division,
+            niveau_badge=classification.label,
+            niveau_rank=classification.rank,
         )
         self.session.add(match_db)
         self.session.flush()
@@ -166,11 +198,11 @@ class MatchImportService:
         # 6. Sets (avec formations, changements, timeouts)
         self._import_sets(match_db, match_data.sets)
 
-        # 7. Joueurs & participations
+        # 7. Joueurs & participations (côté 'A' et 'B' explicitement renseigné)
         if match_data.equipe_a and equipe_a_db:
-            self._import_joueurs(match_db, match_data.equipe_a, equipe_a_db)
+            self._import_joueurs(match_db, match_data.equipe_a, equipe_a_db, side="A")
         if match_data.equipe_b and equipe_b_db:
-            self._import_joueurs(match_db, match_data.equipe_b, equipe_b_db)
+            self._import_joueurs(match_db, match_data.equipe_b, equipe_b_db, side="B")
         # Flush les participations pour que les prochaines queries les voient
         self.session.flush()
 
@@ -193,7 +225,9 @@ class MatchImportService:
         # 11. Statistiques détaillées joueur (persistées en base)
         if match_db.has_details:
             stats_service = JoueurMatchStatsService(self.session)
-            count = stats_service.compute_and_store_for_match(match_db, force=True)
+            count = stats_service.compute_and_store_for_match(
+                match_db, force=True, match_core=match_data,
+            )
             if count == 0 and match_db.participations:
                 logger.warning(
                     "Aucune statistique joueur générée pour le match %s (id=%s) malgré %d participation(s)",
@@ -201,7 +235,7 @@ class MatchImportService:
                 )
 
         # 12. Actualisation incrémentale des statistiques agglomérées (Rollups)
-        if match_db.match_joue:
+        if match_db.match_joue and not defer_rollups:
             try:
                 rollup_service = RollupStatsService(self.session)
                 rollup_service.apply_match_delta(match_db.id)
@@ -215,6 +249,7 @@ class MatchImportService:
         matches: List[Match],
         *,
         batch_size: int = 200,
+        defer_rollups: bool = True,
     ) -> dict:
         """Importe plusieurs matchs avec commit par batch.
 
@@ -225,6 +260,9 @@ class MatchImportService:
 
         Chaque batch est commité indépendamment afin qu'une erreur ne fasse
         pas perdre tous les matchs déjà importés.
+
+        Si ``defer_rollups=True``, les rollups ne sont pas recalculés pour chaque match,
+        mais en une seule passe consolidée à la fin du lot pour une vitesse maximale.
 
         Returns:
             Statistiques d'import : total, imported, committed, duplicates,
@@ -238,13 +276,15 @@ class MatchImportService:
             "errors": [],
         }
         batch_imported = 0
+        all_imported_ids: list[int] = []
 
         for i, match_data in enumerate(matches):
             try:
-                result = self.import_match(match_data)
+                result = self.import_match(match_data, defer_rollups=defer_rollups)
                 if result:
                     stats["imported"] += 1
                     batch_imported += 1
+                    all_imported_ids.append(result.id)
                 else:
                     stats["duplicates"] += 1
             except Exception as e:
@@ -284,6 +324,15 @@ class MatchImportService:
                 self.clear_caches()
                 stats["errors"].append({"final_commit": str(e)})
                 stats["imported"] = max(0, stats["imported"] - batch_imported)
+
+        # Passe consolidée des rollups si différés
+        if defer_rollups and all_imported_ids:
+            try:
+                rollup_service = RollupStatsService(self.session)
+                rollup_service.apply_batch_deltas(all_imported_ids)
+                self.session.commit()
+            except Exception as exc:
+                logger.warning("Erreur lors de l'actualisation consolidée des rollups: %s", exc)
 
         return stats
 
@@ -400,8 +449,21 @@ class MatchImportService:
         if not saison:
             return None
 
-        genre = match_data.genre.value if match_data.genre else None
-        categorie = match_data.categorie.value if match_data.categorie else None
+        genre = match_data.genre.value if hasattr(match_data.genre, "value") else match_data.genre
+        genre = normalize_genre(genre) or normalize_genre(match_data.competition)
+        categorie = match_data.categorie.value if hasattr(match_data.categorie, "value") else match_data.categorie
+        categorie = normalize_categorie(categorie) or normalize_categorie(match_data.competition)
+        div_str = getattr(match_data, "division", None) or extract_division_number(match_data.competition)
+
+        classification = classify_level(
+            competition_name=match_data.competition,
+            niveau=getattr(match_data, "niveau", None),
+            categorie=categorie,
+            division=div_str,
+        )
+        if not categorie and not classification.is_youth:
+            categorie = "SENIOR"
+
         cache_key = (match_data.competition, saison.id, genre, categorie)
 
         if cache_key in self._competition_cache:
@@ -426,6 +488,12 @@ class MatchImportService:
 
         existing = self.session.scalar(stmt)
         if existing:
+            # Sync missing niveau / division / badge
+            if not existing.niveau_badge or existing.niveau_rank == -1:
+                existing.niveau = classification.categorie_principale
+                existing.division = classification.division
+                existing.niveau_badge = classification.label
+                existing.niveau_rank = classification.rank
             # If entite_id is not yet linked, try to link it now
             if not existing.entite_id:
                 entite = self._resolve_entite(match_data)
@@ -445,6 +513,10 @@ class MatchImportService:
             code_competition=comp_code,
             genre=genre,
             categorie=categorie,
+            niveau=classification.categorie_principale,
+            division=classification.division,
+            niveau_badge=classification.label,
+            niveau_rank=classification.rank,
             saison_id=saison.id,
             entite_id=entite.id if entite else None,
         )
@@ -641,8 +713,21 @@ class MatchImportService:
         nom_equipe = equipe_data.nom
         saison_id = saison.id if saison else None
         competition_id = competition.id if competition else None
-        genre = match_data.genre.value if match_data.genre else None
-        categorie = match_data.categorie.value if match_data.categorie else None
+        genre = match_data.genre.value if hasattr(match_data.genre, "value") else match_data.genre
+        genre = normalize_genre(genre) or (competition.genre if competition else None) or normalize_genre(match_data.competition)
+        categorie = match_data.categorie.value if hasattr(match_data.categorie, "value") else match_data.categorie
+        categorie = normalize_categorie(categorie) or (competition.categorie if competition else None) or normalize_categorie(match_data.competition)
+
+        comp_nom = competition.nom if competition else match_data.competition
+        div_str = getattr(match_data, "division", None) or (competition.division if competition else None) or extract_division_number(comp_nom)
+        classification = classify_level(
+            competition_name=comp_nom,
+            niveau=(competition.niveau if competition else getattr(match_data, "niveau", None)),
+            categorie=categorie,
+            division=div_str,
+        )
+        if not categorie and not classification.is_youth:
+            categorie = "SENIOR"
 
         # Cache key inclut la compétition, le genre et la catégorie
         # pour séparer les équipes par genre et catégorie d'âge
@@ -660,16 +745,17 @@ class MatchImportService:
             stmt = stmt.where(EquipeDB.competition_id.is_(None))
         existing = self.session.scalar(stmt)
         if existing:
+            if not existing.niveau_badge or existing.niveau_rank == -1:
+                existing.niveau = classification.categorie_principale
+                existing.division = classification.division
+                existing.niveau_badge = classification.label
+                existing.niveau_rank = classification.rank
             self._equipe_cache[cache_key] = existing
             return existing
 
         # Résoudre le club
         club_nom = equipe_data.club_nom or nom_equipe
         club = self._get_or_create_club(club_nom)
-
-        # Extraire niveau/division depuis le nom de compétition
-        comp_nom = competition.nom if competition else match_data.competition
-        niveau, division = self._extract_niveau_division(comp_nom)
 
         equipe = EquipeDB(
             nom=nom_equipe,
@@ -679,8 +765,10 @@ class MatchImportService:
             club_id=club.id if club else None,
             saison_id=saison_id,
             competition_id=competition_id,
-            niveau=niveau,
-            division=division,
+            niveau=classification.categorie_principale,
+            division=classification.division,
+            niveau_badge=classification.label,
+            niveau_rank=classification.rank,
         )
         self.session.add(equipe)
         self.session.flush()
@@ -787,7 +875,6 @@ class MatchImportService:
                 services_b=services_b,
             )
             self.session.add(set_db)
-            self.session.flush()
 
             # Formations
             for label, team_data in [
@@ -797,7 +884,6 @@ class MatchImportService:
                 f = team_data.formation if team_data else None
                 if f:
                     form_db = FormationDB(
-                        set_id=set_db.id,
                         equipe=label,
                         position_1=f.position_1,
                         position_2=f.position_2,
@@ -806,7 +892,7 @@ class MatchImportService:
                         position_5=f.position_5,
                         position_6=f.position_6,
                     )
-                    self.session.add(form_db)
+                    set_db.formations.append(form_db)
 
             # Changements & Timeouts from SetTeamData
             for label, team_data in [("A", set_data.equipe_a), ("B", set_data.equipe_b)]:
@@ -814,7 +900,6 @@ class MatchImportService:
                     continue
                 for chg in team_data.changements:
                     chg_db = ChangementDB(
-                        set_id=set_db.id,
                         equipe=label,
                         joueur_entrant=chg.joueur_entrant,
                         joueur_sortant=chg.joueur_sortant,
@@ -822,22 +907,21 @@ class MatchImportService:
                         score_a=chg.score_a,
                         score_b=chg.score_b,
                     )
-                    self.session.add(chg_db)
+                    set_db.changements.append(chg_db)
                 for to in team_data.timeouts:
                     to_db = TimeoutDB(
-                        set_id=set_db.id,
                         equipe=label,
                         score_a=to.score_a,
                         score_b=to.score_b,
                     )
-                    self.session.add(to_db)
+                    set_db.timeouts.append(to_db)
 
     # =================================================================
     # Joueurs & Participations
     # =================================================================
 
     def _import_joueurs(
-        self, match_db: MatchDB, equipe_data: Equipe, equipe_db: EquipeDB
+        self, match_db: MatchDB, equipe_data: Equipe, equipe_db: EquipeDB, side: Optional[str] = None
     ) -> None:
         """Importe les joueurs d'une équipe et crée les participations.
 
@@ -875,6 +959,14 @@ class MatchImportService:
             seen_licences.add(key)
             unique_joueurs.append(jd)
 
+        # Pré-charger toutes les participations existantes pour ce match en 1 requête
+        existing_parts_map = {
+            part.joueur_id: part
+            for part in self.session.scalars(
+                select(ParticipationMatchDB).where(ParticipationMatchDB.match_id == match_db.id)
+            ).all()
+        }
+
         for joueur_data in unique_joueurs:
             joueur_db = self._get_or_create_joueur(
                 joueur_data.licence,
@@ -893,15 +985,11 @@ class MatchImportService:
                 )
                 continue
 
-            # Double-check en DB (pour la robustesse, au cas où la session
-            # aurait été flushée entre-temps)
-            existing_part = self.session.scalar(
-                select(ParticipationMatchDB).where(
-                    ParticipationMatchDB.match_id == match_db.id,
-                    ParticipationMatchDB.joueur_id == joueur_db.id,
-                )
-            )
+            # Vérifier dans les participations déjà existantes en base
+            existing_part = existing_parts_map.get(joueur_db.id)
             if existing_part:
+                if side and not existing_part.side:
+                    existing_part.side = side
                 self._participation_seen.add(part_key)
                 continue
 
@@ -909,12 +997,14 @@ class MatchImportService:
                 match_id=match_db.id,
                 joueur_id=joueur_db.id,
                 equipe_id=equipe_db.id,
+                side=side,
                 numero_maillot=joueur_data.numero,
                 est_libero=joueur_data.est_libero,
                 est_capitaine=joueur_data.est_capitaine,
             )
             self.session.add(participation)
             self._participation_seen.add(part_key)
+            existing_parts_map[joueur_db.id] = participation
 
     def _build_no_licence_key(
         self,
@@ -1370,6 +1460,7 @@ class MatchImportService:
         parsed: Match,
         *,
         force: bool = False,
+        defer_rollups: bool = False,
     ) -> bool:
         """Enrichit un match existant en base avec les données d'un PDF parsé.
 
@@ -1385,6 +1476,8 @@ class MatchImportService:
             match_db: Enregistrement en base à enrichir.
             parsed: Match Pydantic extrait du parser PDF.
             force: Si True, écrase les données existantes y compris les scores.
+            defer_rollups: Si True, ne recalcule pas les rollups immédiatement
+                (utilisé lors des imports batch pour une passe unique finale).
 
         Returns:
             True si le match a été enrichi, False si rien n'a changé.
@@ -1479,13 +1572,41 @@ class MatchImportService:
                 match_db.remarques = parsed.remarques
                 updated = True
 
-        # ── Sets détaillés (supprimer les anciens, recréer) ──
+        # ── Suppression consolidée des anciens éléments détaillés (Bulk Delete direct) ──
+        expired_relations = []
         if parsed.sets:
-            # Supprimer les sets existants (scores basiques de l'export)
-            for old_set in list(match_db.sets):
-                self.session.delete(old_set)
-            self.session.flush()
+            if match_db.has_details:
+                set_ids = self.session.scalars(select(SetDB.id).where(SetDB.match_id == match_db.id)).all()
+                if set_ids:
+                    self.session.execute(delete(FormationDB).where(FormationDB.set_id.in_(set_ids)))
+                    self.session.execute(delete(ChangementDB).where(ChangementDB.set_id.in_(set_ids)))
+                    self.session.execute(delete(TimeoutDB).where(TimeoutDB.set_id.in_(set_ids)))
+            self.session.execute(delete(SetDB).where(SetDB.match_id == match_db.id))
+            expired_relations.append("sets")
 
+        if parsed.arbitres:
+            self.session.execute(delete(ArbitreMatchDB).where(ArbitreMatchDB.match_id == match_db.id))
+            expired_relations.append("arbitrages")
+
+        if parsed.sanctions:
+            self.session.execute(delete(SanctionDB).where(SanctionDB.match_id == match_db.id))
+            expired_relations.append("sanctions")
+
+        if parsed.equipe_a and parsed.equipe_a.officiels:
+            self.session.execute(delete(OfficielMatchDB).where(OfficielMatchDB.match_id == match_db.id, OfficielMatchDB.equipe == "A"))
+            if "officiels" not in expired_relations:
+                expired_relations.append("officiels")
+
+        if parsed.equipe_b and parsed.equipe_b.officiels:
+            self.session.execute(delete(OfficielMatchDB).where(OfficielMatchDB.match_id == match_db.id, OfficielMatchDB.equipe == "B"))
+            if "officiels" not in expired_relations:
+                expired_relations.append("officiels")
+
+        if expired_relations:
+            self.session.expire(match_db, expired_relations)
+
+        # ── Sets détaillés ──
+        if parsed.sets:
             self._import_sets(match_db, parsed.sets)
             match_db.has_details = True
             match_db.score_source = "pdf"
@@ -1514,37 +1635,21 @@ class MatchImportService:
                     updated = True
                 self._import_joueurs(match_db, parsed.equipe_b, equipe_b_db)
 
-        self.session.flush()
-
         # ── Arbitres ──
         if parsed.arbitres:
-            # Supprimer les anciennes associations (souvent basiques depuis l'export)
-            for old_am in list(match_db.arbitrages):
-                self.session.delete(old_am)
-            self.session.flush()
             self._import_arbitres(match_db, parsed.arbitres)
             updated = True
 
         # ── Sanctions ──
         if parsed.sanctions:
-            # Supprimer les anciennes sanctions
-            for old_s in list(match_db.sanctions):
-                self.session.delete(old_s)
-            self.session.flush()
             self._import_sanctions(match_db, parsed.sanctions)
             updated = True
 
         # ── Officiels d'équipe ──
         if parsed.equipe_a and parsed.equipe_a.officiels:
-            for old_off in [o for o in match_db.officiels if o.equipe == "A"]:
-                self.session.delete(old_off)
-            self.session.flush()
             self._import_officiels(match_db, parsed.equipe_a.officiels, "A")
             updated = True
         if parsed.equipe_b and parsed.equipe_b.officiels:
-            for old_off in [o for o in match_db.officiels if o.equipe == "B"]:
-                self.session.delete(old_off)
-            self.session.flush()
             self._import_officiels(match_db, parsed.equipe_b.officiels, "B")
             updated = True
 
@@ -1560,9 +1665,12 @@ class MatchImportService:
             self.session.flush()
 
             # Recalcule et persiste les statistiques détaillées des joueurs
+            # en réutilisant directement l'objet core parsed sans re-conversion SQL.
             if match_db.has_details:
                 stats_service = JoueurMatchStatsService(self.session)
-                count = stats_service.compute_and_store_for_match(match_db, force=True)
+                count = stats_service.compute_and_store_for_match(
+                    match_db, force=True, match_core=parsed, flush=not defer_rollups,
+                )
                 if count == 0 and match_db.participations:
                     logger.warning(
                         "Aucune statistique joueur générée pour le match %s (id=%s) malgré %d participation(s)",
@@ -1570,7 +1678,7 @@ class MatchImportService:
                     )
 
             # Actualisation incrémentale des rollups
-            if match_db.match_joue:
+            if match_db.match_joue and not defer_rollups:
                 try:
                     rollup_service = RollupStatsService(self.session)
                     rollup_service.apply_match_delta(match_db.id)

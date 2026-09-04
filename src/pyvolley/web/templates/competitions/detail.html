@@ -376,15 +376,15 @@
                             <td class="text-right">
                                 {% if m.equipe_a %}
                                 <a href="{{ path_for_entity('equipe', m.equipe_a.id if m.equipe_a else None) }}" class="font-medium hover:text-white transition
-                                    {% if m.statut == 'joué' and m.sets_equipe_a > m.sets_equipe_b %}text-white{% endif %}"
-                                   style="{% if not (m.statut == 'joué' and m.sets_equipe_a > m.sets_equipe_b) %}color: var(--text-secondary);{% endif %}">
+                                    {% if m.statut == 'joué' and (m.sets_equipe_a or 0) > (m.sets_equipe_b or 0) %}text-white{% endif %}"
+                                   style="{% if not (m.statut == 'joué' and (m.sets_equipe_a or 0) > (m.sets_equipe_b or 0)) %}color: var(--text-secondary);{% endif %}">
                                     {{ m.equipe_a.nom|truncate_name(25) }}
                                 </a>
                                 {% endif %}
                             </td>
                             <td class="text-center">
-                                {% if m.statut == 'joué' %}
-                                <span class="set-score {% if m.sets_equipe_a > m.sets_equipe_b %}won-a{% else %}won-b{% endif %}">
+                                {% if m.statut == 'joué' and m.sets_equipe_a is not none and m.sets_equipe_b is not none %}
+                                <span class="set-score {% if (m.sets_equipe_a or 0) > (m.sets_equipe_b or 0) %}won-a{% else %}won-b{% endif %}">
                                     {{ m.sets_equipe_a }}-{{ m.sets_equipe_b }}
                                 </span>
                                 {% elif m.statut == 'forfait' %}
@@ -396,8 +396,8 @@
                             <td>
                                 {% if m.equipe_b %}
                                 <a href="{{ path_for_entity('equipe', m.equipe_b.id if m.equipe_b else None) }}" class="font-medium hover:text-white transition
-                                    {% if m.statut == 'joué' and m.sets_equipe_b > m.sets_equipe_a %}text-white{% endif %}"
-                                   style="{% if not (m.statut == 'joué' and m.sets_equipe_b > m.sets_equipe_a) %}color: var(--text-secondary);{% endif %}">
+                                    {% if m.statut == 'joué' and (m.sets_equipe_b or 0) > (m.sets_equipe_a or 0) %}text-white{% endif %}"
+                                   style="{% if not (m.statut == 'joué' and (m.sets_equipe_b or 0) > (m.sets_equipe_a or 0)) %}color: var(--text-secondary);{% endif %}">
                                     {{ m.equipe_b.nom|truncate_name(25) }}
                                 </a>
                                 {% endif %}
@@ -587,8 +587,15 @@
 
     </div>
 
-    <!-- Carte interactive — Localisation des matchs de la compétition -->
-    {{ map_card(competition_id=competition.id, title="Carte de la compétition", height="400px", show_filter=True) }}
+    <!-- Carte interactive — Clubs et Matchs de la compétition -->
+    {{ map_card(
+        competition_id=competition.id,
+        title="Carte de la compétition (Clubs, Salles & Matchs)",
+        height="450px",
+        show_filter=True,
+        show_search=True,
+        show_legend=True
+    ) }}
 
 </div>
 {% endblock %}

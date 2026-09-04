@@ -20,35 +20,13 @@ from pyvolley.database.models import (
 )
 
 
-# ─── Hiérarchie des niveaux ─────────────────────────────────────
-
-_NIVEAU_ORDER = {
-    "LOISIR": 0,
-    "DEPARTEMENTAL": 1, "DÉPARTEMENTAL": 1, "DEPARTEMENTALE": 1, "DÉPARTEMENTALE": 1,
-    "PRE_REGIONALE": 2, "PRÉ_RÉGIONALE": 2, "PREREGIONALE": 2,
-    "REGIONAL": 3, "RÉGIONAL": 3, "REGIONALE": 3, "RÉGIONALE": 3,
-    "PRE_NATIONALE": 4, "PRÉNATIONAL": 4, "PRENATIONAL": 4,
-    "PRENATIONALE": 4, "PRÉNATIONALE": 4,
-    "PRE-NATIONAL": 4, "PRÉ-NATIONAL": 4, "PRE-NATIONALE": 4, "PRÉ-NATIONALE": 4,
-    "NATIONAL": 5, "NATIONALE": 5,
-    "N3": 5, "N2": 6, "N1": 7,
-    "ELITE": 8, "ÉLITE": 8,
-    "PRO": 9, "PRO B": 9, "PRO A": 10,
-}
-
-_NIVEAUX_LABELS = {
-    0: "Loisir", 1: "Départemental", 2: "Pré-régional",
-    3: "Régional", 4: "Pré-national", 5: "National",
-    6: "N2", 7: "N1", 8: "Élite", 9: "Pro B", 10: "Pro A",
-}
+from pyvolley.shared.niveau import (
+    LEVEL_SORT_ORDER as _NIVEAU_ORDER,
+    RANK_REFERENCE_LABELS as _NIVEAUX_LABELS,
+    niveau_sort_rank as _niveau_rank,
+)
 
 _MIN_MATCHES_FOR_TEAM_WINRATE = 5
-
-
-def _niveau_rank(niveau_str: Optional[str]) -> Optional[int]:
-    if not niveau_str:
-        return None
-    return _NIVEAU_ORDER.get(niveau_str.upper().strip())
 
 
 # ─── Filtres ────────────────────────────────────────────────────

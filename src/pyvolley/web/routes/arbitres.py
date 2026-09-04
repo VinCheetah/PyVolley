@@ -15,7 +15,7 @@ router = APIRouter()
 
 
 @router.get("/arbitres", response_class=HTMLResponse)
-async def arbitres_list(
+def arbitres_list(
     request: Request,
     q: Optional[str] = None,
     ligue: Optional[str] = None,
@@ -48,7 +48,7 @@ async def arbitres_list(
 
 
 @router.get("/arbitres/{arbitre_id}", response_class=HTMLResponse)
-async def arbitre_detail(
+def arbitre_detail(
     request: Request,
     arbitre_id: int,
     arbitre_repo: ArbitreRepository = Depends(get_arbitre_repo),

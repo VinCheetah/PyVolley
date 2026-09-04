@@ -262,13 +262,18 @@
                             {{ match.competition.nom|truncate_name(34) }}
                         </a>
                         <a href="{{ path_for_entity('competition', match.competition.id) }}" class="flex flex-wrap gap-1 hover:opacity-80 transition">
-                        {% if match.competition.genre %}
-                        <span class="badge {% if match.competition.genre == 'MASCULIN' %}badge-blue{% elif match.competition.genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %}" style="font-size: 0.55rem;">
-                            {% if match.competition.genre == 'MASCULIN' %}♂{% elif match.competition.genre == 'FEMININ' %}♀{% else %}⚥{% endif %}
+                        {% set comp_genre = match.genre or (match.competition.genre if match.competition else None) %}
+                        {% if comp_genre %}
+                        <span class="badge {% if comp_genre == 'MASCULIN' %}badge-blue{% elif comp_genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %}" style="font-size: 0.55rem;">
+                            {% if comp_genre == 'MASCULIN' %}♂{% elif comp_genre == 'FEMININ' %}♀{% else %}⚥{% endif %}
                         </span>
                         {% endif %}
-                        {% if match.competition.categorie %}
-                        <span class="badge badge-gold" style="font-size: 0.55rem;">{{ match.competition.categorie }}</span>
+                        {% set comp_cat = match.categorie or (match.competition.categorie if match.competition else None) %}
+                        {% if not comp_cat and match.competition %}
+                            {% set comp_cat = 'SENIOR' %}
+                        {% endif %}
+                        {% if comp_cat %}
+                        <span class="badge badge-gold" style="font-size: 0.55rem;">{{ comp_cat }}</span>
                         {% endif %}
                         </a>
                         {% endif %}
@@ -312,7 +317,16 @@
     {% endif %}
 
     <!-- Carte interactive — Localisation des matchs -->
-    {{ map_card(entity_type="match", title="Carte des matchs", height="400px", show_filter=True) }}
+    {{ map_card(
+        entity_type="match",
+        saison_id=current_saison_ids[0] if (current_saison_ids and current_saison_ids|length == 1) else None,
+        departements=selected_departements,
+        title="Carte des matchs",
+        height="450px",
+        show_filter=True,
+        show_search=True,
+        show_legend=True
+    ) }}
 
 </div>
 {% endblock %}

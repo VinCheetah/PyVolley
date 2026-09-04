@@ -40,7 +40,7 @@ router = APIRouter()
 
 
 @router.get("/search", response_class=HTMLResponse)
-async def search_page(
+def search_page(
     request: Request,
     q: Optional[str] = Query(None, min_length=2),
     genre: Optional[str] = Query(None),

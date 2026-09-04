@@ -147,6 +147,29 @@ def get_db() -> Generator[Session, None, None]:
         session.close()
 
 
+
+def _ensure_performance_indexes(engine) -> None:
+    """Crée les index sur les clés étrangères fréquentes s'ils n'existent pas déjà."""
+    queries = [
+        "CREATE INDEX IF NOT EXISTS ix_sets_match_id ON sets (match_id)",
+        "CREATE INDEX IF NOT EXISTS ix_formations_set_id ON formations (set_id)",
+        "CREATE INDEX IF NOT EXISTS ix_changements_set_id ON changements (set_id)",
+        "CREATE INDEX IF NOT EXISTS ix_timeouts_set_id ON timeouts (set_id)",
+        "CREATE INDEX IF NOT EXISTS ix_officiels_match_match_id ON officiels_match (match_id)",
+        "CREATE INDEX IF NOT EXISTS ix_arbitre_match_match_id ON arbitre_match (match_id)",
+        "CREATE INDEX IF NOT EXISTS ix_sanctions_match_id ON sanctions (match_id)",
+    ]
+    try:
+        from sqlalchemy import text as sa_text
+
+        with engine.begin() as conn:
+            for q in queries:
+                conn.execute(sa_text(q))
+        logger.debug("Performance indexes verified/created")
+    except Exception as e:
+        logger.warning("Could not verify performance indexes: %s", e)
+
+
 def init_db() -> None:
     """
     Initialise la base de données en créant toutes les tables.
@@ -182,6 +205,7 @@ def init_db() -> None:
             logger.info("Database migrations checked/applied to head")
         except Exception as e:
             logger.warning("Could not apply pending migrations: %s", e)
+        _ensure_performance_indexes(engine)
         return
 
     if not table_names:
@@ -190,6 +214,7 @@ def init_db() -> None:
 
             upgrade("head")
             logger.info("Database initialized from Alembic migrations")
+            _ensure_performance_indexes(engine)
             return
         except Exception as e:
             logger.warning("Migration-based initialization failed, fallback create_all: %s", e)
@@ -206,6 +231,8 @@ def init_db() -> None:
         logger.info("Alembic stamped at head")
     except Exception as e:
         logger.warning("Could not stamp Alembic revision after init_db: %s", e)
+
+    _ensure_performance_indexes(engine)
 
 
 def drop_db() -> None:

@@ -38,6 +38,8 @@ from pyvolley.database.models import (
     SalleClubDB,
 )
 
+from pyvolley.shared.niveau import classify_level
+
 logger = logging.getLogger(__name__)
 
 
@@ -127,6 +129,7 @@ class ExportImportService:
         self._poule_cache: dict[tuple, PouleDB] = {}
         self._club_cache: dict[str, ClubDB] = {}  # code_ffvb → ClubDB
         self._club_name_cache: dict[str, ClubDB] = {}  # normalized_name → ClubDB
+        self._all_clubs_normalized_cache: Optional[dict[str, ClubDB]] = None
         self._equipe_cache: dict[tuple, EquipeDB] = {}
         self._arbitre_cache: dict[str, ArbitreDB] = {}  # licence → ArbitreDB
 
@@ -159,6 +162,7 @@ class ExportImportService:
             self._equipe_cache, self._arbitre_cache,
         ):
             cache.clear()
+        self._all_clubs_normalized_cache = None
 
     # =================================================================
     # Import principal
@@ -205,11 +209,26 @@ class ExportImportService:
             entite_nom = getattr(first, 'entite_nom', None)
         entite = self._get_or_create_entite(entite_code, nom=entite_nom)
 
+        # Pré-charger les matchs existants pour éviter N+1 requêtes SELECT
+        existing_matches_map: dict[str, MatchDB] = {}
+        all_codes = [m.code_match for m in matches if m.code_match]
+        if all_codes and saison and saison.id:
+            for i in range(0, len(all_codes), 900):
+                chunk = all_codes[i : i + 900]
+                for m_db in self.session.scalars(
+                    select(MatchDB).where(
+                        MatchDB.saison_id == saison.id,
+                        MatchDB.code_match.in_(chunk),
+                    )
+                ).all():
+                    existing_matches_map[m_db.code_match] = m_db
+
         for match_info in matches:
             try:
                 with self.session.begin_nested():
                     result = self._import_single_match(
-                        match_info, saison, entite
+                        match_info, saison, entite,
+                        existing_match=existing_matches_map.get(match_info.code_match),
                     )
                 stats[result] += 1
             except Exception as e:
@@ -281,16 +300,19 @@ class ExportImportService:
         match_info: ExportMatchInfo,
         saison: SaisonDB,
         entite: EntiteFFVBDB,
+        existing_match: Optional[MatchDB] = None,
     ) -> str:
         """Importe un seul match. Retourne le type de résultat."""
 
         # Vérifier si le match existe déjà
-        existing = self.session.execute(
-            select(MatchDB).where(
-                MatchDB.code_match == match_info.code_match,
-                MatchDB.saison_id == saison.id,
-            )
-        ).scalar_one_or_none()
+        existing = existing_match
+        if existing is None:
+            existing = self.session.execute(
+                select(MatchDB).where(
+                    MatchDB.code_match == match_info.code_match,
+                    MatchDB.saison_id == saison.id,
+                )
+            ).scalar_one_or_none()
 
         if existing:
             return self._update_match_if_needed(existing, match_info)
@@ -351,6 +373,17 @@ class ExportImportService:
         )
         has_details = sets_indicate_played(match_info.sets)
 
+        classification = classify_level(
+            competition_name=competition.nom if competition else None,
+            niveau=competition.niveau if competition else match_info.niveau,
+            categorie=competition.categorie if competition else match_info.categorie_age,
+            division=competition.division if competition else match_info.division,
+        )
+
+        cat_val = competition.categorie if competition else match_info.categorie_age
+        if not cat_val and not classification.is_youth:
+            cat_val = "SENIOR"
+
         match_db = MatchDB(
             code_match=match_info.code_match,
             date_match=match_info.date_match,
@@ -376,6 +409,12 @@ class ExportImportService:
             score_source="export" if computed_played else None,
             parsing_status="discovered",
             source_url=match_info.feuille_match_url,
+            genre=competition.genre if competition else match_info.genre,
+            categorie=cat_val,
+            niveau=classification.categorie_principale,
+            division=classification.division,
+            niveau_badge=classification.label,
+            niveau_rank=classification.rank,
         )
 
         self.session.add(match_db)
@@ -672,17 +711,24 @@ class ExportImportService:
                 if m:
                     code_comp = m.group(1)
 
-            # Déterminer le niveau et la division
-            niveau = match_info.niveau
-            division = match_info.division or match_info.division_code
+            classification = classify_level(
+                competition_name=comp_key_name,
+                niveau=match_info.niveau,
+                categorie=categorie,
+                division=match_info.division or match_info.division_code,
+            )
+            if not categorie and not classification.is_youth:
+                categorie = "SENIOR"
 
             competition = CompetitionDB(
                 nom=comp_key_name,
                 code_competition=code_comp,
                 genre=genre,
                 categorie=categorie,
-                niveau=niveau,
-                division=division,
+                niveau=classification.categorie_principale,
+                division=classification.division,
+                niveau_badge=classification.label,
+                niveau_rank=classification.rank,
                 saison_id=saison.id,
                 entite_id=entite.id,
             )
@@ -697,11 +743,17 @@ class ExportImportService:
         if not competition.categorie and categorie:
             competition.categorie = categorie
             updated = True
-        if not competition.niveau and match_info.niveau:
-            competition.niveau = match_info.niveau
-            updated = True
-        if not competition.division and match_info.division:
-            competition.division = match_info.division
+        if not competition.niveau_badge or competition.niveau_rank == -1:
+            classification = classify_level(
+                competition_name=competition.nom,
+                niveau=competition.niveau or match_info.niveau,
+                categorie=competition.categorie or categorie,
+                division=competition.division or match_info.division or match_info.division_code,
+            )
+            competition.niveau = classification.categorie_principale
+            competition.division = classification.division
+            competition.niveau_badge = classification.label
+            competition.niveau_rank = classification.rank
             updated = True
         if not competition.entite_id and entite:
             competition.entite_id = entite.id
@@ -814,12 +866,19 @@ class ExportImportService:
                 self._club_name_cache[normalized] = club
                 return club
 
-            # Chercher par nom normalisé
-            clubs = self.session.execute(select(ClubDB)).scalars().all()
-            for c in clubs:
-                if normalize_club_name(c.nom) == normalized:
-                    self._club_name_cache[normalized] = c
-                    return c
+            # Chercher par nom normalisé via le cache mémoire
+            if self._all_clubs_normalized_cache is None:
+                self._all_clubs_normalized_cache = {}
+                clubs = self.session.execute(select(ClubDB)).scalars().all()
+                for c in clubs:
+                    norm = normalize_club_name(c.nom)
+                    if norm not in self._all_clubs_normalized_cache:
+                        self._all_clubs_normalized_cache[norm] = c
+
+            if normalized in self._all_clubs_normalized_cache:
+                c = self._all_clubs_normalized_cache[normalized]
+                self._club_name_cache[normalized] = c
+                return c
 
             # Créer le club sans code FFVB
             club = ClubDB(nom=nom)
@@ -830,6 +889,7 @@ class ExportImportService:
             self.session.add(alias_db)
             self.session.flush()
             self._club_name_cache[normalized] = club
+            self._all_clubs_normalized_cache[normalized] = club
             return club
 
         return None
@@ -863,33 +923,45 @@ class ExportImportService:
             club = self._resolve_club(nom, code_ffvb)
 
             # Extraire genre, catégorie, niveau, division
-            genre = None
-            categorie = None
-            niveau = None
-            division = None
-            if match_info:
-                genre = match_info.genre
-                categorie = match_info.categorie_age
-                niveau = match_info.niveau
-                division = match_info.division
-            elif competition:
-                genre = competition.genre
-                categorie = competition.categorie
-                niveau = competition.niveau
-                division = competition.division
+            genre = (match_info.genre if match_info else None) or (competition.genre if competition else None)
+            categorie = (match_info.categorie_age if match_info else None) or (competition.categorie if competition else None)
+            comp_nom = competition.nom if competition else None
+            div_val = (match_info.division if match_info else None) or (competition.division if competition else None)
+
+            classification = classify_level(
+                competition_name=comp_nom,
+                niveau=(match_info.niveau if match_info else None) or (competition.niveau if competition else None),
+                categorie=categorie,
+                division=div_val,
+            )
+            if not categorie and not classification.is_youth:
+                categorie = "SENIOR"
 
             equipe = EquipeDB(
                 nom=nom,
                 genre=genre,
                 categorie=categorie,
-                niveau=niveau,
-                division=division,
+                niveau=classification.categorie_principale,
+                division=classification.division,
+                niveau_badge=classification.label,
+                niveau_rank=classification.rank,
                 club_id=club.id if club else None,
                 saison_id=saison.id,
                 competition_id=comp_id,
             )
             self.session.add(equipe)
             self.session.flush()
+        elif not equipe.niveau_badge or equipe.niveau_rank == -1:
+            classification = classify_level(
+                competition_name=competition.nom if competition else None,
+                niveau=equipe.niveau or (competition.niveau if competition else None),
+                categorie=equipe.categorie or (competition.categorie if competition else None),
+                division=equipe.division or (competition.division if competition else None),
+            )
+            equipe.niveau = classification.categorie_principale
+            equipe.division = classification.division
+            equipe.niveau_badge = classification.label
+            equipe.niveau_rank = classification.rank
 
         self._equipe_cache[cache_key] = equipe
         return equipe

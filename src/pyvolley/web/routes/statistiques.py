@@ -41,7 +41,7 @@ router = APIRouter()
 
 
 @router.get("/statistiques", response_class=HTMLResponse)
-async def stats_page(
+def stats_page(
     request: Request,
     saison_id: Optional[int] = Query(None),
     saison_ids: Optional[list[int]] = Query(None),
@@ -150,7 +150,7 @@ async def stats_page(
 
 
 @router.get("/palmares", response_class=HTMLResponse)
-async def palmares_page(
+def palmares_page(
     request: Request,
     saison_id: Optional[int] = Query(None),
     saison_ids: Optional[list[int]] = Query(None),

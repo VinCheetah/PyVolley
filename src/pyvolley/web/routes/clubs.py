@@ -131,7 +131,7 @@ def _build_level_evolution_chart(team_rows: list[dict]) -> dict:
 
 
 @router.get("/clubs", response_class=HTMLResponse)
-async def clubs_list(
+def clubs_list(
     request: Request,
     q: Optional[str] = None,
     page: int = Query(1, ge=1),
@@ -160,7 +160,7 @@ async def clubs_list(
 
 
 @router.get("/clubs/{club_id}", response_class=HTMLResponse)
-async def club_detail(
+def club_detail(
     request: Request,
     club_id: int,
     club_repo: ClubRepository = Depends(get_club_repo),

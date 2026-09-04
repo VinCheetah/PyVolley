@@ -29,7 +29,7 @@ def _to_ffvb_saison(saison_code: str | None) -> str | None:
 
 
 @router.get("/poules/{poule_id}", response_class=HTMLResponse)
-async def poule_detail(
+def poule_detail(
     request: Request,
     poule_id: int,
     poule_repo: PouleRepository = Depends(get_poule_repo),

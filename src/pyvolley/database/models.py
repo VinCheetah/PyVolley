@@ -226,6 +226,8 @@ class CompetitionDB(Base):
     categorie: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     niveau: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     division: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    niveau_badge: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    niveau_rank: Mapped[int] = mapped_column(Integer, default=-1)
 
     # Foreign keys
     saison_id: Mapped[int] = mapped_column(ForeignKey("saisons.id"))
@@ -263,6 +265,10 @@ class PouleDB(Base):
     nom: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     tour: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # Tour number (1, 2, 3... or 99 for finals)
 
+    # Cache du classement complet sérialisé (O(1))
+    classement_cache: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    classement_updated_at: Mapped[Optional[dt]] = mapped_column(DateTime, nullable=True)
+
     competition_id: Mapped[int] = mapped_column(ForeignKey("competitions.id", ondelete="CASCADE"))
 
     competition: Mapped["CompetitionDB"] = relationship(back_populates="poules")
@@ -296,6 +302,8 @@ class EquipeDB(Base):
     categorie: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     niveau: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # Elite, Nationale, Régionale, Départementale...
     division: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # N2, N3, R1, R2, D1...
+    niveau_badge: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    niveau_rank: Mapped[int] = mapped_column(Integer, default=-1)
 
     # Foreign keys
     club_id: Mapped[Optional[int]] = mapped_column(ForeignKey("clubs.id"), nullable=True)
@@ -418,6 +426,14 @@ class MatchDB(Base):
         String(20), default="discovered"
     )  # "discovered", "downloaded", "parsed", "error"
     source_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
+    # Classification sportive et niveau du match
+    genre: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
+    categorie: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, index=True)
+    niveau: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
+    division: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    niveau_badge: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    niveau_rank: Mapped[int] = mapped_column(Integer, default=-1, index=True)
 
     # Métadonnées
     source_pdf: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
@@ -554,7 +570,7 @@ class SetDB(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     numero: Mapped[int] = mapped_column(Integer)
 
-    match_id: Mapped[int] = mapped_column(ForeignKey("matchs.id", ondelete="CASCADE"))
+    match_id: Mapped[int] = mapped_column(ForeignKey("matchs.id", ondelete="CASCADE"), index=True)
 
     score_a: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     score_b: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -601,7 +617,7 @@ class FormationDB(Base):
     __tablename__ = "formations"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    set_id: Mapped[int] = mapped_column(ForeignKey("sets.id", ondelete="CASCADE"))
+    set_id: Mapped[int] = mapped_column(ForeignKey("sets.id", ondelete="CASCADE"), index=True)
     equipe: Mapped[str] = mapped_column(String(1))
 
     position_1: Mapped[Optional[str]] = mapped_column(String(3), nullable=True)
@@ -627,7 +643,7 @@ class ChangementDB(Base):
     __tablename__ = "changements"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    set_id: Mapped[int] = mapped_column(ForeignKey("sets.id", ondelete="CASCADE"))
+    set_id: Mapped[int] = mapped_column(ForeignKey("sets.id", ondelete="CASCADE"), index=True)
     equipe: Mapped[str] = mapped_column(String(1))
 
     joueur_entrant: Mapped[str] = mapped_column(String(3))
@@ -648,7 +664,7 @@ class TimeoutDB(Base):
     __tablename__ = "timeouts"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    set_id: Mapped[int] = mapped_column(ForeignKey("sets.id", ondelete="CASCADE"))
+    set_id: Mapped[int] = mapped_column(ForeignKey("sets.id", ondelete="CASCADE"), index=True)
     equipe: Mapped[str] = mapped_column(String(1))
 
     score_a: Mapped[int] = mapped_column(Integer)
@@ -691,7 +707,7 @@ class ArbitreMatchDB(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     arbitre_id: Mapped[int] = mapped_column(ForeignKey("arbitres.id", ondelete="CASCADE"))
-    match_id: Mapped[int] = mapped_column(ForeignKey("matchs.id", ondelete="CASCADE"))
+    match_id: Mapped[int] = mapped_column(ForeignKey("matchs.id", ondelete="CASCADE"), index=True)
     role: Mapped[str] = mapped_column(String(30))
 
     arbitre: Mapped["ArbitreDB"] = relationship(back_populates="arbitrages")
@@ -711,7 +727,7 @@ class SanctionDB(Base):
     __tablename__ = "sanctions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    match_id: Mapped[int] = mapped_column(ForeignKey("matchs.id", ondelete="CASCADE"))
+    match_id: Mapped[int] = mapped_column(ForeignKey("matchs.id", ondelete="CASCADE"), index=True)
 
     type_sanction: Mapped[str] = mapped_column(String(1))
     set_numero: Mapped[int] = mapped_column(Integer)
@@ -740,6 +756,7 @@ class ParticipationMatchDB(Base):
     equipe_id: Mapped[int] = mapped_column(ForeignKey("equipes.id", ondelete="CASCADE"))
 
     numero_maillot: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)
+    side: Mapped[Optional[str]] = mapped_column(String(1), nullable=True)  # 'A' ou 'B'
     est_capitaine: Mapped[bool] = mapped_column(Boolean, default=False)
     est_libero: Mapped[bool] = mapped_column(Boolean, default=False)
 
@@ -752,6 +769,7 @@ class ParticipationMatchDB(Base):
         Index("ix_participation_match_joueur", "match_id", "joueur_id"),
         Index("ix_participation_joueur", "joueur_id"),
         Index("ix_participation_equipe", "equipe_id"),
+        Index("ix_participation_match_side", "match_id", "side"),
     )
 
     def __repr__(self) -> str:
@@ -767,7 +785,7 @@ class OfficielMatchDB(Base):
     __tablename__ = "officiels_match"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    match_id: Mapped[int] = mapped_column(ForeignKey("matchs.id", ondelete="CASCADE"))
+    match_id: Mapped[int] = mapped_column(ForeignKey("matchs.id", ondelete="CASCADE"), index=True)
     equipe: Mapped[str] = mapped_column(String(1))  # 'A' ou 'B'
     role: Mapped[str] = mapped_column(String(10))  # 'EA', 'EB', 'MA', 'MB', 'KA', 'KB'
     nom: Mapped[str] = mapped_column(String(100))
@@ -1084,7 +1102,9 @@ class JoueurSaisonStatsDB(Base):
 
     # Rôles
     role_principal: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    role_confiance: Mapped[float] = mapped_column(Float, default=0.0)
     roles_frequence: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    role_distribution: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     # Horodatage
     computed_at: Mapped[dt] = mapped_column(DateTime, default=dt.now)
@@ -1137,6 +1157,19 @@ class JoueurCarriereStatsDB(Base):
     premier_match_date: Mapped[Optional[dt_date]] = mapped_column(Date, nullable=True)
     dernier_match_date: Mapped[Optional[dt_date]] = mapped_column(Date, nullable=True)
 
+    # Estimations d'âge et niveau maximum atteint
+    estimated_birth_year_min: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    estimated_max_age: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    best_category_label: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    max_niveau_label: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    max_niveau_rank: Mapped[int] = mapped_column(Integer, default=-1)
+
+    # Rôles
+    role_principal: Mapped[Optional[str]] = mapped_column(String(30), nullable=True, index=True)
+    role_confiance: Mapped[float] = mapped_column(Float, default=0.0)
+    roles_frequence: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    role_distribution: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
     computed_at: Mapped[dt] = mapped_column(DateTime, default=dt.now)
     updated_at: Mapped[dt] = mapped_column(DateTime, default=dt.now, onupdate=dt.now)
 
@@ -1145,6 +1178,7 @@ class JoueurCarriereStatsDB(Base):
     __table_args__ = (
         Index("ix_sjc_total_matchs", "total_matchs"),
         Index("ix_sjc_total_points", "total_points_gagnes"),
+        Index("ix_sjc_role_principal", "role_principal"),
     )
 
     def __repr__(self) -> str:
@@ -1185,6 +1219,8 @@ class EquipeSaisonStatsDB(Base):
     forfaits: Mapped[int] = mapped_column(Integer, default=0)
 
     # Sets & Points
+    points_ffvb: Mapped[int] = mapped_column(Integer, default=0)
+    rang: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     sets_pour: Mapped[int] = mapped_column(Integer, default=0)
     sets_contre: Mapped[int] = mapped_column(Integer, default=0)
     ratio_sets: Mapped[float] = mapped_column(Float, default=0.0)

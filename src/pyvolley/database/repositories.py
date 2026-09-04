@@ -1131,12 +1131,21 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
         if not comp:
             return None
 
+        # Raccourci cache O(1) si compétition mono-poule
+        if comp.poules and len(comp.poules) == 1:
+            poule = comp.poules[0]
+            if poule.classement_cache:
+                try:
+                    return ClassementComplet.model_validate(poule.classement_cache)
+                except Exception:
+                    pass
+
         matchs_data = self.get_matchs_for_classement(competition_id)
 
         # Nom de l'organisateur
         organisateur = comp.entite.nom if comp.entite else None
 
-        return calculer_classement_complet(
+        classement = calculer_classement_complet(
             matchs=matchs_data,
             competition_id=comp.id,
             competition_nom=comp.nom,
@@ -1147,6 +1156,16 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
             division=comp.division,
             organisateur=organisateur,
         )
+
+        # Mettre en cache si mono-poule
+        if comp.poules and len(comp.poules) == 1:
+            try:
+                comp.poules[0].classement_cache = classement.model_dump(mode="json")
+                comp.poules[0].classement_updated_at = datetime.now()
+            except Exception:
+                pass
+
+        return classement
 
     def get_classements_par_poule(
         self, competition_id: int
@@ -1164,6 +1183,15 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
         result = []
 
         for poule in sorted(comp.poules, key=lambda p: p.code):
+            # Raccourci O(1) depuis le cache poule
+            if poule.classement_cache:
+                try:
+                    cls = ClassementComplet.model_validate(poule.classement_cache)
+                    result.append((poule, cls))
+                    continue
+                except Exception:
+                    pass
+
             matchs_data = self.get_matchs_for_classement(
                 competition_id, poule_id=poule.id
             )
@@ -1180,6 +1208,12 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
                 division=comp.division,
                 organisateur=organisateur,
             )
+            # Mettre en cache pour les prochaines requêtes
+            try:
+                poule.classement_cache = classement.model_dump(mode="json")
+                poule.classement_updated_at = datetime.now()
+            except Exception:
+                pass
             result.append((poule, classement))
 
         return result
@@ -1530,13 +1564,14 @@ class JoueurMatchStatsRepository(BaseRepository[JoueurMatchStatsDB]):
             )
         )
 
-    def delete_for_match(self, match_id: int) -> int:
+    def delete_for_match(self, match_id: int, flush: bool = True) -> int:
         from sqlalchemy import delete as sa_delete
 
         result = self.session.execute(
             sa_delete(JoueurMatchStatsDB).where(JoueurMatchStatsDB.match_id == match_id)
         )
-        self.session.flush()
+        if flush:
+            self.session.flush()
         return result.rowcount or 0
 
     def delete_all(self) -> int:
@@ -1551,8 +1586,9 @@ class JoueurMatchStatsRepository(BaseRepository[JoueurMatchStatsDB]):
         match_id: int,
         rows: list[dict],
         match_updated_at,
+        flush: bool = True,
     ) -> list[JoueurMatchStatsDB]:
-        self.delete_for_match(match_id)
+        self.delete_for_match(match_id, flush=False)
 
         computed_at = datetime.now()
         entities: list[JoueurMatchStatsDB] = []
@@ -1611,7 +1647,8 @@ class JoueurMatchStatsRepository(BaseRepository[JoueurMatchStatsDB]):
 
         if entities:
             self.session.add_all(entities)
-        self.session.flush()
+        if flush:
+            self.session.flush()
         return entities
 
     def is_match_stale(

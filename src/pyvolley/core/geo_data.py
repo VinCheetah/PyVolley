@@ -424,4 +424,359 @@ def get_cities_for_departments(dept_codes: List[str]) -> List[str]:
 
 def get_department_for_city(city: str) -> str | None:
     """Retourne le code département pour une ville, ou None."""
-    return CITY_TO_DEPT.get(city.upper().strip())
+    if not city:
+        return None
+    cleaned = city.upper().strip()
+    # Direct match
+    if cleaned in CITY_TO_DEPT:
+        return CITY_TO_DEPT[cleaned]
+    # Check if postal code is embedded in city string (e.g. "38600 FONTAINE")
+    m = _re.search(r'\b(\d{5})\b', cleaned)
+    if m:
+        code = m.group(1)
+        dept = extract_dept_from_postal_code(code)
+        if dept:
+            return dept
+    # Try stripping postal code if present
+    no_digits = _re.sub(r'^\d{5}\s*', '', cleaned).strip()
+    if no_digits in CITY_TO_DEPT:
+        return CITY_TO_DEPT[no_digits]
+    return None
+
+
+def extract_dept_from_postal_code(postal_code: str) -> str | None:
+    """Extrait le code de département depuis un code postal français à 5 chiffres."""
+    if not postal_code:
+        return None
+    code = postal_code.strip()
+    if len(code) < 2:
+        return None
+    # DOM-TOM (97X)
+    if code.startswith("97"):
+        return code[:3] if len(code) >= 3 else None
+    # Corse (20)
+    if code.startswith("20"):
+        try:
+            num = int(code[:5])
+            return "2A" if num < 20200 else "2B"
+        except (ValueError, TypeError):
+            return "2A"
+    return code[:2]
+
+
+def extract_dept_from_address_or_city(ville: str | None = None, adresse: str | None = None) -> str | None:
+    """Extrait intelligemment le code département d'une ville ou adresse.
+    
+    Exemples:
+        ville="38600 FONTAINE" -> "38"
+        adresse="23 RUE DES ALPES, 69400 VILLEFRANCHE" -> "69"
+        ville="GRENOBLE" -> "38"
+    """
+    for text in (ville, adresse):
+        if not text:
+            continue
+        # Search for 5-digit postal code
+        m = _re.search(r'\b(\d{5})\b', text)
+        if m:
+            dept = extract_dept_from_postal_code(m.group(1))
+            if dept and (dept in DEPARTMENT_CENTROIDS or dept in _DEPT_TO_CITIES):
+                return dept
+    
+    # Try city dictionary lookup
+    if ville:
+        dept = get_department_for_city(ville)
+        if dept:
+            return dept
+    return None
+
+
+# ─── Centroïdes des 101 départements français ──────────────────────
+# Couverture complète de la France métropolitaine, de la Corse et des DROM.
+DEPARTMENT_CENTROIDS: dict[str, tuple[float, float]] = {
+    "01": (46.20, 5.23),   # Ain
+    "02": (49.56, 3.62),   # Aisne
+    "03": (46.35, 3.36),   # Allier
+    "04": (44.09, 6.24),   # Alpes-de-Haute-Provence
+    "05": (44.66, 6.33),   # Hautes-Alpes
+    "06": (43.94, 7.18),   # Alpes-Maritimes
+    "07": (44.75, 4.60),   # Ardèche
+    "08": (49.61, 4.68),   # Ardennes
+    "09": (42.94, 1.50),   # Ariège
+    "10": (48.33, 4.17),   # Aube
+    "11": (43.15, 2.40),   # Aude
+    "12": (44.28, 2.68),   # Aveyron
+    "13": (43.53, 5.08),   # Bouches-du-Rhône
+    "14": (49.10, -0.36),  # Calvados
+    "15": (45.05, 2.67),   # Cantal
+    "16": (45.71, 0.16),   # Charente
+    "17": (45.75, -0.63),  # Charente-Maritime
+    "18": (47.08, 2.40),   # Cher
+    "19": (45.35, 1.87),   # Corrèze
+    "2A": (41.85, 8.95),   # Corse-du-Sud
+    "2B": (42.45, 9.25),   # Haute-Corse
+    "21": (47.42, 4.78),   # Côte-d'Or
+    "22": (48.45, -2.85),  # Côtes-d'Armor
+    "23": (46.03, 1.95),   # Creuse
+    "24": (45.15, 0.72),   # Dordogne
+    "25": (47.17, 6.35),   # Doubs
+    "26": (44.70, 5.17),   # Drôme
+    "27": (49.12, 1.15),   # Eure
+    "28": (48.37, 1.40),   # Eure-et-Loir
+    "29": (48.23, -4.10),  # Finistère
+    "30": (44.02, 4.22),   # Gard
+    "31": (43.40, 1.30),   # Haute-Garonne
+    "32": (43.65, 0.58),   # Gers
+    "33": (44.84, -0.58),  # Gironde
+    "34": (43.61, 3.48),   # Hérault
+    "35": (48.17, -1.67),  # Ille-et-Vilaine
+    "36": (46.78, 1.60),   # Indre
+    "37": (47.25, 0.70),   # Indre-et-Loire
+    "38": (45.22, 5.55),   # Isère
+    "39": (46.75, 5.70),   # Jura
+    "40": (43.90, -0.80),  # Landes
+    "41": (47.65, 1.33),   # Loir-et-Cher
+    "42": (45.72, 4.17),   # Loire
+    "43": (45.12, 3.88),   # Haute-Loire
+    "44": (47.35, -1.68),  # Loire-Atlantique
+    "45": (47.92, 2.18),   # Loiret
+    "46": (44.62, 1.60),   # Lot
+    "47": (44.37, 0.45),   # Lot-et-Garonne
+    "48": (44.52, 3.50),   # Lozère
+    "49": (47.45, -0.55),  # Maine-et-Loire
+    "50": (49.10, -1.33),  # Manche
+    "51": (49.00, 4.25),   # Marne
+    "52": (48.12, 5.22),   # Haute-Marne
+    "53": (48.18, -0.62),  # Mayenne
+    "54": (48.70, 6.18),   # Meurthe-et-Moselle
+    "55": (49.00, 5.38),   # Meuse
+    "56": (47.88, -2.83),  # Morbihan
+    "57": (49.05, 6.63),   # Moselle
+    "58": (47.12, 3.50),   # Nièvre
+    "59": (50.50, 3.20),   # Nord
+    "60": (49.42, 2.42),   # Oise
+    "61": (48.60, 0.15),   # Orne
+    "62": (50.52, 2.37),   # Pas-de-Calais
+    "63": (45.77, 3.08),   # Puy-de-Dôme
+    "64": (43.32, -0.75),  # Pyrénées-Atlantiques
+    "65": (43.05, 0.15),   # Hautes-Pyrénées
+    "66": (42.60, 2.60),   # Pyrénées-Orientales
+    "67": (48.68, 7.62),   # Bas-Rhin
+    "68": (47.88, 7.30),   # Haut-Rhin
+    "69": (45.76, 4.75),   # Rhône
+    "70": (47.63, 6.08),   # Haute-Saône
+    "71": (46.65, 4.60),   # Saône-et-Loire
+    "72": (48.00, 0.20),   # Sarthe
+    "73": (45.50, 6.50),   # Savoie
+    "74": (46.00, 6.40),   # Haute-Savoie
+    "75": (48.8566, 2.3522),# Paris
+    "76": (49.65, 1.05),   # Seine-Maritime
+    "77": (48.60, 2.90),   # Seine-et-Marne
+    "78": (48.80, 1.90),   # Yvelines
+    "79": (46.53, -0.33),  # Deux-Sèvres
+    "80": (49.92, 2.30),   # Somme
+    "81": (43.78, 2.22),   # Tarn
+    "82": (44.08, 1.25),   # Tarn-et-Garonne
+    "83": (43.43, 6.25),   # Var
+    "84": (44.00, 5.08),   # Vaucluse
+    "85": (46.67, -1.42),  # Vendée
+    "86": (46.60, 0.45),   # Vienne
+    "87": (45.85, 1.25),   # Haute-Vienne
+    "88": (48.20, 6.35),   # Vosges
+    "89": (47.85, 3.55),   # Yonne
+    "90": (47.63, 6.95),   # Territoire de Belfort
+    "91": (48.53, 2.25),   # Essonne
+    "92": (48.83, 2.23),   # Hauts-de-Seine
+    "93": (48.91, 2.45),   # Seine-Saint-Denis
+    "94": (48.78, 2.47),   # Val-de-Marne
+    "95": (49.07, 2.12),   # Val-d'Oise
+    "971": (16.25, -61.55),# Guadeloupe
+    "972": (14.65, -61.02),# Martinique
+    "973": (3.93, -53.12), # Guyane
+    "974": (-21.11, 55.53),# La Réunion
+    "976": (-12.83, 45.16),# Mayotte
+}
+
+# ─── Coordonnées précises des communes de volley récurrentes ────────
+CITY_COORDINATES: dict[str, tuple[float, float]] = {
+    # Isère (38)
+    "GRENOBLE": (45.1885, 5.7245),
+    "FONTAINE": (45.1932, 5.6853),
+    "ECHIROLLES": (45.1436, 5.7175),
+    "SEYSSINS": (45.1585, 5.6800),
+    "SAINT-EGREVE": (45.2319, 5.6833),
+    "BOURGOIN JALLIEU": (45.5861, 5.2758),
+    "VOIRON": (45.3644, 5.5906),
+    "MEYLAN": (45.2094, 5.7806),
+    "SAINT MARTIN D'HERES": (45.1681, 5.7681),
+    "SAINT-MARTIN D'HERES": (45.1681, 5.7681),
+    "VIF": (45.0558, 5.6706),
+    "CLAIX": (45.1172, 5.6750),
+    "SASSENAGE": (45.2078, 5.6631),
+    "VIENNE": (45.5253, 4.8778),
+    "VILLEFONTAINE": (45.6144, 5.1486),
+    "SAINT-ISMIER": (45.2486, 5.8272),
+    "LA TOUR DU PIN": (45.5658, 5.4464),
+    "PONT DE CHERUY": (45.7503, 5.1747),
+    "VARCES-ALLIERES-ET-RISSET": (45.0867, 5.6811),
+    "ST-JEAN DE MOIRANS": (45.3406, 5.5806),
+
+    # Rhône & Lyon métropole (69)
+    "LYON": (45.7640, 4.8357),
+    "VILLEURBANNE": (45.7667, 4.8800),
+    "BRON": (45.7333, 4.9167),
+    "CALUIRE": (45.7958, 4.8436),
+    "CALUIRE ET CUIRE": (45.7958, 4.8436),
+    "RILLIEUX LA PAPE": (45.8167, 4.9000),
+    "RILLIEUX-LA-PAPE": (45.8167, 4.9000),
+    "SAINTE FOY LES LYON": (45.7333, 4.8000),
+    "VILLEFRANCHE SUR SAONE": (45.9897, 4.7197),
+    "GLEIZE": (45.9928, 4.6989),
+    "MONTANAY": (45.8817, 4.8622),
+    "ARNAS": (46.0253, 4.7083),
+    "MEYZIEU": (45.7667, 4.9833),
+    "FRANCHEVILLE": (45.7333, 4.7667),
+    "DARDILLY": (45.8083, 4.7500),
+    "DECINES": (45.7667, 4.9500),
+    "DECINES-CHARPIEU": (45.7667, 4.9500),
+    "OULLINS": (45.7167, 4.8000),
+    "VAULX EN VELIN": (45.7833, 4.9167),
+    "VENISSIEUX": (45.7000, 4.8833),
+    "SAINT-PRIEST": (45.6961, 4.9450),
+    "GIVORS": (45.5833, 4.7667),
+    "TARARE": (45.8964, 4.4336),
+
+    # Ain (01)
+    "BOURG EN BRESSE": (46.2056, 5.2289),
+    "AMBERIEU EN BUGEY": (45.9583, 5.3583),
+    "MEXIMIEUX": (45.9056, 5.1958),
+    "VILLIEU LOYES MOLLON": (45.9222, 5.2222),
+
+    # Drôme / Ardèche (26, 07)
+    "VALENCE": (44.9333, 4.8917),
+    "ROMANS SUR ISERE": (45.0458, 5.0519),
+    "ROMANS SUR ISÈRE": (45.0458, 5.0519),
+    "MONTELIMAR": (44.5583, 4.7508),
+    "PEYRINS": (45.0917, 5.0500),
+    "AUBENAS": (44.6206, 4.3900),
+    "PRIVAS": (44.7353, 4.5986),
+    "ANNONAY": (45.2406, 4.6706),
+    "SAINT JUST D'ARDECHE": (44.3050, 4.6108),
+
+    # Loire (42)
+    "SAINT-ETIENNE": (45.4397, 4.3872),
+    "SAINT-CHAMOND": (45.4744, 4.5136),
+    "ROANNE": (46.0367, 4.0742),
+    "MONTBRISON": (45.6083, 4.0650),
+    "FIRMINY": (45.3883, 4.2867),
+
+    # Savoie / Haute-Savoie (73, 74)
+    "CHAMBERY": (45.5667, 5.9167),
+    "AIX LES BAINS": (45.6886, 5.9153),
+    "ALBERTVILLE": (45.6756, 6.3925),
+    "ANNECY": (45.8992, 6.1294),
+    "ANNEMASSE": (46.1958, 6.2364),
+    "THONON LES BAINS": (46.3706, 6.4789),
+
+    # Auvergne (63, 03, 15, 43)
+    "CLERMONT-FERRAND": (45.7772, 3.0870),
+    "CLERMONT FERRAND": (45.7772, 3.0870),
+    "CHAMALIERES": (45.7758, 3.0672),
+    "ISSOIRE": (45.5439, 3.2492),
+    "VICHY": (46.1278, 3.4267),
+    "MOULINS": (46.5658, 3.3333),
+    "LE PUY EN VELAY": (45.0428, 3.8847),
+    "AURILLAC": (44.9261, 2.4453),
+
+    # Grandes villes nationales de volley
+    "PARIS": (48.8566, 2.3522),
+    "MARSEILLE": (43.2965, 5.3698),
+    "TOULOUSE": (43.6047, 1.4442),
+    "NICE": (43.7102, 7.2620),
+    "NANTES": (47.2184, -1.5536),
+    "MONTPELLIER": (43.6108, 3.8767),
+    "STRASBOURG": (48.5734, 7.7521),
+    "BORDEAUX": (44.8378, -0.5792),
+    "LILLE": (50.6292, 3.0573),
+    "RENNES": (48.1173, -1.6778),
+    "REIMS": (49.2583, 4.0317),
+    "TOULON": (43.1242, 5.9280),
+    "DIJON": (47.3220, 5.0415),
+    "ANGERS": (47.4784, -0.5632),
+    "NIMES": (43.8367, 4.3601),
+    "TOURS": (47.3941, 0.6848),
+    "CANNES": (43.5528, 7.0174),
+    "SETE": (43.4078, 3.6939),
+    "NARBONNE": (43.1836, 3.0042),
+    "CHAUMONT": (48.1128, 5.1389),
+    "CAMBRAI": (50.1764, 3.2342),
+    "TOURCOING": (50.7239, 3.1611),
+    "LE PLESSIS-ROBINSON": (48.7817, 2.2619),
+    "POITIERS": (46.5802, 0.3404),
+    "SAINT-NAZAIRE": (47.2736, -2.2139),
+    "AJACCIO": (41.9267, 8.7369),
+}
+
+
+def resolve_entity_coordinates(
+    *,
+    latitude: float | None = None,
+    longitude: float | None = None,
+    ville: str | None = None,
+    adresse: str | None = None,
+    departement: str | None = None,
+    entity_id: int = 1,
+) -> tuple[float, float] | None:
+    """Résout les coordonnées géographiques les plus précises possibles pour une entité.
+    
+    Ordre de priorité :
+    1. Coordonnées exactes déjà enregistrées (latitude/longitude != None)
+    2. Coordonnées de commune répertoriée (CITY_COORDINATES)
+    3. Centroïde du département résolu (par departement, code postal ou ville) avec
+       dispersion subtile déterministe pour éviter la superposition exacte.
+    """
+    # 1. Exact coordinates
+    if latitude is not None and longitude is not None:
+        try:
+            lat_f, lng_f = float(latitude), float(longitude)
+            if -90 <= lat_f <= 90 and -180 <= lng_f <= 180 and (lat_f != 0.0 or lng_f != 0.0):
+                return lat_f, lng_f
+        except (ValueError, TypeError):
+            pass
+
+    # 2. Known city exact coordinates
+    for cand_city in (ville,):
+        if not cand_city:
+            continue
+        cleaned = cand_city.upper().strip()
+        if cleaned in CITY_COORDINATES:
+            coords = CITY_COORDINATES[cleaned]
+            # Add micro-offset per entity_id (max 200m)
+            from math import sin, cos, radians
+            angle = radians((entity_id * 47) % 360)
+            radius = ((entity_id % 5) - 2) * 0.0008
+            return coords[0] + sin(angle) * radius, coords[1] + cos(angle) * radius
+        # Check without postal code
+        no_digits = _re.sub(r'^\d{5}\s*', '', cleaned).strip()
+        if no_digits in CITY_COORDINATES:
+            coords = CITY_COORDINATES[no_digits]
+            from math import sin, cos, radians
+            angle = radians((entity_id * 47) % 360)
+            radius = ((entity_id % 5) - 2) * 0.0008
+            return coords[0] + sin(angle) * radius, coords[1] + cos(angle) * radius
+
+    # 3. Department centroid
+    dept = departement.strip().upper() if departement else None
+    if not dept:
+        dept = extract_dept_from_address_or_city(ville, adresse)
+    if dept and len(dept) == 1 and dept.isdigit():
+        dept = dept.zfill(2)
+
+    if dept and dept in DEPARTMENT_CENTROIDS:
+        centroid = DEPARTMENT_CENTROIDS[dept]
+        from math import sin, cos, radians
+        angle = radians((entity_id * 37) % 360)
+        # 800m - 1.5km spread around centroid
+        radius = 0.004 + ((entity_id % 7) * 0.002)
+        return centroid[0] + sin(angle) * radius, centroid[1] + cos(angle) * radius
+
+    return None

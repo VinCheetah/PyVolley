@@ -38,6 +38,9 @@ class RoleInference(BaseModel):
     role_scores: dict[str, float] = Field(default_factory=dict)
     role_confiance: float = 0.0
     indices: list[str] = Field(default_factory=list)
+    role_atypique: bool = False
+    composition_valid: bool = True
+    evidence_breakdown: dict[str, float] = Field(default_factory=dict)
 
 
 class JoueurMatchDetailedStats(BaseModel):
@@ -71,6 +74,10 @@ class JoueurMatchDetailedStats(BaseModel):
     indices_roles: list[str] = Field(
         default_factory=list,
         description="Indices textuels ayant contribue a l'inference",
+    )
+    role_atypique: bool = Field(
+        False,
+        description="Indique si le rôle inféré dévie du profil habituel du joueur",
     )
 
     victoire: bool = False
@@ -205,5 +212,7 @@ class JoueurStatsAggregated(BaseModel):
     roles_possibles_global: list[str] = Field(default_factory=list)
     role_distribution_matchs: dict[str, int] = Field(default_factory=dict)
     role_scores_moyens: dict[str, float] = Field(default_factory=dict)
+    role_confiance_global: float = 0.0
+    role_stabilite_pct: float = 0.0
 
     total_sanctions: int = 0

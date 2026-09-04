@@ -22,10 +22,12 @@
 
   const GEOJSON_URLS = {
     departments: [
+      '/static/data/departements.geojson',
       'https://cdn.jsdelivr.net/gh/gregoiredavid/france-geojson/departements-version-simplifiee.geojson',
       'https://raw.githubusercontent.com/gregoiredavid/france-geojson/master/departements-version-simplifiee.geojson',
     ],
     regions: [
+      '/static/data/regions.geojson',
       'https://cdn.jsdelivr.net/gh/gregoiredavid/france-geojson/regions-version-simplifiee.geojson',
       'https://raw.githubusercontent.com/gregoiredavid/france-geojson/master/regions-version-simplifiee.geojson',
     ],

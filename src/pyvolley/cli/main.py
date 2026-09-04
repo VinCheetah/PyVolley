@@ -12,6 +12,7 @@ Commandes principales :
 - ``stats``         : statistiques globales de la base de données
 - ``compute-stats`` : pré-calculer les statistiques palmarès et les stocker en base
 - ``compute-player-stats`` : pré-calculer les statistiques détaillées joueurs par match
+- ``roles``                : gestion, diffusion réseau et audit des rôles joueurs
 - ``plausibility-audit`` : relancer les contrôles de vraisemblance a posteriori
 - ``init``          : initialiser la base de données
 - ``db``            : gestion de la base (migrations, exploration)
@@ -25,10 +26,20 @@ from datetime import datetime, date as dt_date
 from pathlib import Path
 from typing import Optional, List
 
+import sys
 import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+
+if sys.platform == "win32":
+    try:
+        if hasattr(sys.stdout, "reconfigure"):
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        if hasattr(sys.stderr, "reconfigure"):
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 from pyvolley.core.config import settings
 from pyvolley.cli.helpers import (
@@ -58,7 +69,7 @@ from pyvolley.shared.pdf_storage import (
 
 app = typer.Typer(
     name="pyvolley",
-    help="🏐 PyVolley — Outils pour les données volleyball FFVB",
+    help="PyVolley — Outils pour les données volleyball FFVB",
     add_completion=False,
 )
 console = Console()
@@ -215,6 +226,14 @@ def import_data(
         "fast", "--parser", "-p",
         help="Parser à utiliser : 'fast' (FastMatchSheetParser) ou 'legacy' (MatchSheetParser).",
     ),
+    verify_existing: bool = typer.Option(
+        False, "--verify-existing",
+        help="Re-vérifier l'intégrité de tous les PDFs déjà téléchargés en base.",
+    ),
+    rollup: bool = typer.Option(
+        True, "--rollup/--no-rollup",
+        help="Actualiser les statistiques agglomérées (rollups) à la fin de l'import.",
+    ),
 ):
     """
     🔄 Importer des données FFVB dans la base de données.
@@ -317,6 +336,7 @@ def import_data(
                 plausibility_policy=plausibility_policy,
                 review_fixes=review_fixes,
                 parser_name=parser_name,
+                rollup=rollup,
             )
             steps = [s for s in steps if s != "parse"]
         else:
@@ -325,6 +345,7 @@ def import_data(
                 limit=limit, saison=saisons, concurrent=concurrent,
                 entity=entity,
                 verbose=verbose,
+                verify_existing=verify_existing,
             )
 
     # ── Étape 3 : Parse ───────────────────────────────────────────
@@ -337,6 +358,7 @@ def import_data(
             plausibility_policy=plausibility_policy,
             review_fixes=review_fixes,
             parser_name=parser_name,
+            rollup=rollup,
         )
 
         # Nettoyage post-parse si --no-keep-pdfs
@@ -513,6 +535,7 @@ def _import_download(
     entity: Optional[List[str]] = None,
     concurrent: int = 5,
     verbose: bool = False,
+    verify_existing: bool = False,
 ) -> None:
     """Étape 2 : téléchargement concurrent des PDFs.
 
@@ -537,6 +560,12 @@ def _import_download(
         "downloaded-before-match-date": 0,
     }
 
+    status_filter = (
+        ["discovered", "downloaded", "error"]
+        if verify_existing
+        else ["discovered", "error"]
+    )
+
     with DatabaseSession() as session:
         stmt = (
             select(MatchDB)
@@ -546,7 +575,7 @@ def _import_download(
             .where(
                 MatchDB.match_joue == True,  # noqa: E712
                 MatchDB.source_url.isnot(None),
-                MatchDB.parsing_status.in_(["discovered", "downloaded", "error"]),
+                MatchDB.parsing_status.in_(status_filter),
                 or_(
                     MatchDB.date_match.is_(None),
                     MatchDB.date_match <= today,
@@ -569,7 +598,6 @@ def _import_download(
             console.print("[dim]Mode verbeux: affichage des URLs, des skips et des erreurs de téléchargement.[/dim]")
 
         pdf_base = Path("data/pdfs")
-        pdf_index = build_pdf_index(pdf_base)
 
         for match_db in matches:
             if not match_db.source_url:
@@ -597,8 +625,7 @@ def _import_download(
                 unique_hint=match_db.id,
             )
 
-            # Vérifier si déjà présent, puis décider s'il faut forcer une
-            # reprise (PDF invalide ou téléchargé avant la date du match).
+            # Vérifier si déjà présent en O(1)
             existing = None
             if dest_file.exists():
                 existing = dest_file
@@ -606,15 +633,14 @@ def _import_download(
                 existing = find_pdf_for_match(
                     match_db,
                     pdf_base,
-                    pdf_index,
                     saison_code=saison_code,
                 )
 
             if existing:
-                redownload_reason = _get_pdf_redownload_reason(
-                    match_db,
-                    existing,
-                    today=today,
+                redownload_reason = (
+                    _get_pdf_redownload_reason(match_db, existing, today=today)
+                    if verify_existing
+                    else None
                 )
                 if redownload_reason is None:
                     already_present.append((match_db.id, str(existing)))
@@ -771,6 +797,7 @@ def _import_parse(
     plausibility_policy: str = "auto",
     review_fixes: bool = False,
     parser_name: str = "fast",
+    rollup: bool = True,
 ) -> None:
     """Étape 3 : parsing des PDFs et enrichissement de la base."""
     from pyvolley.parsers.factory import ParserFactory
@@ -781,12 +808,9 @@ def _import_parse(
     from sqlalchemy.orm import joinedload
 
     init_db()
-
-    statuses = (
-        ["discovered", "downloaded", "parsed", "error"]
-        if force
-        else ["discovered", "downloaded", "error"]
-    )
+    statuses = ["downloaded"]
+    if force:
+        statuses.extend(["parsed", "error"])
 
     parser = ParserFactory.get(parser_name)
     approval_cb = None
@@ -828,18 +852,33 @@ def _import_parse(
         )
         return
 
-    # Localiser les PDFs
+    # Localiser les PDFs (résolution directe O(1) d'abord, sans glob disque global)
     pdf_base = Path("data/pdfs")
-    pdf_index = build_pdf_index(pdf_base)
+    pdf_index = None
 
     match_pdf_pairs = []
-    missing_pdf_count = 0
+    missing_matches = []
     for m in matches_db:
         pdf_path = find_pdf_for_match(m, pdf_base, pdf_index)
         if pdf_path:
             match_pdf_pairs.append((m, pdf_path))
         else:
-            missing_pdf_count += 1
+            missing_matches.append(m)
+
+    # Si certains fichiers ne sont pas trouvés aux chemins standard,
+    # on indexe de manière ciblée uniquement la saison concernée.
+    if missing_matches:
+        saison_filter = None
+        if saison and len(saison) == 1:
+            from pyvolley.cli.helpers import normaliser_saison
+            saison_filter = normaliser_saison(saison[0])
+        pdf_index = build_pdf_index(pdf_base, saison_filter=saison_filter)
+        for m in missing_matches:
+            pdf_path = find_pdf_for_match(m, pdf_base, pdf_index)
+            if pdf_path:
+                match_pdf_pairs.append((m, pdf_path))
+
+    missing_pdf_count = len(matches_db) - len(match_pdf_pairs)
 
     if missing_pdf_count:
         console.print(
@@ -866,6 +905,7 @@ def _import_parse(
     plausibility_flagged = 0
     results = []
     error_details = []
+    enriched_match_ids: list[int] = []
 
     with DatabaseSession() as session:
         service = MatchImportService(session)
@@ -884,89 +924,115 @@ def _import_parse(
                 "Parsing...", total=len(match_pdf_pairs),
             )
 
-            for match_db, pdf_path in match_pdf_pairs:
-                match_fresh = session.get(MatchDB, match_db.id)
-                if not match_fresh:
-                    skipped_count += 1
-                    progress.update(task, advance=1)
-                    continue
-
+            def _parse_worker(pair):
+                m_obj, p_path = pair
                 try:
-                    result = parser.parse(pdf_path)
+                    res = parser.parse(p_path)
+                    return m_obj.id, p_path, res, None
+                except Exception as exc:
+                    return m_obj.id, p_path, None, exc
 
-                    if result.success and result.match:
-                        was_enriched = service.enrich_from_pdf(
-                            match_fresh, result.match, force=force,
+            import os
+            from concurrent.futures import ThreadPoolExecutor
+
+            max_workers = min(8, os.cpu_count() or 4)
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                for match_id, pdf_path, result, parse_error in executor.map(
+                    _parse_worker, match_pdf_pairs, chunksize=8
+                ):
+                    match_fresh = session.scalar(
+                        select(MatchDB)
+                        .options(
+                            joinedload(MatchDB.saison),
+                            joinedload(MatchDB.competition).joinedload(CompetitionDB.entite),
+                            joinedload(MatchDB.poule),
                         )
-                        if was_enriched:
-                            enriched += 1
-                        else:
-                            skipped_count += 1
+                        .where(MatchDB.id == match_id)
+                    )
+                    if not match_fresh:
+                        skipped_count += 1
+                        progress.update(task, advance=1)
+                        continue
 
-                        results.append({
-                            'file': str(pdf_path),
-                            'match': result.match,
-                            'parse_time_ms': result.parse_time_ms,
-                            'diagnostics': result.diagnostics,
-                            'plausibility_report': (
-                                result.plausibility_report.to_dict()
-                                if result.plausibility_report else None
-                            ),
-                            'enriched': was_enriched,
-                        })
-
-                        if result.diagnostics:
-                            warnings_count += result.warnings_count
-                        plausibility_touched += result.plausibility_changes_count
-                        plausibility_flagged += result.plausibility_flagged_count
-
-                        if verbose and was_enriched:
-                            m = result.match
-                            progress.console.print(
-                                f"  [green]✓[/green] {match_fresh.code_match}: "
-                                f"{m.equipe_a.nom[:20] if m.equipe_a else '?'} vs "
-                                f"{m.equipe_b.nom[:20] if m.equipe_b else '?'}"
-                            )
-
-                        progress.update(
-                            task, advance=1,
-                            description=f"[green]✓ {match_fresh.code_match}[/green]",
-                        )
-                    else:
+                    if parse_error:
                         failed += 1
                         match_fresh.parsing_status = "error"
-                        match_fresh.remarques = (
-                            result.errors[0][:200] if result.errors else "Erreur de parsing"
-                        )
+                        match_fresh.remarques = str(parse_error)[:200]
                         error_details.append({
-                            'file': str(pdf_path),
-                            'errors': result.errors,
-                            'diagnostics': result.diagnostics,
+                            'file': str(pdf_path), 'errors': [str(parse_error)],
                         })
+                        progress.update(task, advance=1)
+                        continue
+
+                    try:
+                        if result.success and result.match:
+                            was_enriched = service.enrich_from_pdf(
+                                match_fresh, result.match, force=force, defer_rollups=True,
+                            )
+                            if was_enriched:
+                                enriched += 1
+                                enriched_match_ids.append(match_fresh.id)
+                            else:
+                                skipped_count += 1
+
+                            results.append({
+                                'file': str(pdf_path),
+                                'match': result.match,
+                                'parse_time_ms': result.parse_time_ms,
+                                'diagnostics': result.diagnostics,
+                                'plausibility_report': (
+                                    result.plausibility_report.to_dict()
+                                    if result.plausibility_report else None
+                                ),
+                                'enriched': was_enriched,
+                            })
+
+                            if result.diagnostics:
+                                warnings_count += result.warnings_count
+                            plausibility_touched += result.plausibility_changes_count
+                            plausibility_flagged += result.plausibility_flagged_count
+
+                            if verbose and was_enriched:
+                                m = result.match
+                                progress.console.print(
+                                    f"  [green]✓[/green] {match_fresh.code_match}: "
+                                    f"{m.equipe_a.nom[:20] if m.equipe_a else '?'} vs "
+                                    f"{m.equipe_b.nom[:20] if m.equipe_b else '?'}"
+                                )
+                        else:
+                            failed += 1
+                            match_fresh.parsing_status = "error"
+                            match_fresh.remarques = (
+                                result.errors[0][:200] if result.errors else "Erreur de parsing"
+                            )
+                            error_details.append({
+                                'file': str(pdf_path),
+                                'errors': result.errors,
+                                'diagnostics': result.diagnostics,
+                            })
+
+                    except Exception as e:
+                        failed += 1
+                        match_fresh.parsing_status = "error"
+                        match_fresh.remarques = str(e)[:200]
+                        error_details.append({
+                            'file': str(pdf_path), 'errors': [str(e)],
+                        })
+
+                    progress.update(task, advance=1)
+                    if (enriched + failed + skipped_count) % 25 == 0:
                         progress.update(
-                            task, advance=1,
-                            description=f"[red]✗ {match_fresh.code_match}[/red]",
+                            task,
+                            description=f"Parsing... ({enriched} enrichis, {failed} err)",
                         )
 
-                except Exception as e:
-                    failed += 1
-                    match_fresh.parsing_status = "error"
-                    match_fresh.remarques = str(e)[:200]
-                    error_details.append({
-                        'file': str(pdf_path), 'errors': [str(e)],
-                    })
-                    progress.update(
-                        task, advance=1,
-                        description=f"[red]✗ {match_fresh.code_match}[/red]",
-                    )
-
-                # Commit par batch
-                if (enriched + failed) % 100 == 0 and (enriched + failed) > 0:
-                    try:
-                        session.commit()
-                    except Exception:
-                        session.rollback()
-                        service.clear_caches()
+                    # Commit par batch
+                    if (enriched + failed) % 100 == 0 and (enriched + failed) > 0:
+                        try:
+                            session.commit()
+                        except Exception:
+                            session.rollback()
+                            service.clear_caches()
 
         # Commit final
         import_log.finished_at = datetime.now()
@@ -991,6 +1057,24 @@ def _import_parse(
             session.commit()
         except Exception:
             session.rollback()
+
+        # Actualisation consolidée des rollups si demandé
+        if rollup and enriched_match_ids:
+            from pyvolley.database.rollup_service import RollupStatsService
+            with console.status(
+                f"[bold magenta]Actualisation consolidée des rollups pour {len(enriched_match_ids)} match(s)..."
+            ):
+                try:
+                    rollup_service = RollupStatsService(session)
+                    rollup_summary = rollup_service.apply_batch_deltas(enriched_match_ids)
+                    session.commit()
+                    console.print(
+                        f"[magenta]✓ Rollups : {rollup_summary.get('player_seasons_updated', 0)} stats saisons joueurs, "
+                        f"{rollup_summary.get('teams_updated', 0)} équipes, "
+                        f"{rollup_summary.get('poules_updated', 0)} poules actualisées[/magenta]"
+                    )
+                except Exception as exc:
+                    console.print(f"[yellow]⚠ Erreur lors de l'actualisation consolidée des rollups : {exc}[/yellow]")
 
     console.print(Panel(
         f"[green]✓ Enrichis :  {enriched}[/green]\n"
@@ -1017,9 +1101,9 @@ def _import_stream(
     plausibility_policy: str = "auto",
     review_fixes: bool = False,
     parser_name: str = "fast",
+    rollup: bool = True,
 ) -> None:
     """Mode streaming : download → parse → DB, sans conserver les PDFs."""
-    import tempfile
     import httpx
     from pyvolley.parsers.factory import ParserFactory
     from pyvolley.database.connection import DatabaseSession, init_db
@@ -1072,6 +1156,7 @@ def _import_stream(
     downloaded = 0
     enriched = 0
     failed = 0
+    enriched_match_ids: list[int] = []
 
     with httpx.Client(timeout=30, follow_redirects=True) as http:
         with DatabaseSession() as session:
@@ -1102,21 +1187,16 @@ def _import_stream(
                         if not response.content[:5].startswith(b"%PDF"):
                             raise ValueError("Réponse non-PDF")
 
-                        with tempfile.NamedTemporaryFile(
-                            suffix=".pdf", delete=True,
-                        ) as tmp:
-                            tmp.write(response.content)
-                            tmp.flush()
-                            result = parser.parse(Path(tmp.name))
-
+                        result = parser.parse(response.content)
                         downloaded += 1
 
                         if result.success and result.match:
                             was_enriched = service.enrich_from_pdf(
-                                match_fresh, result.match, force=True,
+                                match_fresh, result.match, force=True, defer_rollups=True,
                             )
                             if was_enriched:
                                 enriched += 1
+                                enriched_match_ids.append(match_fresh.id)
 
                             if verbose:
                                 m = result.match
@@ -1167,6 +1247,19 @@ def _import_stream(
                 session.commit()
             except Exception:
                 session.rollback()
+
+            # Actualisation consolidée des rollups si demandé
+            if rollup and enriched_match_ids:
+                from pyvolley.database.rollup_service import RollupStatsService
+                with console.status(
+                    f"[bold magenta]Actualisation consolidée des rollups pour {len(enriched_match_ids)} match(s)..."
+                ):
+                    try:
+                        rollup_service = RollupStatsService(session)
+                        rollup_service.apply_batch_deltas(enriched_match_ids)
+                        session.commit()
+                    except Exception as exc:
+                        console.print(f"[yellow]⚠ Erreur rollups streaming : {exc}[/yellow]")
 
     console.print(
         f"\n[green]✓ {enriched} enrichis[/green]"
@@ -3061,6 +3154,10 @@ db_app.add_typer(explore_app, name="explore")
 from pyvolley.cli.reports import report_app
 app.add_typer(report_app, name="report")
 
+# Sous-commandes de rôles (inférence, diffusion réseau, audit)
+from pyvolley.cli.roles_cli import roles_app
+app.add_typer(roles_app, name="roles")
+
 # Sous-commandes de développement
 dev_app = typer.Typer(help="Outils de développement")
 app.add_typer(dev_app, name="dev")
@@ -3502,14 +3599,7 @@ def app_compute_rollups(
     db_compute_rollups(saison=saison)
 
 
-@app.command("compute-player-stats")
-def app_compute_player_stats(
-    saison: Optional[str] = typer.Option(
-        None, "--saison", "-s", help="Code de la saison (ex: 2025-2026)."
-    ),
-):
-    """Calcule et synchronise les statistiques joueur par match (raccourci)."""
-    db_compute_rollups(saison=saison)
+
 
 
 # ════════════════════════════════════════════════════════════════════

@@ -66,7 +66,7 @@ def _build_poule_links(poule) -> dict[str, Optional[str]]:
 
 
 @router.get("/competitions", response_class=HTMLResponse)
-async def competitions_list(
+def competitions_list(
     request: Request,
     saison_id: Optional[str] = Query(None),
     genre: Optional[str] = None,
@@ -116,7 +116,7 @@ async def competitions_list(
 
 
 @router.get("/competitions/{competition_id}", response_class=HTMLResponse)
-async def competition_detail(
+def competition_detail(
     request: Request,
     competition_id: int,
     competition_repo: CompetitionRepository = Depends(get_competition_repo),
@@ -138,7 +138,7 @@ async def competition_detail(
     is_jeunes = is_youth_competition(competition.nom)
 
     if is_jeunes:
-        return await _render_youth_competition(
+        return _render_youth_competition(
             request, competition, competition_repo, match_repo, equipe_repo
         )
 
@@ -210,7 +210,7 @@ async def competition_detail(
 # ═══════════════════════════════════════════════════════════════════
 
 
-async def _render_youth_competition(
+def _render_youth_competition(
     request: Request,
     competition,
     competition_repo: CompetitionRepository,

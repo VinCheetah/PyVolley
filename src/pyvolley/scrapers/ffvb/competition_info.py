@@ -363,12 +363,14 @@ def _detect_categorie_age(text: str, entite_type: Optional[str] = None) -> Optio
     # Si pas de catégorie explicite et c'est un niveau senior
     # (Elite, Nationale, Régionale, etc.), c'est SENIOR par défaut
     upper = text.upper()
-    if any(kw in upper for kw in ("ELITE", "NATIONALE", "REGIONALE", "RÉGIONALE",
-                                   "PRENATIONAL", "PRÉNATIONAL", "PRE-NATIONAL",
-                                   "DEPARTEMENTALE", "DÉPARTEMENTALE",
-                                   "LOISIR", "COUPE DE FRANCE")):
+    if any(kw in upper for kw in ("ELITE", "NATIONALE", "NATIONAL", "REGIONALE", "RÉGIONALE", "REGIONAL", "RÉGIONAL",
+                                   "PRENATIONAL", "PRÉNATIONAL", "PRE-NATIONAL", "PRENATIONALE", "PRÉNATIONALE",
+                                   "PREREGIONAL", "PRE-REGIONAL", "PRE REGIONAL", "PRE-REGIONALE", "PREREGIONALE",
+                                   "DEPARTEMENTALE", "DÉPARTEMENTALE", "DEPARTEMENTAL", "DÉPARTEMENTAL", "DEP",
+                                   "PRO A", "PRO B", "LIGUE A", "LIGUE B",
+                                   "LOISIR", "COUPE DE FRANCE", "CDF")):
         # Vérifier qu'il n'y a pas une catégorie jeune cachée
-        if not re.search(r'\bM\d{2}\b|\bU\d{2}\b|\bJEUNE', upper):
+        if not re.search(r'\bM\d{2}\b|\bU\d{2}\b|\bJEUNE|\bCADET|\bMINIME|\bBENJAMIN|\bPOUSSIN', upper):
             return "SENIOR"
 
     return None

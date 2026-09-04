@@ -324,8 +324,15 @@
     </div>
     {% endif %}
 
-    <!-- Carte interactive — Localisation du club -->
-    {{ map_card(club_id=club.id, title="Localisation", height="350px") }}
+    <!-- Carte interactive — Localisation du club et de ses salles -->
+    {{ map_card(
+        club_id=club.id,
+        title="Localisation & Gymnases du club",
+        height="380px",
+        show_filter=True,
+        show_search=False,
+        show_legend=True
+    ) }}
 
     <!-- Equipes du club -->
     <div class="card overflow-hidden">
