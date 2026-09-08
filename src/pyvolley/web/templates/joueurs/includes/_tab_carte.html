@@ -1,0 +1,17 @@
+{# ═══════════════════════════════════════════════════════════════
+   Joueur Detail — Carte des Matchs Tab
+   Leaflet interactive map showing locations of filtered matches
+   ═══════════════════════════════════════════════════════════════ #}
+{% from "macros/map.html" import map_card %}
+
+<div x-show="activeTab === 'carte'" class="space-y-6" x-cloak>
+    {{ map_card(
+        entity_type="match",
+        joueur_id=joueur.id,
+        title="Carte des matchs du joueur",
+        height="480px",
+        show_filter=False,
+        show_search=True,
+        show_legend=True
+    ) }}
+</div>

@@ -1,0 +1,223 @@
+{# ═══════════════════════════════════════════════════════════════
+   Joueur Detail — Stats Détaillées Tab
+   Aggregated player stats, radar profile chart, role detection & per-match detailed performance table
+   ═══════════════════════════════════════════════════════════════ #}
+
+<div x-show="activeTab === 'stats'" class="space-y-6" x-cloak>
+    {% if aggregated_stats and aggregated_stats.matchs_joues > 0 %}
+    <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+        <div class="stat-card"><div class="stat-value" style="color: var(--accent-cyan);">{{ aggregated_stats.total_points_joues }}</div><div class="stat-label">Points joués</div></div>
+        <div class="stat-card"><div class="stat-value" style="color: var(--accent-green);">{{ aggregated_stats.total_points_gagnes }}</div><div class="stat-label">Points gagnés</div></div>
+        <div class="stat-card"><div class="stat-value" style="color: var(--accent-red);">{{ aggregated_stats.total_points_perdus }}</div><div class="stat-label">Points perdus</div></div>
+        <div class="stat-card"><div class="stat-value" style="color: var(--accent-blue);">{{ aggregated_stats.total_points_gagnes_sideout }}</div><div class="stat-label">Pts side-out</div></div>
+        <div class="stat-card"><div class="stat-value" style="color: var(--accent-purple);">{{ (aggregated_stats.break_point_ratio_global * 100)|round(1) }}%</div><div class="stat-label">Break ratio</div></div>
+        <div class="stat-card"><div class="stat-value" style="color: var(--accent-cyan);">{{ (aggregated_stats.ratio_points_gagnes_sideout_global * 100)|round(1) }}%</div><div class="stat-label">Contribution side-out</div></div>
+        <div class="stat-card"><div class="stat-value gradient-text-gold">{{ aggregated_stats.total_services }}</div><div class="stat-label">Services</div></div>
+        <div class="stat-card"><div class="stat-value" style="color: var(--accent-purple);">{{ aggregated_stats.max_serie_service }}</div><div class="stat-label">Max série</div></div>
+        <div class="stat-card"><div class="stat-value" style="color: var(--accent-blue);">{{ aggregated_stats.total_sets_joues }}</div><div class="stat-label">Sets joués</div></div>
+        <div class="stat-card"><div class="stat-value" style="color: var(--accent-cyan);">{{ role_overview.principal_label if role_overview.available else '—' }}</div><div class="stat-label">Rôle principal</div></div>
+        <div class="stat-card"><div class="stat-value" style="color: var(--accent-gold);">{% if role_overview.available %}{{ role_overview.plausibility_pct|round(1) }}%{% else %}—{% endif %}</div><div class="stat-label">Plausibilité rôle</div></div>
+    </div>
+
+    <div class="player-stats-grid">
+        <div class="card p-4 player-profile-radar-card">
+            <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">
+                Profil visuel du joueur
+            </h3>
+            <div class="player-profile-radar-wrap">
+                <canvas id="playerProfileRadarChart"></canvas>
+            </div>
+            <div class="player-profile-radar-kpis">
+                <div class="player-profile-radar-kpi">
+                    <span>Ratio global</span>
+                    <strong>{{ (aggregated_stats.ratio_points_gagnes_global * 100)|round(1) }}%</strong>
+                </div>
+                <div class="player-profile-radar-kpi">
+                    <span>Break global</span>
+                    <strong>{{ (aggregated_stats.break_point_ratio_global * 100)|round(1) }}%</strong>
+                </div>
+                <div class="player-profile-radar-kpi">
+                    <span>Side-out global</span>
+                    <strong>{{ (aggregated_stats.ratio_points_gagnes_sideout_global * 100)|round(1) }}%</strong>
+                </div>
+                <div class="player-profile-radar-kpi">
+                    <span>Pts / tour service</span>
+                    <strong>{{ aggregated_stats.moyenne_points_par_tour|round(2) }}</strong>
+                </div>
+            </div>
+        </div>
+
+        {% if match_evolution_stats and match_evolution_stats|length > 1 %}
+        <div class="card p-4">
+            <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">Évolution chronologique</h3>
+            <div style="height: 260px;"><canvas id="matchEvolutionChart"></canvas></div>
+        </div>
+        {% else %}
+        <div class="card p-4">
+            <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">Évolution chronologique</h3>
+            <p class="text-sm" style="color: var(--text-muted);">Pas assez de matchs pour tracer une évolution fiable sur la période filtrée.</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="card p-4">
+        <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">
+            Détection du rôle
+        </h3>
+        {% if role_overview.available %}
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="p-3 rounded-lg" style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.22);">
+                <div class="text-xs uppercase tracking-wider" style="color: var(--text-muted);">Rôle principal</div>
+                <div class="text-sm font-semibold mt-1" style="color: var(--text-primary);">{{ role_overview.principal_label }}</div>
+            </div>
+            <div class="p-3 rounded-lg" style="background: rgba(6, 182, 212, 0.08); border: 1px solid rgba(6, 182, 212, 0.22);">
+                <div class="text-xs uppercase tracking-wider" style="color: var(--text-muted);">Confiance moyenne</div>
+                <div class="text-sm font-semibold mt-1" style="color: var(--text-primary);">{{ role_overview.average_confidence_pct|round(1) }}%</div>
+            </div>
+            <div class="p-3 rounded-lg" style="background: rgba(168, 85, 247, 0.08); border: 1px solid rgba(168, 85, 247, 0.22);">
+                <div class="text-xs uppercase tracking-wider" style="color: var(--text-muted);">Cohérence</div>
+                <div class="text-sm font-semibold mt-1" style="color: var(--text-primary);">{{ role_overview.consistency_pct|round(1) }}%</div>
+            </div>
+            <div class="p-3 rounded-lg" style="background: rgba(34, 197, 94, 0.08); border: 1px solid rgba(34, 197, 94, 0.22);">
+                <div class="text-xs uppercase tracking-wider" style="color: var(--text-muted);">Couverture</div>
+                <div class="text-sm font-semibold mt-1" style="color: var(--text-primary);">{{ role_overview.coverage_pct|round(1) }}%</div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+            <div>
+                <p class="text-xs uppercase tracking-wider mb-2" style="color: var(--text-muted);">Répartition des rôles</p>
+                <div class="space-y-2">
+                    {% for rr in role_overview.roles %}
+                    <div>
+                        <div class="flex justify-between text-xs font-mono">
+                            <span class="font-medium" style="color: var(--text-primary);">{{ rr.label or rr.code }}</span>
+                            <span style="color: var(--text-secondary);">{{ rr.matches }} m · {{ rr.score_pct|round(1) if (rr.score_pct is defined and rr.score_pct is not none) else 0 }}%</span>
+                        </div>
+                        <div class="w-full rounded-full h-2 mt-1" style="background: var(--bg-card-hover);">
+                            <div class="h-2 rounded-full" style="width: {{ rr.score_pct or 0 }}%; background: var(--accent-primary);"></div>
+                        </div>
+                    </div>
+                    {% else %}
+                    <p class="text-sm" style="color: var(--text-muted);">Aucune répartition disponible.</p>
+                    {% endfor %}
+                </div>
+            </div>
+            <div>
+                <p class="text-xs uppercase tracking-wider mb-2" style="color: var(--text-muted);">Sources d'inférence</p>
+                <div class="flex flex-wrap gap-2">
+                    {% for source in role_overview.sources %}
+                    <span class="badge">{{ source.label }}{% if source.pct is defined and source.pct is not none %} ({{ source.pct|round(0)|int }}%){% endif %}</span>
+                    {% else %}
+                    <span class="text-sm" style="color: var(--text-muted);">Aucune source détaillée.</span>
+                    {% endfor %}
+                </div>
+                {% if role_overview.evidence %}
+                <p class="text-xs uppercase tracking-wider mt-4 mb-2" style="color: var(--text-muted);">Indices clés</p>
+                <ul class="space-y-1 text-xs" style="color: var(--text-secondary);">
+                    {% for hint in role_overview.evidence %}
+                    <li>- {{ hint }}</li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+            </div>
+        </div>
+        {% else %}
+        <p class="text-sm" style="color: var(--text-muted);">Pas assez d'indices pour proposer un rôle plausible sur les matchs filtrés.</p>
+        {% endif %}
+    </div>
+
+    <div class="card overflow-hidden">
+        <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
+            <h3 class="text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Détail performance par match</h3>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="data-table text-xs">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Adversaire</th>
+                        <th class="text-center">#</th>
+                        <th>Niveau</th>
+                        <th class="text-center">Rôle</th>
+                        <th class="text-center">Plausibilité</th>
+                        <th>Sources</th>
+                        <th class="text-center">V/D</th>
+                        <th class="text-center">Pts joués</th>
+                        <th class="text-center">Pts gagnés</th>
+                        <th class="text-center">Pts perdus</th>
+                        <th class="text-center">Pts side-out</th>
+                        <th class="text-center">% Pts gagnés</th>
+                        <th class="text-center">Break %</th>
+                        <th class="text-center">Side-out %</th>
+                        <th class="text-center">Services</th>
+                        <th class="text-center">Max série</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for pm in per_match_stats %}
+                    {% set pms = pm.stats %}
+                    <tr>
+                        <td>{{ pm.date|format_date if pm.date else '—' }}</td>
+                        <td>
+                            {% if pm.adversaire_id %}
+                            <a href="{{ path_for_entity('equipe', pm.adversaire_id) }}" style="color: var(--accent-blue);" class="hover:text-white">{{ pm.adversaire|truncate(30, True) }}</a>
+                            {% else %}
+                            <a href="{{ path_for_entity('match', pm.match_id) }}" style="color: var(--accent-blue);" class="hover:text-white">{{ pm.adversaire|truncate(30, True) }}</a>
+                            {% endif %}
+                            <div class="text-[11px] mt-1">
+                                <a href="{{ path_for_entity('match', pm.match_id) }}" style="color: var(--text-muted);">Voir match</a>
+                                {% if pm.competition_id %}
+                                · <a href="{{ path_for_entity('competition', pm.competition_id) }}" style="color: var(--text-muted);">Compétition</a>
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td class="text-center">{% if pm.numero %}<span class="badge badge-purple text-xs">#{{ pm.numero }}</span>{% else %}—{% endif %}</td>
+                        <td>{% if pm.niveau_principal %}<span class="badge badge-blue text-xs">{{ pm.niveau_principal }}</span>{% else %}—{% endif %}</td>
+                        <td class="text-center">
+                            {% if pm.role_code %}
+                            {% if pm.role_atypique %}
+                            <span class="badge badge-purple text-xs" title="Changement de rôle ponctuel sur ce match">{{ pm.role_label }} ⚠️</span>
+                            {% else %}
+                            <span class="badge badge-blue text-xs">{{ pm.role_label }}</span>
+                            {% endif %}
+                            {% else %}
+                            <span style="color: var(--text-muted);">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center" style="color: var(--accent-cyan);">
+                            {% if pm.role_code %}
+                            {{ pm.role_plausibility_pct|round(1) }}%
+                            {% else %}
+                            —
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if pm.role_sources %}
+                            <span class="text-xs" style="color: var(--text-secondary);">{{ pm.role_sources|join(' · ') }}</span>
+                            {% else %}
+                            <span style="color: var(--text-muted);">—</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-center">{% if pms.victoire %}<span class="badge badge-green text-xs">V</span>{% else %}<span class="badge badge-red text-xs">D</span>{% endif %}</td>
+                        <td class="text-center">{{ pms.points_joues }}</td>
+                        <td class="text-center" style="color: var(--accent-green);">{{ pms.points_gagnes }}</td>
+                        <td class="text-center" style="color: var(--accent-red);">{{ pms.points_perdus }}</td>
+                        <td class="text-center" style="color: var(--accent-blue);">{{ pm.points_gagnes_sideout }}</td>
+                        <td class="text-center" style="color: var(--accent-gold);">{{ pm.ratio_points_pct|round(1) }}%</td>
+                        <td class="text-center" style="color: var(--accent-purple);">{{ pm.break_point_ratio_pct|round(1) }}%</td>
+                        <td class="text-center" style="color: var(--accent-cyan);">{{ pm.sideout_contribution_pct|round(1) }}%</td>
+                        <td class="text-center">{{ pms.services }}</td>
+                        <td class="text-center">{{ pms.max_serie if pms.max_serie > 0 else '—' }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="17" class="text-center py-8" style="color: var(--text-muted);">Aucune statistique détaillée sur ce filtre.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% else %}
+    <div class="card p-8 text-center" style="color: var(--text-muted);">Aucune statistique détaillée disponible pour les matchs filtrés.</div>
+    {% endif %}
+</div>

@@ -4,53 +4,72 @@
    match result indicators, niveau chart
    ═══════════════════════════════════════════════════════════════ */
 
-/* ── Tables ── */
+/* ═══════════════════ Tables ═══════════════════ */
 .data-table {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
 }
+
 .data-table thead th {
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   text-transform: uppercase;
-  letter-spacing: 1px;
+  letter-spacing: 0.06em;
   color: var(--text-muted);
-  padding: 0.75rem 1rem;
+  padding: 0.65rem 0.75rem;
   border-bottom: 1px solid var(--border-color);
   text-align: left;
   font-weight: 600;
   white-space: nowrap;
 }
+
 .data-table tbody tr {
-  transition: var(--transition);
-}
-.data-table tbody tr:hover {
-  background: var(--bg-card-hover);
-}
-.data-table tbody td {
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid rgba(42, 48, 80, 0.5);
-  font-size: 0.9rem;
-}
-.data-table tbody td a {
-  color: var(--accent-blue-light);
-  text-decoration: none;
-  transition: var(--transition);
-}
-.data-table tbody td a:hover {
-  color: #93c5fd;
-  text-decoration: underline;
+  transition: background var(--transition);
 }
 
-/* ── Score Display ── */
+.data-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.data-table tbody td {
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid var(--border-color-subtle);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.data-table tbody td a {
+  color: var(--text-primary);
+  text-decoration: none;
+  transition: color var(--transition);
+}
+
+.data-table tbody td a:hover {
+  color: var(--accent-primary);
+}
+
+/* ── Compact table variant ── */
+.data-table-compact thead th {
+  padding: 0.5rem 0.6rem;
+  font-size: 0.65rem;
+}
+
+.data-table-compact tbody td {
+  padding: 0.5rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+/* ═══════════════════ Score Display ═══════════════════ */
 .score-main {
   font-size: 3rem;
   font-weight: 900;
   font-variant-numeric: tabular-nums;
   letter-spacing: 2px;
 }
+
 .score-team-a { color: var(--team-a-light); }
 .score-team-b { color: var(--team-b-light); }
+
 .score-separator {
   color: var(--text-muted);
   font-weight: 300;
@@ -64,60 +83,65 @@
   justify-content: center;
   width: 40px;
   height: 28px;
-  font-size: 0.85rem;
+  font-size: 0.825rem;
   font-weight: 700;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
   background: var(--bg-card-hover);
 }
-.set-score.won-a { background: var(--team-a-bg); color: var(--team-a-light); border-color: var(--team-a); }
-.set-score.won-b { background: var(--team-b-bg); color: var(--team-b-light); border-color: var(--team-b); }
 
-/* ── Player cards ── */
+.set-score.won-a { background: var(--team-a-bg); color: var(--team-a-light); border-color: rgba(59, 130, 246, 0.3); }
+.set-score.won-b { background: var(--team-b-bg); color: var(--team-b-light); border-color: rgba(239, 68, 68, 0.3); }
+
+/* ═══════════════════ Player Cards ═══════════════════ */
 .player-row {
   display: flex;
   align-items: center;
   gap: 0.75rem;
   padding: 0.5rem 0.75rem;
   border-radius: var(--radius-sm);
-  transition: var(--transition);
+  transition: background var(--transition);
 }
+
 .player-row:hover {
-  background: var(--bg-card-hover);
+  background: rgba(255, 255, 255, 0.03);
 }
+
 .player-number {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 800;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   color: white;
   flex-shrink: 0;
 }
+
 .player-number.team-a { background: var(--team-a); }
 .player-number.team-b { background: var(--team-b); }
-.player-number.libero { background: var(--accent-gold) !important; color: #000; }
+.player-number.libero { background: var(--accent-primary) !important; color: var(--text-inverse); }
 
-/* ── Court visualization ── */
+/* ═══════════════════ Court Visualization ═══════════════════ */
 .court-mini {
   background: linear-gradient(180deg, #1a5c2a 0%, #237a38 100%);
-  border: 2px solid rgba(255,255,255,0.2);
+  border: 2px solid rgba(255, 255, 255, 0.15);
   border-radius: var(--radius-sm);
   position: relative;
 }
+
 .court-mini .net-line {
   position: absolute;
   left: 0;
   right: 0;
   top: 50%;
   height: 2px;
-  background: rgba(255,255,255,0.6);
+  background: rgba(255, 255, 255, 0.5);
 }
 
-/* ── Formation grid ── */
+/* ═══════════════════ Formation Grid ═══════════════════ */
 .formation-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -125,41 +149,43 @@
   gap: 0.5rem;
   padding: 1rem;
 }
+
 .formation-pos {
-  width: 40px;
-  height: 40px;
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 800;
-  font-size: 0.85rem;
+  font-size: 0.825rem;
   margin: 0 auto;
-  border: 2px solid rgba(255,255,255,0.3);
+  border: 2px solid rgba(255, 255, 255, 0.25);
 }
 
-/* ── Match result indicators ── */
+/* ═══════════════════ Match Result Indicators ═══════════════════ */
 .result-indicator {
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border-radius: 4px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   font-weight: 800;
 }
-.result-win  { background: rgba(34, 197, 94, 0.2); color: var(--accent-green-light); }
-.result-loss { background: rgba(239, 68, 68, 0.2); color: var(--accent-red-light); }
 
-/* ── Niveau evolution chart ── */
+.result-win  { background: var(--accent-green-bg); color: var(--accent-green-light); }
+.result-loss { background: var(--accent-red-bg); color: var(--accent-red-light); }
+
+/* ═══════════════════ Niveau Chart Container ═══════════════════ */
 .niveau-chart-container {
   position: relative;
   width: 100%;
   height: 320px;
 }
 
-/* ── Responsive ── */
+/* ═══════════════════ Responsive ═══════════════════ */
 @media (max-width: 768px) {
   .score-main { font-size: 2rem; }
   .niveau-chart-container { height: 250px; }

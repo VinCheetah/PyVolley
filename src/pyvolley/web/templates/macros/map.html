@@ -93,7 +93,7 @@
                placeholder="Rechercher un point..."
                class="w-full text-xs pr-7">
         <span x-show="searchQuery" @click="searchQuery = ''; filterAndRenderMarkers()"
-              class="absolute right-2 top-2 text-slate-400 hover:text-white cursor-pointer text-xs">✕</span>
+              class="absolute right-2 top-2 text-zinc-400 hover:text-white cursor-pointer text-xs">✕</span>
       </div>
       {% endif %}
 
@@ -124,7 +124,7 @@
 
       <!-- Counter -->
       <div class="pyvolley-map-counter">
-        <span class="inline-block w-2 h-2 rounded-full" :class="markerCount > 0 ? 'bg-emerald-400' : 'bg-slate-500'"></span>
+        <span class="inline-block w-2 h-2 rounded-full" :class="markerCount > 0 ? 'bg-emerald-400' : 'bg-zinc-600'"></span>
         <span x-text="markerCount + ' lieu' + (markerCount > 1 ? 'x' : '')"></span>
       </div>
     </div>
@@ -154,7 +154,7 @@
           <span>Clubs</span>
         </div>
         <div class="pyvolley-legend-item">
-          <span class="pyvolley-legend-dot bg-cyan-500"></span>
+          <span class="pyvolley-legend-dot bg-purple-500"></span>
           <span>Salles</span>
         </div>
         <div class="pyvolley-legend-item">
@@ -162,7 +162,7 @@
           <span>Victoires</span>
         </div>
         <div class="pyvolley-legend-item">
-          <span class="pyvolley-legend-dot bg-amber-500"></span>
+          <span class="pyvolley-legend-dot bg-amber-400"></span>
           <span>Matchs</span>
         </div>
       </div>
@@ -176,7 +176,7 @@
       <!-- Loading overlay -->
       <div class="pyvolley-map-overlay" x-show="loading" x-transition.opacity>
         <div class="pyvolley-map-overlay-content">
-          <svg class="animate-spin inline w-4 h-4 text-blue-500" xmlns="http://www.w3.org/2000/svg"
+          <svg class="animate-spin inline w-4 h-4 text-accent-primary" xmlns="http://www.w3.org/2000/svg"
                fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10"
                     stroke="currentColor" stroke-width="4"></circle>

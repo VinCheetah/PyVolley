@@ -87,10 +87,10 @@
         teamABorder: token('--team-a', '#3b82f6'),
         teamB: token('--team-b-light', '#f87171'),
         teamBBorder: token('--team-b', '#ef4444'),
-        gold: token('--accent-gold', '#f59e0b'),
-        text: token('--text-secondary', '#8b92a8'),
-        textMuted: token('--text-muted', '#5a6178'),
-        grid: 'rgba(42, 48, 80, 0.45)',
+        gold: token('--accent-primary', '#FACC15'),
+        text: token('--text-secondary', '#a1a1aa'),
+        textMuted: token('--text-muted', '#71717a'),
+        grid: token('--border-color', 'rgba(39, 39, 42, 0.6)'),
     };
 
     const charts = [];
@@ -397,7 +397,7 @@
                             ctx.restore();
 
                             ctx.save();
-                            ctx.fillStyle = 'rgba(139, 146, 168, 0.65)';
+                            ctx.fillStyle = colors.textMuted;
                             ctx.font = '600 10px ui-sans-serif, system-ui, sans-serif';
                             ctx.textAlign = 'center';
                             ctx.textBaseline = 'top';
@@ -409,7 +409,7 @@
                             const sepX = scales.x.getPixelForValue(segment.startX);
                             if (sepX >= chartArea.left && sepX <= chartArea.right) {
                                 ctx.save();
-                                ctx.strokeStyle = 'rgba(245, 158, 11, 0.38)';
+                                ctx.strokeStyle = 'rgba(250, 204, 21, 0.35)';
                                 ctx.lineWidth = 1.1;
                                 ctx.setLineDash([4, 3]);
                                 ctx.beginPath();
@@ -842,8 +842,8 @@
                         {
                             label: 'Avant (win rate %)',
                             data: decisions.map((decision) => Number(decision.trend_before && decision.trend_before.win_rate_pct || 0)),
-                            borderColor: '#38bdf8',
-                            backgroundColor: 'rgba(56, 189, 248, 0.16)',
+                            borderColor: '#60a5fa',
+                            backgroundColor: 'rgba(59, 130, 246, 0.16)',
                             tension: 0.3,
                             pointRadius: 3,
                             yAxisID: 'y',

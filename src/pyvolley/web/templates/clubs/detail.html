@@ -124,7 +124,7 @@
     <!-- Stats -->
     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div class="stat-card">
-            <div class="stat-value gradient-text-gold">{{ equipes|length }}</div>
+            <div class="stat-value font-mono text-white">{{ equipes|length }}</div>
             <div class="stat-label">Équipes</div>
         </div>
         <div class="stat-card">
@@ -134,17 +134,17 @@
                     {% if saisons_set.append(eq.saison.code) %}{% endif %}
                 {% endif %}
             {% endfor %}
-            <div class="stat-value gradient-text-blue">{{ saisons_set|length }}</div>
+            <div class="stat-value font-mono text-white">{{ saisons_set|length }}</div>
             <div class="stat-label">Saisons</div>
         </div>
         <div class="stat-card">
             {% set salles_count = club.salles|length if club.salles else 0 %}
-            <div class="stat-value" style="color: var(--accent-cyan);">{{ salles_count }}</div>
+            <div class="stat-value font-mono text-white">{{ salles_count }}</div>
             <div class="stat-label">Salles</div>
         </div>
         <div class="stat-card">
             {% set aliases_count = club.aliases|length if club.aliases else 0 %}
-            <div class="stat-value" style="color: var(--text-secondary);">{{ aliases_count }}</div>
+            <div class="stat-value font-mono" style="color: var(--text-secondary);">{{ aliases_count }}</div>
             <div class="stat-label">Alias</div>
         </div>
     </div>

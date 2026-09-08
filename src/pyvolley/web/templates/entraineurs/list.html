@@ -9,7 +9,7 @@
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
             <h1 class="text-2xl font-bold">
-                <i data-lucide="clipboard-list" class="w-6 h-6 inline-block mr-2 text-accent-green"></i>
+                <i data-lucide="clipboard-list" class="w-6 h-6 inline-block mr-2" style="color: var(--accent-primary);"></i>
                 Entraîneurs
             </h1>
             <p class="text-muted">{{ total }} entraîneurs enregistrés</p>
@@ -21,7 +21,7 @@
         <div class="flex gap-2 max-w-2xl w-full">
             <input type="text" name="q" value="{{ query or '' }}" placeholder="Rechercher un entraîneur..."
                    class="search-input flex-1">
-            <button type="submit" class="pagination-btn" style="background: var(--accent-green); color: white; border-color: var(--accent-green);">
+            <button type="submit" class="pagination-btn btn-primary">
                 <i data-lucide="search" class="w-4 h-4"></i>
             </button>
             {% if query %}

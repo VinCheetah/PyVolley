@@ -6,8 +6,8 @@
 
     <!-- Header -->
     <div>
-        <h1 class="text-2xl font-bold">
-            <i data-lucide="bar-chart-3" class="w-6 h-6 inline-block mr-2 text-accent-blue"></i>
+        <h1 class="text-2xl font-bold flex items-center gap-2">
+            <i data-lucide="bar-chart-3" class="w-6 h-6" style="color: var(--accent-primary);"></i>
             Statistiques
         </h1>
         <p class="text-muted">Vue d'ensemble des données PyVolley</p>
@@ -42,39 +42,39 @@
     <!-- Global Stats Grid -->
     <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <div class="stat-card">
-            <div class="stat-value gradient-text-blue">{{ stats.matchs }}</div>
+            <div class="stat-value font-mono text-white">{{ stats.matchs }}</div>
             <div class="stat-label">
-                <i data-lucide="swords" class="w-3 h-3 inline-block mr-1"></i> Matchs
+                <i data-lucide="swords" class="w-3.5 h-3.5 inline-block mr-1"></i> Matchs
             </div>
         </div>
         <div class="stat-card">
-            <div class="stat-value text-accent-green">{{ stats.joueurs }}</div>
+            <div class="stat-value font-mono text-white">{{ stats.joueurs }}</div>
             <div class="stat-label">
-                <i data-lucide="user" class="w-3 h-3 inline-block mr-1"></i> Joueurs
+                <i data-lucide="user" class="w-3.5 h-3.5 inline-block mr-1"></i> Joueurs
             </div>
         </div>
         <div class="stat-card">
-            <div class="stat-value gradient-text-gold">{{ stats.equipes }}</div>
+            <div class="stat-value font-mono text-white">{{ stats.equipes }}</div>
             <div class="stat-label">
-                <i data-lucide="shield" class="w-3 h-3 inline-block mr-1"></i> Équipes
+                <i data-lucide="shield" class="w-3.5 h-3.5 inline-block mr-1"></i> Équipes
             </div>
         </div>
         <div class="stat-card">
-            <div class="stat-value text-accent-gold">{{ stats.clubs }}</div>
+            <div class="stat-value font-mono text-white">{{ stats.clubs }}</div>
             <div class="stat-label">
-                <i data-lucide="building-2" class="w-3 h-3 inline-block mr-1"></i> Clubs
+                <i data-lucide="building-2" class="w-3.5 h-3.5 inline-block mr-1"></i> Clubs
             </div>
         </div>
         <div class="stat-card">
-            <div class="stat-value text-accent-purple">{{ stats.arbitres }}</div>
+            <div class="stat-value font-mono text-white">{{ stats.arbitres }}</div>
             <div class="stat-label">
-                <i data-lucide="gavel" class="w-3 h-3 inline-block mr-1"></i> Arbitres
+                <i data-lucide="flag" class="w-3.5 h-3.5 inline-block mr-1"></i> Arbitres
             </div>
         </div>
         <div class="stat-card">
-            <div class="stat-value text-accent-red">{{ stats.competitions }}</div>
+            <div class="stat-value font-mono text-white">{{ stats.competitions }}</div>
             <div class="stat-label">
-                <i data-lucide="trophy" class="w-3 h-3 inline-block mr-1"></i> Compétitions
+                <i data-lucide="trophy" class="w-3.5 h-3.5 inline-block mr-1"></i> Compétitions
             </div>
         </div>
     </div>
@@ -83,8 +83,8 @@
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <!-- Matchs par saison -->
         <div class="card p-6">
-            <h2 class="section-title mb-4">
-                <i data-lucide="bar-chart" class="w-4 h-4 inline-block mr-1"></i>
+            <h2 class="section-title mb-4 flex items-center gap-2">
+                <i data-lucide="bar-chart-2" class="w-4 h-4"></i>
                 Matchs par saison
             </h2>
             {% if matchs_par_saison %}
@@ -98,8 +98,8 @@
 
         <!-- Activité mensuelle -->
         <div class="card p-6">
-            <h2 class="section-title mb-4">
-                <i data-lucide="trending-up" class="w-4 h-4 inline-block mr-1"></i>
+            <h2 class="section-title mb-4 flex items-center gap-2">
+                <i data-lucide="activity" class="w-4 h-4"></i>
                 Activité mensuelle
             </h2>
             {% if matchs_par_mois %}
@@ -112,92 +112,126 @@
         </div>
     </div>
 
-    <!-- Saisons disponibles -->
-    {% if saisons %}
-    <div class="card p-6">
-        <h2 class="section-title mb-4">
-            <i data-lucide="calendar" class="w-4 h-4 inline-block mr-1"></i>
-            Saisons disponibles
-        </h2>
-        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-            {% for s in saisons %}
-            <div class="card card-interactive p-4 text-center">
-                <div class="font-bold gradient-text-blue">{{ s.code }}</div>
-                {% if s.date_debut and s.date_fin %}
-                <div class="text-xs mt-1 text-muted">
-                    {{ s.date_debut|format_date }} → {{ s.date_fin|format_date }}
-                </div>
-                {% endif %}
+    <!-- Distributions Row -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <!-- Par genre -->
+        <div class="card p-6">
+            <h2 class="section-title mb-4 flex items-center gap-2">
+                <i data-lucide="pie-chart" class="w-4 h-4"></i>
+                Répartition par genre
+            </h2>
+            {% if matchs_par_genre %}
+            <div style="height: 250px;">
+                <canvas id="genreChart"></canvas>
             </div>
-            {% endfor %}
+            {% else %}
+            <p class="text-center py-12 text-muted">Pas de données disponibles</p>
+            {% endif %}
+        </div>
+
+        <!-- Scores fréquents -->
+        <div class="card p-6">
+            <h2 class="section-title mb-4 flex items-center gap-2">
+                <i data-lucide="hash" class="w-4 h-4"></i>
+                Scores fréquents
+            </h2>
+            {% if scores_frequents %}
+            <div class="space-y-3">
+                {% set max_score = scores_frequents[0].count if scores_frequents else 1 %}
+                {% for s in scores_frequents %}
+                <div>
+                    <div class="flex justify-between text-xs mb-1">
+                        <span class="font-mono font-bold text-white">{{ s.score }}</span>
+                        <span class="text-muted">{{ s.count }} matchs ({{ (s.count / stats.matchs * 100)|round(1) }}%)</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: {{ (s.count / max_score * 100)|round }}%;"></div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <p class="text-center py-12 text-muted">Pas de données disponibles</p>
+            {% endif %}
+        </div>
+
+        <!-- Par niveau -->
+        <div class="card p-6">
+            <h2 class="section-title mb-4 flex items-center gap-2">
+                <i data-lucide="layers" class="w-4 h-4"></i>
+                Matchs par niveau
+            </h2>
+            {% if matchs_par_niveau %}
+            <div style="height: 250px;">
+                <canvas id="niveauChart"></canvas>
+            </div>
+            {% else %}
+            <p class="text-center py-12 text-muted">Pas de données disponibles</p>
+            {% endif %}
         </div>
     </div>
-    {% endif %}
 
-    <!-- Data summary table -->
+    <!-- Summary Table -->
     <div class="card overflow-hidden">
-        <div class="p-4 border-b">
-            <h2 class="section-title">
-                <i data-lucide="database" class="w-4 h-4 inline-block mr-1"></i>
-                Résumé des données
-            </h2>
+        <div class="p-4 border-b border-zinc-800">
+            <h2 class="font-semibold text-white text-sm">Récapitulatif des entités</h2>
         </div>
         <table class="data-table">
             <thead>
                 <tr>
                     <th>Entité</th>
-                    <th class="text-center">Nombre</th>
+                    <th class="text-center">Total</th>
                     <th class="text-right">Explorer</th>
                 </tr>
             </thead>
             <tbody>
                 <tr>
                     <td class="font-medium text-white">
-                        <i data-lucide="swords" class="w-4 h-4 inline-block mr-2 text-accent-blue"></i>
+                        <i data-lucide="swords" class="w-4 h-4 inline-block mr-2 text-zinc-400"></i>
                         Matchs
                     </td>
-                    <td class="text-center font-bold gradient-text-blue">{{ stats.matchs }}</td>
-                    <td class="text-right"><a href="/matchs" class="badge badge-blue text-xs">Voir</a></td>
+                    <td class="text-center font-bold font-mono text-white">{{ stats.matchs }}</td>
+                    <td class="text-right"><a href="/matchs" class="badge text-xs">Voir</a></td>
                 </tr>
                 <tr>
                     <td class="font-medium text-white">
-                        <i data-lucide="user" class="w-4 h-4 inline-block mr-2 text-accent-green"></i>
+                        <i data-lucide="user" class="w-4 h-4 inline-block mr-2 text-zinc-400"></i>
                         Joueurs
                     </td>
-                    <td class="text-center font-bold text-accent-green">{{ stats.joueurs }}</td>
-                    <td class="text-right"><a href="/joueurs" class="badge badge-green text-xs">Voir</a></td>
+                    <td class="text-center font-bold font-mono text-white">{{ stats.joueurs }}</td>
+                    <td class="text-right"><a href="/joueurs" class="badge text-xs">Voir</a></td>
                 </tr>
                 <tr>
                     <td class="font-medium text-white">
-                        <i data-lucide="shield" class="w-4 h-4 inline-block mr-2 text-accent-green"></i>
+                        <i data-lucide="shield" class="w-4 h-4 inline-block mr-2 text-zinc-400"></i>
                         Équipes
                     </td>
-                    <td class="text-center font-bold gradient-text-gold">{{ stats.equipes }}</td>
-                    <td class="text-right"><a href="/equipes" class="badge badge-green text-xs">Voir</a></td>
+                    <td class="text-center font-bold font-mono text-white">{{ stats.equipes }}</td>
+                    <td class="text-right"><a href="/equipes" class="badge text-xs">Voir</a></td>
                 </tr>
                 <tr>
                     <td class="font-medium text-white">
-                        <i data-lucide="building-2" class="w-4 h-4 inline-block mr-2 text-accent-gold"></i>
+                        <i data-lucide="building-2" class="w-4 h-4 inline-block mr-2 text-zinc-400"></i>
                         Clubs
                     </td>
-                    <td class="text-center font-bold text-accent-gold">{{ stats.clubs }}</td>
-                    <td class="text-right"><a href="/clubs" class="badge badge-gold text-xs">Voir</a></td>
+                    <td class="text-center font-bold font-mono text-white">{{ stats.clubs }}</td>
+                    <td class="text-right"><a href="/clubs" class="badge text-xs">Voir</a></td>
                 </tr>
                 <tr>
                     <td class="font-medium text-white">
-                        <i data-lucide="gavel" class="w-4 h-4 inline-block mr-2 text-accent-purple"></i>
+                        <i data-lucide="flag" class="w-4 h-4 inline-block mr-2 text-zinc-400"></i>
                         Arbitres
                     </td>
-                    <td class="text-center font-bold text-accent-purple">{{ stats.arbitres }}</td>
-                    <td class="text-right"><a href="/arbitres" class="badge badge-purple text-xs">Voir</a></td>
+                    <td class="text-center font-bold font-mono text-white">{{ stats.arbitres }}</td>
+                    <td class="text-right"><a href="/arbitres" class="badge text-xs">Voir</a></td>
                 </tr>
                 <tr>
                     <td class="font-medium text-white">
-                        <i data-lucide="trophy" class="w-4 h-4 inline-block mr-2 text-accent-gold"></i>
+                        <i data-lucide="trophy" class="w-4 h-4 inline-block mr-2 text-zinc-400"></i>
                         Compétitions
                     </td>
-                    <td class="text-center font-bold text-accent-red">{{ stats.competitions }}</td>
-                    <td class="text-right"><a href="/competitions" class="badge badge-red text-xs">Voir</a></td>
+                    <td class="text-center font-bold font-mono text-white">{{ stats.competitions }}</td>
+                    <td class="text-right"><a href="/competitions" class="badge text-xs">Voir</a></td>
                 </tr>
             </tbody>
         </table>
@@ -221,8 +255,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 datasets: [{
                     label: 'Matchs',
                     data: saisonData.map(d => d.count),
-                    backgroundColor: 'rgba(59, 130, 246, 0.65)',
-                    borderColor: C.colors.blue,
+                    backgroundColor: 'rgba(250, 204, 21, 0.7)',
+                    borderColor: C.colors.primary,
                     borderWidth: 1,
                     borderRadius: 6,
                 }]
@@ -242,13 +276,59 @@ document.addEventListener('DOMContentLoaded', function() {
                 datasets: [{
                     label: 'Matchs',
                     data: monthData.map(d => d.count),
-                    borderColor: C.colors.purple,
-                    backgroundColor: 'rgba(168, 85, 247, 0.12)',
+                    borderColor: C.colors.primary,
+                    backgroundColor: 'rgba(250, 204, 21, 0.08)',
                     fill: true,
-                    tension: 0.4,
+                    tension: 0.35,
                     pointRadius: 3,
-                    pointBackgroundColor: C.colors.purple,
+                    pointBackgroundColor: C.colors.primary,
                 }]
+            }
+        });
+    }
+    {% endif %}
+
+    // Genre chart
+    {% if matchs_par_genre %}
+    const genreData = {{ matchs_par_genre | tojson }};
+    if (genreData.length > 0) {
+        C.create('genreChart', 'doughnut', {
+            data: {
+                labels: genreData.map(d => d.genre || 'Inconnu'),
+                datasets: [{
+                    data: genreData.map(d => d.count),
+                    backgroundColor: [C.colors.primary, '#6366f1', '#10b981'],
+                    borderWidth: 0,
+                }]
+            },
+            options: {
+                plugins: {
+                    legend: { position: 'bottom' }
+                }
+            }
+        });
+    }
+    {% endif %}
+
+    // Niveau chart
+    {% if matchs_par_niveau %}
+    const niveauData = {{ matchs_par_niveau | tojson }};
+    if (niveauData.length > 0) {
+        C.create('niveauChart', 'bar', {
+            data: {
+                labels: niveauData.map(d => d.niveau || 'Inconnu'),
+                datasets: [{
+                    label: 'Matchs',
+                    data: niveauData.map(d => d.count),
+                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                    borderColor: 'rgba(255, 255, 255, 0.2)',
+                    borderWidth: 1,
+                    borderRadius: 4,
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                plugins: { legend: { display: false } }
             }
         });
     }

@@ -8,71 +8,95 @@
     <!-- Header -->
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-            <h1 class="text-2xl font-bold">
-                <i data-lucide="trophy" class="w-6 h-6 inline-block mr-2 text-accent-gold"></i>
+            <h1 class="text-2xl font-bold flex items-center gap-2.5">
+                <i data-lucide="trophy" class="w-6 h-6 text-accent-gold"></i>
                 Compétitions
             </h1>
-            <p class="text-muted">{{ total }} compétitions enregistrées</p>
+            <p class="text-muted text-sm mt-0.5">{{ total }} compétition{% if total > 1 %}s{% endif %} enregistrée{% if total > 1 %}s{% endif %}</p>
         </div>
     </div>
 
-    <!-- Filters -->
-    <form action="/competitions" method="get" class="flex flex-wrap gap-3">
-        <select name="saison_id" onchange="this.form.submit()"
-                class="filter-select min-w-0">
-            <option value="">Saison : Toutes</option>
-            {% for s in saisons %}
-            <option value="{{ s.id }}" {% if current_saison_id == s.id %}selected{% endif %}>
-                {{ s.code }}
-            </option>
-            {% endfor %}
-        </select>
+    <!-- Filters & Search Bar -->
+    <form action="/competitions" method="get" class="card p-4 space-y-3">
+        <div class="flex flex-col md:flex-row gap-3">
+            <!-- Search input -->
+            <div class="relative flex-1">
+                <i data-lucide="search" class="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2"></i>
+                <input type="text" name="q" value="{{ q }}"
+                       placeholder="Rechercher par nom ou code (ex: Nationale, Régionale, PFA...)"
+                       class="search-input text-sm pl-9"
+                       autocomplete="off">
+            </div>
 
-        <select name="genre" class="filter-select" onchange="this.form.submit()">
-            <option value="">Genre : Tous</option>
-            {% for g in genres %}
-            <option value="{{ g }}" {% if genre == g %}selected{% endif %}>{{ g }}</option>
-            {% endfor %}
-        </select>
+            <!-- Select filters -->
+            <div class="flex flex-wrap gap-2.5 items-center">
+                <select name="saison_id" onchange="this.form.submit()" class="filter-select">
+                    <option value="">Saison : Toutes</option>
+                    {% for s in saisons %}
+                    <option value="{{ s.id }}" {% if current_saison_id == s.id %}selected{% endif %}>
+                        {{ s.code }}
+                    </option>
+                    {% endfor %}
+                </select>
 
-        <select name="categorie" class="filter-select" onchange="this.form.submit()">
-            <option value="">Catégorie : Toutes</option>
-            {% for c in categories %}
-            <option value="{{ c }}" {% if categorie == c %}selected{% endif %}>{{ c }}</option>
-            {% endfor %}
-        </select>
+                <select name="genre" class="filter-select" onchange="this.form.submit()">
+                    <option value="">Genre : Tous</option>
+                    {% for g in genres %}
+                    <option value="{{ g }}" {% if genre == g %}selected{% endif %}>{{ g }}</option>
+                    {% endfor %}
+                </select>
 
-        {% if genre or categorie or current_saison_id %}
-        <a href="/competitions" class="pagination-btn">
-            <i data-lucide="x" class="w-4 h-4"></i> Réinitialiser
-        </a>
+                <select name="categorie" class="filter-select" onchange="this.form.submit()">
+                    <option value="">Catégorie : Toutes</option>
+                    {% for c in categories %}
+                    <option value="{{ c }}" {% if categorie == c %}selected{% endif %}>{{ c }}</option>
+                    {% endfor %}
+                </select>
+
+                <button type="submit" class="btn-primary">
+                    <i data-lucide="filter" class="w-3.5 h-3.5"></i> Filtrer
+                </button>
+
+                {% if genre or categorie or current_saison_id or q %}
+                <a href="/competitions" class="pagination-btn text-muted hover:text-white" title="Effacer tous les filtres">
+                    <i data-lucide="x" class="w-4 h-4"></i> Réinitialiser
+                </a>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Active Filter Badges -->
+        {% if genre or categorie or current_saison_id or q %}
+        <div class="flex flex-wrap gap-2 items-center pt-2 border-t border-color-subtle">
+            <span class="text-xs font-semibold uppercase text-muted">Filtres actifs :</span>
+            {% if q %}
+            <span class="badge badge-gold">
+                <i data-lucide="search" class="w-3 h-3"></i> « {{ q }} »
+            </span>
+            {% endif %}
+            {% if genre %}
+            <span class="badge {% if genre == 'MASCULIN' %}badge-blue{% elif genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %}">
+                {% if genre == 'MASCULIN' %}♂{% elif genre == 'FEMININ' %}♀{% else %}⚥{% endif %} {{ genre }}
+            </span>
+            {% endif %}
+            {% if categorie %}
+            <span class="badge badge-yellow">{{ categorie }}</span>
+            {% endif %}
+            {% if current_saison_id %}
+            {% for s in saisons %}{% if s.id == current_saison_id %}
+            <span class="badge badge-purple">{{ s.code }}</span>
+            {% endif %}{% endfor %}
+            {% endif %}
+        </div>
         {% endif %}
     </form>
-
-    <!-- Active filters -->
-    {% if genre or categorie or current_saison_id %}
-    <div class="flex flex-wrap gap-2 items-center">
-        <span class="text-xs font-semibold uppercase text-muted">Filtres :</span>
-        {% if genre %}
-        <span class="badge {% if genre == 'MASCULIN' %}badge-blue{% elif genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %}">{{ genre }}</span>
-        {% endif %}
-        {% if categorie %}
-        <span class="badge badge-gold">{{ categorie }}</span>
-        {% endif %}
-        {% if current_saison_id %}
-        {% for s in saisons %}{% if s.id == current_saison_id %}
-        <span class="badge badge-purple">{{ s.code }}</span>
-        {% endif %}{% endfor %}
-        {% endif %}
-    </div>
-    {% endif %}
 
     <!-- Grid -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {% for c in competitions %}
         <a href="{{ path_for_entity('competition', c.id) }}" class="card card-interactive p-5 block">
-            <div class="flex items-start gap-3">
-                <div class="icon-highlight-box bg-tint-gold">
+            <div class="flex items-start gap-3.5">
+                <div class="competition-hero-icon-box {% if c.genre == 'MASCULIN' %}masculin{% elif c.genre == 'FEMININ' %}feminin{% else %}mixte{% endif %}" style="width: 44px; height: 44px; border-radius: var(--radius-sm);">
                     {% if c.genre == 'MASCULIN' %}
                     <i data-lucide="trophy" class="w-5 h-5 text-accent-blue"></i>
                     {% elif c.genre == 'FEMININ' %}
@@ -82,7 +106,7 @@
                     {% endif %}
                 </div>
                 <div class="flex-1 min-w-0">
-                    <h3 class="font-semibold text-white text-sm leading-tight mb-2">
+                    <h3 class="font-semibold text-white text-sm leading-tight mb-2 truncate" title="{{ c.nom }}">
                         {{ c.nom }}
                     </h3>
                     {% set niveau_badge = resolve_niveau_badge(c.niveau, c.nom, c.categorie, c.division) %}
@@ -96,7 +120,7 @@
                         </span>
                         {% endif %}
                         {% if c.categorie %}
-                        <span class="badge badge-gold text-xs">{{ c.categorie }}</span>
+                        <span class="badge badge-yellow text-xs">{{ c.categorie }}</span>
                         {% endif %}
                         {% if niveau_badge %}
                         <span class="badge {{ niveau_badge.css_class }} text-xs">{{ niveau_badge.label }}</span>
@@ -106,22 +130,27 @@
                         {% endif %}
                     </div>
                     {% if c.code_competition %}
-                    <div class="mt-2">
-                        <span class="font-mono text-xs text-muted">{{ c.code_competition }}</span>
+                    <div class="mt-2.5 flex items-center justify-between text-xs text-muted">
+                        <span class="font-mono">{{ c.code_competition }}</span>
+                        <span class="text-accent-primary flex items-center gap-1 font-medium hover:underline">
+                            Voir le détail <i data-lucide="arrow-right" class="w-3 h-3"></i>
+                        </span>
                     </div>
                     {% endif %}
                 </div>
             </div>
         </a>
         {% else %}
-        <div class="col-span-full text-center py-12 text-muted">
-            Aucune compétition trouvée
+        <div class="col-span-full card p-12 text-center text-muted">
+            <i data-lucide="trophy" class="w-12 h-12 mx-auto mb-3 opacity-30"></i>
+            <p class="text-base font-semibold mb-1 text-primary">Aucune compétition trouvée</p>
+            <p class="text-xs">Modifiez vos critères de recherche ou réinitialisez les filtres.</p>
         </div>
         {% endfor %}
     </div>
 
     <!-- Pagination -->
-    {{ pagination(page, has_prev, has_next, '/competitions', guard=true) }}
+    {{ pagination(page, has_prev, has_next, '/competitions', total_count=total) }}
 
 </div>
 {% endblock %}

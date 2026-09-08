@@ -1,0 +1,111 @@
+{# ═══════════════════════════════════════════════════════════════
+   Joueur Detail — Filters Panel
+   Collapsible filter form for seasons, dates, results, clubs, competitions & levels
+   ═══════════════════════════════════════════════════════════════ #}
+
+<div class="card overflow-hidden player-filter-card">
+    <button type="button"
+            class="w-full p-4 flex items-center justify-between border-b"
+            @click="filtersOpen = !filtersOpen">
+        <span class="text-sm font-semibold uppercase tracking-wider text-accent-cyan">
+            <i data-lucide="sliders-horizontal" class="w-4 h-4 inline-block mr-1"></i>
+            Filtres des matchs sélectionnés
+        </span>
+        <span class="text-xs text-muted" x-text="filtersOpen ? 'Masquer' : 'Afficher'"></span>
+    </button>
+
+    <form method="get" action="/joueurs/{{ joueur.id }}" class="p-4 space-y-4" x-show="filtersOpen" x-transition x-cloak>
+        <input type="hidden" name="tab" :value="activeTab">
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+            {% if not hide_filters.saisons %}
+            <div>
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Saisons</label>
+                <select name="saison_ids" class="filter-select" multiple size="4">
+                    {% for s in filter_options.saisons %}
+                    <option value="{{ s.id }}" {% if s.id in filter_state.saison_ids %}selected{% endif %}>{{ s.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+
+            <div>
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Date de début</label>
+                <input type="date" name="date_from" value="{{ filter_state.date_from }}" class="filter-select filter-date-input" lang="fr">
+            </div>
+
+            <div>
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Date de fin</label>
+                <input type="date" name="date_to" value="{{ filter_state.date_to }}" class="filter-select filter-date-input" lang="fr">
+            </div>
+
+            <div>
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Résultat</label>
+                <select name="resultat" class="filter-select">
+                    <option value="" {% if not filter_state.resultat %}selected{% endif %}>Tous</option>
+                    <option value="victoire" {% if filter_state.resultat == 'victoire' %}selected{% endif %}>Victoires</option>
+                    <option value="defaite" {% if filter_state.resultat == 'defaite' %}selected{% endif %}>Défaites</option>
+                </select>
+            </div>
+
+            <div>
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Domicile / Extérieur</label>
+                <select name="domicile_exterieur" class="filter-select">
+                    <option value="" {% if not filter_state.domicile_exterieur %}selected{% endif %}>Tous</option>
+                    <option value="domicile" {% if filter_state.domicile_exterieur == 'domicile' %}selected{% endif %}>Domicile</option>
+                    <option value="exterieur" {% if filter_state.domicile_exterieur == 'exterieur' %}selected{% endif %}>Extérieur</option>
+                </select>
+            </div>
+
+            {% if not hide_filters.equipes %}
+            <div>
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Équipes du joueur</label>
+                <select name="equipe_ids" class="filter-select" multiple size="4">
+                    {% for e in filter_options.equipes %}
+                    <option value="{{ e.id }}" {% if e.id in filter_state.equipe_ids %}selected{% endif %}>{{ e.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+
+            {% if not hide_filters.clubs %}
+            <div>
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Clubs</label>
+                <select name="club_ids" class="filter-select" multiple size="4">
+                    {% for c in filter_options.clubs %}
+                    <option value="{{ c.id }}" {% if c.id in filter_state.club_ids %}selected{% endif %}>{{ c.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+
+            {% if not hide_filters.competitions %}
+            <div>
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Compétitions</label>
+                <select name="competition_ids" class="filter-select" multiple size="4">
+                    {% for c in filter_options.competitions %}
+                    <option value="{{ c.id }}" {% if c.id in filter_state.competition_ids %}selected{% endif %}>{{ c.label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+
+            {% if not hide_filters.niveaux %}
+            <div>
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Niveaux</label>
+                <select name="niveaux" class="filter-select" multiple size="4">
+                    {% for n in filter_options.niveaux %}
+                    <option value="{{ n }}" {% if n in filter_state.niveaux %}selected{% endif %}>{{ n }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% endif %}
+        </div>
+
+        <div class="flex flex-wrap items-center gap-2">
+            <button type="submit" class="pagination-btn bg-accent-blue text-white border-accent-blue">Appliquer</button>
+            <a :href="'/joueurs/{{ joueur.id }}?tab=' + activeTab" class="pagination-btn">Réinitialiser</a>
+            <span class="text-xs ml-2 text-muted">{{ stats.matchs_joues }} / {{ base_match_count }} matchs joués sélectionnés</span>
+        </div>
+    </form>
+</div>

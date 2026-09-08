@@ -1,0 +1,491 @@
+/* ═══════════════════════════════════════════════════════════════
+   PyVolley — Compétitions Design System
+   Hero cards, sticky standings table, match day filters,
+   responsive bracket trees, and quick action bars.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Hero Banner & Cards ── */
+.competition-hero {
+  position: relative;
+  background: radial-gradient(circle at 85% 15%, rgba(250, 204, 21, 0.04) 0%, transparent 60%),
+              linear-gradient(180deg, rgba(24, 24, 27, 0.95) 0%, rgba(17, 17, 19, 0.98) 100%);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: 1.75rem;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.competition-hero-icon-box {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.02);
+  transition: transform var(--transition);
+}
+
+.competition-hero-icon-box.masculin {
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.15) 0%, rgba(59, 130, 246, 0.03) 70%);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: var(--accent-blue-light);
+}
+
+.competition-hero-icon-box.feminin {
+  background: radial-gradient(circle, rgba(239, 68, 68, 0.15) 0%, rgba(239, 68, 68, 0.03) 70%);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: var(--accent-red-light);
+}
+
+.competition-hero-icon-box.mixte {
+  background: radial-gradient(circle, rgba(250, 204, 21, 0.15) 0%, rgba(250, 204, 21, 0.03) 70%);
+  border-color: rgba(250, 204, 21, 0.3);
+  color: var(--accent-primary);
+}
+
+.competition-hero-icon-box.jeunes {
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.18) 0%, rgba(245, 158, 11, 0.05) 70%);
+  border-color: rgba(168, 85, 247, 0.3);
+  color: var(--accent-purple-light);
+}
+
+/* ── Quick Actions Group ── */
+.competition-quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.competition-quick-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid var(--border-color);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-secondary);
+  transition: all var(--transition);
+}
+
+.competition-quick-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  border-color: var(--border-color-hover);
+  transform: translateY(-1px);
+}
+
+.competition-quick-btn.btn-ffvb {
+  border-color: rgba(59, 130, 246, 0.3);
+  color: var(--accent-blue-light);
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.competition-quick-btn.btn-ffvb:hover {
+  background: rgba(59, 130, 246, 0.18);
+  border-color: rgba(59, 130, 246, 0.5);
+  color: #fff;
+}
+
+/* ── Progress Widget ── */
+.competition-progress-box {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-color-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0.75rem 1rem;
+}
+
+.competition-progress-bar-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+  margin-top: 0.5rem;
+}
+
+.competition-progress-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-primary) 0%, var(--accent-green) 100%);
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Modern Navigation Tabs for Competitions ── */
+.competition-tabs-bar {
+  display: flex;
+  gap: 0.35rem;
+  padding: 0.35rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+}
+
+.competition-tab-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.competition-tab-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.competition-tab-btn.active {
+  color: #fff;
+  background: var(--bg-card-hover);
+  box-shadow: var(--shadow-sm);
+}
+
+/* ── Sticky Standings Table ── */
+.standing-table-wrap {
+  position: relative;
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.data-table-sticky {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 880px;
+}
+
+.data-table-sticky thead th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-card);
+  z-index: 5;
+}
+
+/* Fige le rang (#) */
+.data-table-sticky th.sticky-col-rank,
+.data-table-sticky td.sticky-col-rank {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  background: var(--bg-card);
+  min-width: 44px;
+  width: 44px;
+  text-align: center;
+}
+
+/* Fige le nom de l'équipe */
+.data-table-sticky th.sticky-col-team,
+.data-table-sticky td.sticky-col-team {
+  position: sticky;
+  left: 44px;
+  z-index: 3;
+  background: var(--bg-card);
+  min-width: 180px;
+  max-width: 240px;
+  box-shadow: 2px 0 6px -2px rgba(0, 0, 0, 0.4);
+}
+
+.data-table-sticky tbody tr:hover td.sticky-col-rank,
+.data-table-sticky tbody tr:hover td.sticky-col-team {
+  background: #1c1c20;
+}
+
+/* Liserés d'enjeu sportif (Playoffs / Relégation) */
+.standing-row-playoff td:first-child {
+  border-left: 3px solid var(--accent-green);
+}
+
+.standing-row-relegation td:first-child {
+  border-left: 3px solid var(--accent-red);
+}
+
+/* Rangs médaillés */
+.rank-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  font-size: 0.75rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.rank-badge-1 {
+  background: linear-gradient(135deg, #fbbf24 0%, #d97706 100%);
+  color: #000;
+  box-shadow: 0 0 10px rgba(251, 191, 36, 0.35);
+}
+
+.rank-badge-2 {
+  background: linear-gradient(135deg, #cbd5e1 0%, #94a3b8 100%);
+  color: #0f172a;
+  box-shadow: 0 0 8px rgba(203, 213, 225, 0.25);
+}
+
+.rank-badge-3 {
+  background: linear-gradient(135deg, #f97316 0%, #b45309 100%);
+  color: #fff;
+  box-shadow: 0 0 8px rgba(249, 115, 22, 0.25);
+}
+
+.rank-badge-standard {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+/* ── Streak Dots with Tooltips ── */
+.streak-container {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.streak-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  font-size: 0.62rem;
+  font-weight: 800;
+  cursor: default;
+  transition: transform 0.15s ease;
+}
+
+.streak-dot:hover {
+  transform: scale(1.15);
+}
+
+.streak-dot.v {
+  background: var(--accent-green-bg);
+  color: var(--accent-green-light);
+  border: 1px solid var(--accent-green-border);
+}
+
+.streak-dot.d {
+  background: var(--accent-red-bg);
+  color: var(--accent-red-light);
+  border: 1px solid var(--accent-red-border);
+}
+
+/* ── Match Day Filter Bar (Pill selector) ── */
+.match-day-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  overflow-x: auto;
+  padding: 0.5rem 0.25rem;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+
+.match-day-pill {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.match-day-pill:hover {
+  border-color: var(--border-color-hover);
+  color: var(--text-primary);
+}
+
+.match-day-pill.active {
+  background: var(--accent-primary-bg);
+  border-color: var(--accent-primary-border);
+  color: var(--accent-primary);
+}
+
+/* ── Poule Sub-tabs ── */
+.poule-subtabs-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.35rem;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border-color-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.poule-subtab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.85rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+
+.poule-subtab-btn:hover {
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.poule-subtab-btn.active {
+  color: var(--text-primary);
+  background: var(--bg-card-hover);
+  border-color: var(--border-color);
+}
+
+/* ── Coupe de France Jeunes Fluid Bracket ── */
+.bracket-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding: 1rem 0;
+}
+
+.bracket-rounds-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+}
+
+.bracket-match-node {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 0.65rem 0.75rem;
+  transition: all var(--transition);
+  position: relative;
+}
+
+.bracket-match-node:hover {
+  border-color: var(--border-color-hover);
+  transform: translateY(-1px);
+}
+
+.bracket-match-node.is-final {
+  border-color: rgba(250, 204, 21, 0.35);
+  background: radial-gradient(circle at top right, rgba(250, 204, 21, 0.06), transparent 70%), var(--bg-card);
+}
+
+.bracket-match-node.is-bronze {
+  border-color: rgba(249, 115, 22, 0.3);
+}
+
+.bracket-match-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.4rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--border-color-subtle);
+}
+
+.bracket-team-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.2rem 0;
+  font-size: 0.8rem;
+}
+
+.bracket-team-line.winner {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.bracket-team-line.loser {
+  color: var(--text-muted);
+}
+
+/* ── Tour Timeline (Jeunes) ── */
+.tours-timeline-nav {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+  scrollbar-width: thin;
+}
+
+.tours-timeline-item {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.6rem 1rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition);
+  min-width: 100px;
+}
+
+.tours-timeline-item:hover {
+  border-color: var(--border-color-hover);
+  color: var(--text-primary);
+}
+
+.tours-timeline-item.active {
+  background: var(--accent-primary-bg);
+  border-color: var(--accent-primary-border);
+  color: var(--accent-primary);
+}
+
+.tours-timeline-item .tour-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.tours-timeline-item .tour-meta {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+}
+
+.tours-timeline-item.active .tour-meta {
+  color: var(--accent-primary-dim);
+}
+
+/* ── Responsive adjustments ── */
+@media (max-width: 640px) {
+  .competition-hero {
+    padding: 1.25rem;
+  }
+  .competition-tabs-bar {
+    flex-wrap: wrap;
+  }
+  .competition-tab-btn {
+    font-size: 0.78rem;
+    padding: 0.5rem 0.75rem;
+  }
+}

@@ -4,100 +4,12 @@
 {% from "macros/map.html" import map_head, map_card %}
 {% block title %}{{ competition.nom }} - Classement - PyVolley{% endblock %}
 {% block extra_head %}{{ map_head() }}{% endblock %}
+
 {% block content %}
 <div class="space-y-6">
 
     {{ breadcrumb([('Accueil', '/'), ('Compétitions', '/competitions'), (competition.nom|truncate_name(50), '')]) }}
 
-    <!-- Header Card -->
-    <div class="card p-6 md:p-8">
-        <div class="flex flex-col md:flex-row md:items-center gap-6">
-            <div class="w-16 h-16 rounded-2xl flex items-center justify-center flex-shrink-0"
-                 style="background: linear-gradient(135deg, var(--accent-gold), var(--accent-red));">
-                <i data-lucide="trophy" class="w-8 h-8 text-white"></i>
-            </div>
-            <div class="flex-1">
-                <h1 class="text-2xl md:text-3xl font-bold text-white mb-1">{{ competition.nom }}</h1>
-                {% set niveau_badge = resolve_niveau_badge(competition.niveau, competition.nom, competition.categorie, competition.division) %}
-                <div class="flex flex-wrap gap-2 mt-2">
-                    {% if competition.saison %}
-                    <span class="badge badge-purple">
-                        <i data-lucide="calendar" class="w-3 h-3 mr-1"></i>
-                        {{ competition.saison.code }}
-                    </span>
-                    {% endif %}
-                    {% if competition.genre %}
-                    <span class="badge {% if competition.genre == 'MASCULIN' %}badge-blue{% elif competition.genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %}">
-                        {% if competition.genre == 'MASCULIN' %}♂{% elif competition.genre == 'FEMININ' %}♀{% else %}⚥{% endif %}
-                        {{ competition.genre }}
-                    </span>
-                    {% endif %}
-                    {% if competition.categorie %}
-                    <span class="badge badge-gold">
-                        <i data-lucide="users" class="w-3 h-3 mr-1"></i>
-                        {{ competition.categorie }}
-                    </span>
-                    {% endif %}
-                    {% if niveau_badge %}
-                    <span class="badge {{ niveau_badge.css_class }}">
-                        <i data-lucide="bar-chart-3" class="w-3 h-3 mr-1"></i>
-                        {{ niveau_badge.label }}
-                    </span>
-                    {% endif %}
-                    {% if competition.division %}
-                    <span class="badge">Div. {{ competition.division }}</span>
-                    {% endif %}
-                    {% if competition.entite %}
-                    <span class="badge" title="{{ competition.entite.nom }} ({{ competition.entite.type or '' }})">
-                        <i data-lucide="landmark" class="w-3 h-3 mr-1"></i>
-                        {{ competition.entite.nom|truncate_name(30) }}
-                    </span>
-                    {% endif %}
-                    {% if competition.code_competition %}
-                    <span class="badge font-mono">{{ competition.code_competition }}</span>
-                    {% endif %}
-                </div>
-                <div class="flex flex-wrap gap-2 mt-3">
-                    {% if competition.url_calendrier %}
-                    <a href="{{ competition.url_calendrier }}" target="_blank" rel="noopener noreferrer"
-                       class="badge badge-blue hover:opacity-80 transition">
-                        <i data-lucide="home" class="w-3 h-3 mr-1"></i>
-                        Page FFVB
-                        <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
-                    </a>
-                    {% endif %}
-                    {% if competition.url_classement %}
-                    <a href="{{ competition.url_classement }}" target="_blank" rel="noopener noreferrer"
-                       class="badge hover:opacity-80 transition" style="color: var(--accent-gold);">
-                        <i data-lucide="trophy" class="w-3 h-3 mr-1"></i>
-                        Classement FFVB
-                        <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
-                    </a>
-                    {% endif %}
-                    {% for poule in competition.poules|sort(attribute='code') %}
-                    {% if poule.url_calendrier %}
-                    <a href="{{ poule.url_calendrier }}" target="_blank" rel="noopener noreferrer"
-                       class="badge hover:opacity-80 transition" style="color: var(--accent-cyan);">
-                        <i data-lucide="calendar-days" class="w-3 h-3 mr-1"></i>
-                        Calendrier {{ poule.code }}
-                        <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
-                    </a>
-                    {% endif %}
-                    {% if poule.url_classement %}
-                    <a href="{{ poule.url_classement }}" target="_blank" rel="noopener noreferrer"
-                       class="badge hover:opacity-80 transition" style="color: var(--accent-gold);">
-                        <i data-lucide="trophy" class="w-3 h-3 mr-1"></i>
-                        Classement {{ poule.code }}
-                        <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
-                    </a>
-                    {% endif %}
-                    {% endfor %}
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Stats Grid -->
     {% if classement %}
     {% set nb_equipes = classement.nb_equipes %}
     {% set nb_matchs_joues = classement.nb_matchs_joues %}
@@ -109,95 +21,163 @@
     {% set nb_matchs_total = matchs|length %}
     {% set nb_journees = matchs|map(attribute='journee')|select|unique|list|length %}
     {% endif %}
-    <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+    {% set pct = (nb_matchs_joues / nb_matchs_total * 100)|round(1) if nb_matchs_total > 0 else 0 %}
+
+    <!-- ═══════════ Hero Banner ═══════════ -->
+    <div class="competition-hero">
+        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+            <div class="flex items-start gap-4 sm:gap-5 flex-1 min-w-0">
+                <div class="competition-hero-icon-box {% if competition.genre == 'MASCULIN' %}masculin{% elif competition.genre == 'FEMININ' %}feminin{% else %}mixte{% endif %}">
+                    <i data-lucide="trophy" class="w-8 h-8"></i>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight leading-tight mb-2 truncate" title="{{ competition.nom }}">
+                        {{ competition.nom }}
+                    </h1>
+                    {% set niveau_badge = resolve_niveau_badge(competition.niveau, competition.nom, competition.categorie, competition.division) %}
+                    <div class="flex flex-wrap gap-1.5 items-center">
+                        {% if competition.saison %}
+                        <span class="badge badge-purple">
+                            <i data-lucide="calendar" class="w-3 h-3 mr-0.5"></i>
+                            {{ competition.saison.code }}
+                        </span>
+                        {% endif %}
+                        {% if competition.genre %}
+                        <span class="badge {% if competition.genre == 'MASCULIN' %}badge-blue{% elif competition.genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %}">
+                            {% if competition.genre == 'MASCULIN' %}♂{% elif competition.genre == 'FEMININ' %}♀{% else %}⚥{% endif %}
+                            {{ competition.genre }}
+                        </span>
+                        {% endif %}
+                        {% if competition.categorie %}
+                        <span class="badge badge-yellow">
+                            <i data-lucide="users" class="w-3 h-3 mr-0.5"></i>
+                            {{ competition.categorie }}
+                        </span>
+                        {% endif %}
+                        {% if niveau_badge %}
+                        <span class="badge {{ niveau_badge.css_class }}">
+                            <i data-lucide="bar-chart-3" class="w-3 h-3 mr-0.5"></i>
+                            {{ niveau_badge.label }}
+                        </span>
+                        {% endif %}
+                        {% if competition.division %}
+                        <span class="badge">Div. {{ competition.division }}</span>
+                        {% endif %}
+                        {% if competition.entite %}
+                        <span class="badge" title="{{ competition.entite.nom }} ({{ competition.entite.type or '' }})">
+                            <i data-lucide="landmark" class="w-3 h-3 mr-0.5"></i>
+                            {{ competition.entite.nom|truncate_name(25) }}
+                        </span>
+                        {% endif %}
+                        {% if competition.code_competition %}
+                        <span class="badge font-mono text-muted">{{ competition.code_competition }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Action Links -->
+            <div class="competition-quick-actions">
+                {% if competition.url_calendrier %}
+                <a href="{{ competition.url_calendrier }}" target="_blank" rel="noopener noreferrer"
+                   class="competition-quick-btn btn-ffvb" title="Page officielle de la compétition sur ffvb.org">
+                    <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                    Site FFVB
+                </a>
+                {% endif %}
+                {% if competition.url_classement %}
+                <a href="{{ competition.url_classement }}" target="_blank" rel="noopener noreferrer"
+                   class="competition-quick-btn" title="Classement officiel FFVB">
+                    <i data-lucide="trophy" class="w-3.5 h-3.5 text-accent-gold"></i>
+                    Classement FFVB
+                </a>
+                {% endif %}
+                {% for poule in competition.poules|sort(attribute='code') %}
+                {% if poule.url_calendrier %}
+                <a href="{{ poule.url_calendrier }}" target="_blank" rel="noopener noreferrer"
+                   class="competition-quick-btn text-accent-cyan" title="Calendrier officiel poule {{ poule.code }}">
+                    <i data-lucide="calendar-days" class="w-3.5 h-3.5"></i>
+                    Calendrier {{ poule.code }}
+                </a>
+                {% endif %}
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Integrated Progress Bar in Hero -->
+        {% if nb_matchs_total > 0 %}
+        <div class="mt-5 pt-4 border-t border-color-subtle">
+            <div class="flex items-center justify-between text-xs text-secondary mb-1.5">
+                <span class="font-medium flex items-center gap-1.5">
+                    <i data-lucide="activity" class="w-3.5 h-3.5 text-accent-primary"></i>
+                    Progression de la saison
+                </span>
+                <span class="font-mono">
+                    <strong class="text-white">{{ nb_matchs_joues }}</strong> / {{ nb_matchs_total }} matchs joués
+                    <span class="text-accent-primary font-bold ml-1.5">({{ pct }}%)</span>
+                </span>
+            </div>
+            <div class="competition-progress-bar-track">
+                <div class="competition-progress-bar-fill" style="width: {{ pct }}%;"></div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- ═══════════ Stats Grid ═══════════ -->
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3.5">
         <div class="stat-card">
-            <div class="stat-value gradient-text-gold">{{ nb_equipes }}</div>
+            <div class="stat-value font-mono">{{ nb_equipes }}</div>
             <div class="stat-label">Équipes</div>
         </div>
         <div class="stat-card">
-            <div class="stat-value gradient-text-blue">{{ nb_matchs_joues }}</div>
+            <div class="stat-value font-mono text-accent-green">{{ nb_matchs_joues }}</div>
             <div class="stat-label">Matchs joués</div>
         </div>
         <div class="stat-card">
-            <div class="stat-value" style="color: var(--text-muted);">{{ nb_matchs_total }}</div>
+            <div class="stat-value font-mono text-muted">{{ nb_matchs_total }}</div>
             <div class="stat-label">Matchs prévus</div>
         </div>
         <div class="stat-card">
-            <div class="stat-value" style="color: var(--accent-cyan);">{{ nb_journees }}</div>
-            <div class="stat-label">Journées</div>
-        </div>
-        <div class="stat-card">
-            {% if nb_matchs_total > 0 %}
-            <div class="stat-value" style="color: var(--accent-green);">
-                {{ ((nb_matchs_joues / nb_matchs_total) * 100)|round(0)|int }}%
+            <div class="stat-value font-mono text-accent-primary">
+                {% if nb_matchs_total > 0 %}{{ pct|int }}%{% else %}—{% endif %}
             </div>
-            {% else %}
-            <div class="stat-value" style="color: var(--text-muted);">—</div>
-            {% endif %}
             <div class="stat-label">Avancement</div>
         </div>
-    </div>
-
-    <!-- Progress bar -->
-    {% if nb_matchs_total > 0 %}
-    <div class="card p-4">
-        <div class="flex justify-between text-xs mb-1" style="color: var(--text-muted);">
-            <span>Avancement de la compétition</span>
-            <span>{{ nb_matchs_joues }} / {{ nb_matchs_total }} matchs</span>
-        </div>
-        <div class="h-2 rounded-full overflow-hidden" style="background: var(--bg-card-hover);">
-            {% set pct = (nb_matchs_joues / nb_matchs_total * 100)|round(1) %}
-            <div class="h-full rounded-full transition-all duration-500"
-                 style="width: {{ pct }}%; background: linear-gradient(90deg, var(--accent-gold), var(--accent-green));"></div>
+        <div class="stat-card">
+            <div class="stat-value font-mono">{{ nb_journees }}</div>
+            <div class="stat-label">Journées</div>
         </div>
     </div>
-    {% endif %}
 
-    <!-- Poules -->
+    <!-- ═══════════ Poules Cards (Multi-poule) ═══════════ -->
     {% if competition.poules and competition.poules|length > 1 %}
-    <div class="card p-6">
-        <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
-            <i data-lucide="grid-2x2" class="w-4 h-4 inline-block mr-1"></i>
-            Poules ({{ competition.poules|length }})
+    <div class="card p-5">
+        <h2 class="text-xs font-bold uppercase tracking-wider text-muted flex items-center gap-1.5 mb-3.5">
+            <i data-lucide="grid-2x2" class="w-3.5 h-3.5 text-accent-primary"></i>
+            Poules de la compétition ({{ competition.poules|length }})
         </h2>
         <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
             {% for poule in competition.poules|sort(attribute='code') %}
-            <div class="card p-4" style="background: var(--bg-card-hover);">
-                <div class="flex items-center justify-between mb-2">
+            <div class="card p-3.5 bg-card-hover flex flex-col justify-between">
+                <div class="flex items-start justify-between gap-2 mb-2">
                     <div>
-                        <a href="{{ path_for_entity('poule', poule.id) }}" class="font-semibold text-white text-sm hover:opacity-80 transition">
+                        <a href="{{ path_for_entity('poule', poule.id) }}" class="font-bold text-white text-sm hover:text-accent-primary transition">
                             {{ poule.nom or poule.code }}
                         </a>
                         {% if poule.nom and poule.code != poule.nom %}
-                        <div class="text-xs font-mono" style="color: var(--text-muted);">{{ poule.code }}</div>
+                        <div class="text-xs font-mono text-muted">{{ poule.code }}</div>
                         {% endif %}
                     </div>
-                    <div class="flex items-center gap-2">
-                        <span class="badge" style="font-size: 0.6rem;">
-                            {{ poule.matchs|length }} matchs
-                        </span>
-                        <a href="{{ path_for_entity('poule', poule.id) }}" class="badge badge-cyan text-xs hover:opacity-80 transition" title="Voir la poule en détail">
-                            <i data-lucide="bar-chart-2" class="w-3 h-3"></i>
-                        </a>
-                    </div>
+                    <span class="badge text-xs">{{ poule.matchs|length }} matchs</span>
                 </div>
-                <div class="flex flex-wrap gap-1">
-                    {% if poule.url_calendrier %}
-                    <a href="{{ poule.url_calendrier }}" target="_blank" rel="noopener noreferrer"
-                       class="text-xs hover:opacity-80 transition inline-flex items-center gap-1"
-                       style="color: var(--accent-blue);">
-                        <i data-lucide="calendar-days" class="w-3 h-3"></i>
-                        Calendrier
-                        <i data-lucide="external-link" class="w-2.5 h-2.5"></i>
+                <div class="flex items-center justify-between pt-2 border-t border-color-subtle text-xs">
+                    <a href="{{ path_for_entity('poule', poule.id) }}" class="text-accent-primary hover:underline flex items-center gap-1 font-medium">
+                        Voir la poule <i data-lucide="arrow-right" class="w-3 h-3"></i>
                     </a>
-                    {% endif %}
                     {% if poule.url_classement %}
-                    <a href="{{ poule.url_classement }}" target="_blank" rel="noopener noreferrer"
-                       class="text-xs hover:opacity-80 transition inline-flex items-center gap-1 ml-2"
-                       style="color: var(--accent-gold);">
-                        <i data-lucide="list-ordered" class="w-3 h-3"></i>
-                        Classement
-                        <i data-lucide="external-link" class="w-2.5 h-2.5"></i>
+                    <a href="{{ poule.url_classement }}" target="_blank" rel="noopener noreferrer" class="text-muted hover:text-white" title="Classement officiel FFVB">
+                        <i data-lucide="external-link" class="w-3 h-3"></i>
                     </a>
                     {% endif %}
                 </div>
@@ -205,71 +185,66 @@
             {% endfor %}
         </div>
     </div>
-    {% elif competition.poules and competition.poules|length == 1 %}
-    {# Single poule — show links inline in header #}
-    {% set single_poule = competition.poules[0] %}
-    {% if single_poule.url_calendrier or single_poule.url_classement %}
-    <div class="flex flex-wrap gap-2">
-        {% if single_poule.url_calendrier %}
-        <a href="{{ single_poule.url_calendrier }}" target="_blank" rel="noopener noreferrer"
-           class="badge badge-blue hover:opacity-80 transition">
-            <i data-lucide="calendar-days" class="w-3 h-3 mr-1"></i>
-            Calendrier FFVB
-            <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
-        </a>
-        {% endif %}
-        {% if single_poule.url_classement %}
-        <a href="{{ single_poule.url_classement }}" target="_blank" rel="noopener noreferrer"
-           class="badge badge-gold hover:opacity-80 transition">
-            <i data-lucide="list-ordered" class="w-3 h-3 mr-1"></i>
-            Classement FFVB
-            <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
-        </a>
-        {% endif %}
-    </div>
-    {% endif %}
     {% endif %}
 
-    <!-- ═══════════ Tabs Navigation ═══════════ -->
-    <div x-data="{ tab: 'classement' }" class="space-y-4">
-        <div class="flex gap-1 p-1 rounded-xl" style="background: var(--bg-card);">
-            <button @click="tab = 'classement'"
-                    :class="tab === 'classement' ? 'text-white' : ''"
-                    :style="tab === 'classement' ? 'background: var(--bg-card-hover)' : 'color: var(--text-muted)'"
-                    class="flex-1 text-center py-2 px-4 rounded-lg text-sm font-semibold transition">
-                <i data-lucide="list-ordered" class="w-4 h-4 inline-block mr-1"></i> Classement
+    <!-- ═══════════ Interactive Navigation & Tabs ═══════════ -->
+    <div x-data="{
+        tab: 'classement',
+        selectedJournee: 'all',
+        matchSearch: '',
+        matchStatus: 'all',
+        chartsInit: false,
+        initEvolutionCharts() {
+            if (!this.chartsInit) {
+                this.chartsInit = true;
+                this.$nextTick(() => {
+                    if (window.renderEvolutionCharts) {
+                        window.renderEvolutionCharts();
+                    }
+                });
+            }
+        }
+    }" class="space-y-4">
+
+        <!-- Tab Bar -->
+        <div class="competition-tabs-bar">
+            <button type="button" @click="tab = 'classement'"
+                    :class="tab === 'classement' ? 'active' : ''"
+                    class="competition-tab-btn">
+                <i data-lucide="list-ordered" class="w-4 h-4"></i>
+                <span>Classement</span>
             </button>
-            <button @click="tab = 'evolution'"
-                    :class="tab === 'evolution' ? 'text-white' : ''"
-                    :style="tab === 'evolution' ? 'background: var(--bg-card-hover)' : 'color: var(--text-muted)'"
-                    class="flex-1 text-center py-2 px-4 rounded-lg text-sm font-semibold transition">
-                <i data-lucide="trending-up" class="w-4 h-4 inline-block mr-1"></i> Évolution
+            <button type="button" @click="tab = 'evolution'; initEvolutionCharts()"
+                    :class="tab === 'evolution' ? 'active' : ''"
+                    class="competition-tab-btn">
+                <i data-lucide="trending-up" class="w-4 h-4"></i>
+                <span>Évolution</span>
             </button>
-            <button @click="tab = 'matchs'"
-                    :class="tab === 'matchs' ? 'text-white' : ''"
-                    :style="tab === 'matchs' ? 'background: var(--bg-card-hover)' : 'color: var(--text-muted)'"
-                    class="flex-1 text-center py-2 px-4 rounded-lg text-sm font-semibold transition">
-                <i data-lucide="swords" class="w-4 h-4 inline-block mr-1"></i> Matchs
+            <button type="button" @click="tab = 'matchs'"
+                    :class="tab === 'matchs' ? 'active' : ''"
+                    class="competition-tab-btn">
+                <i data-lucide="swords" class="w-4 h-4"></i>
+                <span>Matchs</span>
             </button>
-            <button @click="tab = 'stats'"
-                    :class="tab === 'stats' ? 'text-white' : ''"
-                    :style="tab === 'stats' ? 'background: var(--bg-card-hover)' : 'color: var(--text-muted)'"
-                    class="flex-1 text-center py-2 px-4 rounded-lg text-sm font-semibold transition">
-                <i data-lucide="bar-chart-2" class="w-4 h-4 inline-block mr-1"></i> Statistiques
+            <button type="button" @click="tab = 'stats'"
+                    :class="tab === 'stats' ? 'active' : ''"
+                    class="competition-tab-btn">
+                <i data-lucide="bar-chart-2" class="w-4 h-4"></i>
+                <span>Statistiques</span>
             </button>
         </div>
 
         <!-- ═══════════ TAB: Classement ═══════════ -->
         <div x-show="tab === 'classement'" x-transition>
             {% if is_multi_poule and poules_classements %}
-            {# ── Multi-poule: sub-tabs for each poule ── #}
+            {# ── Multi-poule: Sub-tabs ── #}
             <div x-data="{ activePoule: '{{ poules_classements[0].poule.code }}' }" class="space-y-4">
-                <div class="flex flex-wrap gap-1 p-1 rounded-lg" style="background: var(--bg-card);">
+                <div class="poule-subtabs-wrap">
+                    <span class="text-xs font-semibold text-muted uppercase flex items-center px-2">Poule :</span>
                     {% for pc in poules_classements %}
-                    <button @click="activePoule = '{{ pc.poule.code }}'"
-                            :class="activePoule === '{{ pc.poule.code }}' ? 'text-white' : ''"
-                            :style="activePoule === '{{ pc.poule.code }}' ? 'background: var(--bg-card-hover)' : 'color: var(--text-muted)'"
-                            class="py-1.5 px-3 rounded-md text-xs font-semibold transition">
+                    <button type="button" @click="activePoule = '{{ pc.poule.code }}'"
+                            :class="activePoule === '{{ pc.poule.code }}' ? 'active' : ''"
+                            class="poule-subtab-btn">
                         {{ pc.poule.nom or pc.poule.code }}
                     </button>
                     {% endfor %}
@@ -281,8 +256,8 @@
                     {% if cls and cls.classement_actuel %}
                     {{ classement_table(cls, pc.poule.nom or pc.poule.code, loop.index) }}
                     {% else %}
-                    <div class="card p-8 text-center" style="color: var(--text-muted);">
-                        <p class="text-sm">Aucun match joué dans cette poule.</p>
+                    <div class="card p-8 text-center text-muted">
+                        <p class="text-sm">Aucun match joué dans cette poule pour le moment.</p>
                     </div>
                     {% endif %}
                 </div>
@@ -290,14 +265,14 @@
             </div>
 
             {% elif classement and classement.classement_actuel %}
-            {# ── Single poule: classic view ── #}
+            {# ── Single poule: Classic table ── #}
             {{ classement_table(classement, "Classement général", 0) }}
 
             {% else %}
-            <div class="card p-12 text-center" style="color: var(--text-muted);">
-                <i data-lucide="trophy" class="w-12 h-12 mx-auto mb-4 opacity-30"></i>
-                <p class="text-lg font-semibold mb-2">Aucun classement disponible</p>
-                <p class="text-sm">Aucun match joué dans cette compétition pour le moment.</p>
+            <div class="card p-12 text-center text-muted">
+                <i data-lucide="trophy" class="w-12 h-12 mx-auto mb-3 opacity-30"></i>
+                <p class="text-base font-semibold text-primary mb-1">Aucun classement disponible</p>
+                <p class="text-xs">Aucun match joué dans cette compétition pour le moment.</p>
             </div>
             {% endif %}
         </div>
@@ -305,40 +280,41 @@
         <!-- ═══════════ TAB: Évolution ═══════════ -->
         <div x-show="tab === 'evolution'" x-cloak x-transition>
             {% if is_multi_poule and poules_classements %}
-            {# ── Multi-poule: evolution not available for aggregated view ── #}
-            <div class="card p-12 text-center" style="color: var(--text-muted);">
-                <i data-lucide="trending-up" class="w-12 h-12 mx-auto mb-4 opacity-30"></i>
-                <p class="text-lg font-semibold mb-2">Évolution non disponible pour les compétitions multi-poules</p>
-                <p class="text-sm">Consultez le classement de chaque poule dans l'onglet Classement.</p>
+            <div class="card p-12 text-center text-muted">
+                <i data-lucide="trending-up" class="w-12 h-12 mx-auto mb-3 opacity-30"></i>
+                <p class="text-base font-semibold text-primary mb-1">Évolution non disponible pour la vue groupée</p>
+                <p class="text-xs">Consultez le classement individuel de chaque poule pour visualiser son évolution.</p>
             </div>
             {% elif classement and classement.evolution|length > 1 %}
-            <div class="card p-6">
-                <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
-                    <i data-lucide="trending-up" class="w-4 h-4 inline-block mr-1"></i>
-                    Évolution du classement par journée
-                </h2>
-                <p class="text-xs mb-4" style="color: var(--text-muted);">
-                    Position au classement après chaque journée. Plus la ligne est haute, meilleur est le classement.
-                </p>
-                <div style="height: 450px;">
-                    <canvas id="evolutionChart"></canvas>
+            <div class="space-y-4">
+                <div class="card p-5 md:p-6">
+                    <h2 class="section-title mb-2 flex items-center gap-1.5">
+                        <i data-lucide="trending-up" class="w-4 h-4 text-accent-primary"></i>
+                        Évolution du classement par journée
+                    </h2>
+                    <p class="text-xs text-muted mb-4">
+                        Position au classement après chaque journée. Le rang 1 (haut du graphe) correspond au leader.
+                    </p>
+                    <div style="height: 420px; position: relative;">
+                        <canvas id="evolutionChart"></canvas>
+                    </div>
                 </div>
-            </div>
 
-            <div class="card p-6">
-                <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
-                    <i data-lucide="trending-up" class="w-4 h-4 inline-block mr-1"></i>
-                    Évolution des points cumulés
-                </h2>
-                <div style="height: 400px;">
-                    <canvas id="pointsEvolutionChart"></canvas>
+                <div class="card p-5 md:p-6">
+                    <h2 class="section-title mb-2 flex items-center gap-1.5">
+                        <i data-lucide="trending-up" class="w-4 h-4 text-accent-green"></i>
+                        Évolution des points cumulés
+                    </h2>
+                    <div style="height: 380px; position: relative;">
+                        <canvas id="pointsEvolutionChart"></canvas>
+                    </div>
                 </div>
             </div>
             {% else %}
-            <div class="card p-12 text-center" style="color: var(--text-muted);">
-                <i data-lucide="trending-up" class="w-12 h-12 mx-auto mb-4 opacity-30"></i>
-                <p class="text-lg font-semibold mb-2">Évolution non disponible</p>
-                <p class="text-sm">Il faut au moins 2 journées de compétition pour afficher l'évolution du classement.</p>
+            <div class="card p-12 text-center text-muted">
+                <i data-lucide="trending-up" class="w-12 h-12 mx-auto mb-3 opacity-30"></i>
+                <p class="text-base font-semibold text-primary mb-1">Évolution non disponible</p>
+                <p class="text-xs">Il faut au moins 2 journées jouées pour afficher la progression.</p>
             </div>
             {% endif %}
         </div>
@@ -346,95 +322,130 @@
         <!-- ═══════════ TAB: Matchs ═══════════ -->
         <div x-show="tab === 'matchs'" x-cloak x-transition>
             <div class="card overflow-hidden">
-                <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
-                    <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
-                        <i data-lucide="swords" class="w-4 h-4 inline-block mr-1"></i>
-                        Matchs de la compétition ({{ matchs|length }})
-                    </h2>
+                <!-- Filters Header -->
+                <div class="p-4 border-b space-y-3">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <h2 class="section-title flex items-center gap-1.5">
+                            <i data-lucide="swords" class="w-4 h-4 text-accent-primary"></i>
+                            Matchs de la compétition
+                            <span class="text-xs font-normal text-muted ml-1">({{ matchs|length }} au total)</span>
+                        </h2>
+                        <!-- Search input -->
+                        <div class="relative w-full sm:w-64">
+                            <i data-lucide="search" class="w-3.5 h-3.5 text-muted absolute left-3 top-1/2 -translate-y-1/2"></i>
+                            <input type="text" x-model="matchSearch"
+                                   placeholder="Filtrer par équipe..."
+                                   class="search-input text-xs pl-8 py-1.5 h-8">
+                        </div>
+                    </div>
+
+                    <!-- Day Selector Pills -->
+                    {% if journees_disponibles and journees_disponibles|length > 1 %}
+                    <div class="match-day-bar">
+                        <button type="button" @click="selectedJournee = 'all'"
+                                :class="selectedJournee === 'all' ? 'active' : ''"
+                                class="match-day-pill">
+                            Toutes les journées
+                        </button>
+                        {% for j in journees_disponibles %}
+                        <button type="button" @click="selectedJournee = '{{ j }}'"
+                                :class="selectedJournee === '{{ j }}' ? 'active' : ''"
+                                class="match-day-pill">
+                            J{{ j }}
+                        </button>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
                 </div>
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Date</th>
-                            <th class="text-center">Journée</th>
-                            <th class="text-right">Domicile</th>
-                            <th class="text-center">Score</th>
-                            <th>Extérieur</th>
-                            <th class="text-center">Statut</th>
-                            <th class="text-right">Détails</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for m in matchs %}
-                        <tr>
-                            <td class="text-sm" style="color: var(--text-muted);">
-                                {{ m.date_match|format_date }}
-                            </td>
-                            <td class="text-center text-xs" style="color: var(--text-muted);">
-                                {{ m.journee or '—' }}
-                            </td>
-                            <td class="text-right">
-                                {% if m.equipe_a %}
-                                <a href="{{ path_for_entity('equipe', m.equipe_a.id if m.equipe_a else None) }}" class="font-medium hover:text-white transition
-                                    {% if m.statut == 'joué' and (m.sets_equipe_a or 0) > (m.sets_equipe_b or 0) %}text-white{% endif %}"
-                                   style="{% if not (m.statut == 'joué' and (m.sets_equipe_a or 0) > (m.sets_equipe_b or 0)) %}color: var(--text-secondary);{% endif %}">
-                                    {{ m.equipe_a.nom|truncate_name(25) }}
-                                </a>
-                                {% endif %}
-                            </td>
-                            <td class="text-center">
-                                {% if m.statut == 'joué' and m.sets_equipe_a is not none and m.sets_equipe_b is not none %}
-                                <span class="set-score {% if (m.sets_equipe_a or 0) > (m.sets_equipe_b or 0) %}won-a{% else %}won-b{% endif %}">
-                                    {{ m.sets_equipe_a }}-{{ m.sets_equipe_b }}
-                                </span>
-                                {% elif m.statut == 'forfait' %}
-                                <span class="badge badge-red" style="font-size: 0.6rem;">Forfait</span>
-                                {% else %}
-                                <span style="color: var(--text-muted);">—</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if m.equipe_b %}
-                                <a href="{{ path_for_entity('equipe', m.equipe_b.id if m.equipe_b else None) }}" class="font-medium hover:text-white transition
-                                    {% if m.statut == 'joué' and (m.sets_equipe_b or 0) > (m.sets_equipe_a or 0) %}text-white{% endif %}"
-                                   style="{% if not (m.statut == 'joué' and (m.sets_equipe_b or 0) > (m.sets_equipe_a or 0)) %}color: var(--text-secondary);{% endif %}">
-                                    {{ m.equipe_b.nom|truncate_name(25) }}
-                                </a>
-                                {% endif %}
-                            </td>
-                            <td class="text-center">
-                                {% if m.statut == 'forfait' %}
-                                <span class="badge badge-red" style="font-size: 0.55rem;">Forfait</span>
-                                {% elif m.statut == 'joué' %}
-                                <span class="badge badge-green" style="font-size: 0.55rem;">Joué</span>
-                                {% elif m.statut == 'à_venir' %}
-                                <span class="badge badge-blue" style="font-size: 0.55rem;">À venir</span>
-                                {% else %}
-                                <span class="badge" style="font-size: 0.55rem; color: var(--accent-gold);">Sans résultat</span>
-                                {% endif %}
-                            </td>
-                            <td class="text-right">
-                                <div class="flex items-center justify-end gap-1">
-                                    <a href="{{ path_for_entity('match', m.id) }}" class="badge badge-blue text-xs">Voir</a>
-                                    {% if m.competition and m.competition.entite and m.saison %}
-                                    <a href="https://www.ffvbbeach.org/ffvbapp/resu/ffvolley_fdme.php?saison={{ m.saison.code|replace('-', '/') }}&codent={{ m.competition.entite.code }}&codmatch={{ m.code_match }}"
-                                       target="_blank" rel="noopener noreferrer"
-                                       class="badge badge-green text-xs hover:opacity-80 transition" title="Feuille de match FFVB">
-                                        <i data-lucide="file-text" class="w-3 h-3"></i>
+
+                <!-- Table -->
+                <div class="overflow-x-auto">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th class="text-center">J.</th>
+                                <th class="text-right">Domicile</th>
+                                <th class="text-center">Score</th>
+                                <th>Extérieur</th>
+                                <th class="text-center">Statut</th>
+                                <th class="text-right">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for m in matchs %}
+                            {% set eq_a_nom = m.equipe_a.nom if m.equipe_a else '' %}
+                            {% set eq_b_nom = m.equipe_b.nom if m.equipe_b else '' %}
+                            <tr x-show="(selectedJournee === 'all' || selectedJournee === '{{ m.journee }}') && (!matchSearch || '{{ eq_a_nom|lower }}'.includes(matchSearch.toLowerCase()) || '{{ eq_b_nom|lower }}'.includes(matchSearch.toLowerCase()))">
+                                <td class="text-sm text-muted">
+                                    {{ m.date_match|format_date }}
+                                </td>
+                                <td class="text-center text-xs text-muted font-mono">
+                                    {{ m.journee or '—' }}
+                                </td>
+                                <td class="text-right">
+                                    {% if m.equipe_a %}
+                                    <a href="{{ path_for_entity('equipe', m.equipe_a.id) }}"
+                                       class="font-semibold transition {% if m.statut == 'joué' and (m.sets_equipe_a or 0) > (m.sets_equipe_b or 0) %}text-white{% else %}text-secondary hover:text-white{% endif %}">
+                                        {{ m.equipe_a.nom|truncate_name(26) }}
                                     </a>
                                     {% endif %}
-                                </div>
-                            </td>
-                        </tr>
-                        {% else %}
-                        <tr>
-                            <td colspan="6" class="text-center py-8" style="color: var(--text-muted);">
-                                Aucun match trouvé
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+                                </td>
+                                <td class="text-center">
+                                    {% if m.statut == 'joué' and m.sets_equipe_a is not none and m.sets_equipe_b is not none %}
+                                    <span class="set-score {% if (m.sets_equipe_a or 0) > (m.sets_equipe_b or 0) %}won-a{% else %}won-b{% endif %}">
+                                        {{ m.sets_equipe_a }}-{{ m.sets_equipe_b }}
+                                    </span>
+                                    {% elif m.statut == 'forfait' %}
+                                    <span class="badge badge-red text-xs">Forfait</span>
+                                    {% else %}
+                                    <span class="text-muted font-mono">—</span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if m.equipe_b %}
+                                    <a href="{{ path_for_entity('equipe', m.equipe_b.id) }}"
+                                       class="font-semibold transition {% if m.statut == 'joué' and (m.sets_equipe_b or 0) > (m.sets_equipe_a or 0) %}text-white{% else %}text-secondary hover:text-white{% endif %}">
+                                        {{ m.equipe_b.nom|truncate_name(26) }}
+                                    </a>
+                                    {% endif %}
+                                </td>
+                                <td class="text-center">
+                                    {% if m.statut == 'forfait' %}
+                                    <span class="badge badge-red text-xs">Forfait</span>
+                                    {% elif m.statut == 'joué' %}
+                                    <span class="badge badge-green text-xs">Joué</span>
+                                    {% elif m.statut == 'à_venir' %}
+                                    <span class="badge badge-blue text-xs">À venir</span>
+                                    {% else %}
+                                    <span class="badge text-xs text-accent-gold">Sans résultat</span>
+                                    {% endif %}
+                                </td>
+                                <td class="text-right">
+                                    <div class="flex items-center justify-end gap-1.5">
+                                        <a href="{{ path_for_entity('match', m.id) }}" class="btn-secondary py-1 px-2.5 text-xs">
+                                            Détail
+                                        </a>
+                                        {% if m.competition and m.competition.entite and m.saison %}
+                                        <a href="https://www.ffvbbeach.org/ffvbapp/resu/ffvolley_fdme.php?saison={{ m.saison.code|replace('-', '/') }}&codent={{ m.competition.entite.code }}&codmatch={{ m.code_match }}"
+                                           target="_blank" rel="noopener noreferrer"
+                                           class="pagination-btn h-7 w-7 text-accent-green hover:border-accent-green" title="Feuille de match officielle FFVB">
+                                            <i data-lucide="file-text" class="w-3.5 h-3.5"></i>
+                                        </a>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr>
+                                <td colspan="7" class="text-center py-10 text-muted">
+                                    Aucun match trouvé pour cette sélection
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </div>
 
@@ -443,60 +454,63 @@
             {% if classement and classement.classement_actuel %}
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
 
-                <!-- Meilleure attaque (points marqués) -->
+                <!-- Meilleure attaque -->
                 <div class="card p-5">
-                    <h3 class="text-sm font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">
-                        <i data-lucide="flame" class="w-4 h-4 inline-block mr-1" style="color: var(--accent-red);"></i>
+                    <h3 class="section-title mb-3 flex items-center gap-1.5">
+                        <i data-lucide="flame" class="w-4 h-4 text-accent-red"></i>
                         Meilleure attaque (points marqués)
                     </h3>
-                    <div class="space-y-2">
+                    <div class="space-y-2.5">
                         {% for ligne in classement.classement_actuel|sort(attribute='points_marques', reverse=true) %}
                         {% if loop.index <= 5 %}
-                        <div class="flex items-center gap-3">
-                            <span class="text-sm font-bold w-5 text-center" style="color: var(--accent-gold);">{{ loop.index }}</span>
-                            <a href="{{ path_for_entity('equipe', ligne.equipe_id) }}" class="flex-1 text-sm font-medium hover:text-white transition"
-                               style="color: var(--text-secondary);">{{ ligne.equipe_nom|truncate_name(25) }}</a>
-                            <span class="font-bold" style="color: var(--accent-red-light);">{{ ligne.points_marques }}</span>
+                        <div class="flex items-center gap-3 text-sm">
+                            <span class="font-bold w-5 text-center text-accent-gold">{{ loop.index }}</span>
+                            <a href="{{ path_for_entity('equipe', ligne.equipe_id) }}" class="flex-1 text-secondary hover:text-white transition font-medium truncate">
+                                {{ ligne.equipe_nom }}
+                            </a>
+                            <span class="font-bold text-accent-red-light font-mono">{{ ligne.points_marques }} pts</span>
                         </div>
                         {% endif %}
                         {% endfor %}
                     </div>
                 </div>
 
-                <!-- Meilleure défense (points encaissés) -->
+                <!-- Meilleure défense -->
                 <div class="card p-5">
-                    <h3 class="text-sm font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">
-                        <i data-lucide="shield" class="w-4 h-4 inline-block mr-1" style="color: var(--accent-blue);"></i>
+                    <h3 class="section-title mb-3 flex items-center gap-1.5">
+                        <i data-lucide="shield" class="w-4 h-4 text-accent-blue"></i>
                         Meilleure défense (moins de points encaissés)
                     </h3>
-                    <div class="space-y-2">
+                    <div class="space-y-2.5">
                         {% for ligne in classement.classement_actuel|sort(attribute='points_encaisses') %}
                         {% if loop.index <= 5 %}
-                        <div class="flex items-center gap-3">
-                            <span class="text-sm font-bold w-5 text-center" style="color: var(--accent-gold);">{{ loop.index }}</span>
-                            <a href="{{ path_for_entity('equipe', ligne.equipe_id) }}" class="flex-1 text-sm font-medium hover:text-white transition"
-                               style="color: var(--text-secondary);">{{ ligne.equipe_nom|truncate_name(25) }}</a>
-                            <span class="font-bold" style="color: var(--accent-blue-light);">{{ ligne.points_encaisses }}</span>
+                        <div class="flex items-center gap-3 text-sm">
+                            <span class="font-bold w-5 text-center text-accent-gold">{{ loop.index }}</span>
+                            <a href="{{ path_for_entity('equipe', ligne.equipe_id) }}" class="flex-1 text-secondary hover:text-white transition font-medium truncate">
+                                {{ ligne.equipe_nom }}
+                            </a>
+                            <span class="font-bold text-accent-blue-light font-mono">{{ ligne.points_encaisses }} pts</span>
                         </div>
                         {% endif %}
                         {% endfor %}
                     </div>
                 </div>
 
-                <!-- Plus de victoires 3-0 -->
+                <!-- Dominantes (3-0) -->
                 <div class="card p-5">
-                    <h3 class="text-sm font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">
-                        <i data-lucide="zap" class="w-4 h-4 inline-block mr-1" style="color: var(--accent-green);"></i>
-                        Dominantes (victoires 3-0)
+                    <h3 class="section-title mb-3 flex items-center gap-1.5">
+                        <i data-lucide="zap" class="w-4 h-4 text-accent-green"></i>
+                        Victoires nettes (3-0)
                     </h3>
-                    <div class="space-y-2">
+                    <div class="space-y-2.5">
                         {% for ligne in classement.classement_actuel|sort(attribute='victoires_3_0', reverse=true) %}
                         {% if loop.index <= 5 %}
-                        <div class="flex items-center gap-3">
-                            <span class="text-sm font-bold w-5 text-center" style="color: var(--accent-gold);">{{ loop.index }}</span>
-                            <a href="{{ path_for_entity('equipe', ligne.equipe_id) }}" class="flex-1 text-sm font-medium hover:text-white transition"
-                               style="color: var(--text-secondary);">{{ ligne.equipe_nom|truncate_name(25) }}</a>
-                            <span class="font-bold" style="color: var(--accent-green);">{{ ligne.victoires_3_0 }}</span>
+                        <div class="flex items-center gap-3 text-sm">
+                            <span class="font-bold w-5 text-center text-accent-gold">{{ loop.index }}</span>
+                            <a href="{{ path_for_entity('equipe', ligne.equipe_id) }}" class="flex-1 text-secondary hover:text-white transition font-medium truncate">
+                                {{ ligne.equipe_nom }}
+                            </a>
+                            <span class="font-bold text-accent-green font-mono">{{ ligne.victoires_3_0 }}</span>
                         </div>
                         {% endif %}
                         {% endfor %}
@@ -505,40 +519,40 @@
 
                 <!-- Taux de victoire -->
                 <div class="card p-5">
-                    <h3 class="text-sm font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">
-                        <i data-lucide="percent" class="w-4 h-4 inline-block mr-1" style="color: var(--accent-purple);"></i>
+                    <h3 class="section-title mb-3 flex items-center gap-1.5">
+                        <i data-lucide="percent" class="w-4 h-4 text-accent-purple"></i>
                         Taux de victoire
                     </h3>
-                    <div class="space-y-2">
+                    <div class="space-y-2.5">
                         {% for ligne in classement.classement_actuel|sort(attribute='taux_victoire', reverse=true) %}
                         {% if loop.index <= 5 %}
-                        <div class="flex items-center gap-3">
-                            <span class="text-sm font-bold w-5 text-center" style="color: var(--accent-gold);">{{ loop.index }}</span>
-                            <a href="{{ path_for_entity('equipe', ligne.equipe_id) }}" class="flex-1 text-sm font-medium hover:text-white transition"
-                               style="color: var(--text-secondary);">{{ ligne.equipe_nom|truncate_name(25) }}</a>
-                            <span class="font-bold" style="color: var(--accent-purple);">
-                                {{ "%.0f"|format(ligne.taux_victoire) }}%
-                            </span>
+                        <div class="flex items-center gap-3 text-sm">
+                            <span class="font-bold w-5 text-center text-accent-gold">{{ loop.index }}</span>
+                            <a href="{{ path_for_entity('equipe', ligne.equipe_id) }}" class="flex-1 text-secondary hover:text-white transition font-medium truncate">
+                                {{ ligne.equipe_nom }}
+                            </a>
+                            <span class="font-bold text-accent-purple font-mono">{{ "%.0f"|format(ligne.taux_victoire) }}%</span>
                         </div>
                         {% endif %}
                         {% endfor %}
                     </div>
                 </div>
 
-                <!-- Meilleur ratio de sets -->
+                <!-- Ratio de sets -->
                 <div class="card p-5">
-                    <h3 class="text-sm font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">
-                        <i data-lucide="ratio" class="w-4 h-4 inline-block mr-1" style="color: var(--accent-cyan);"></i>
+                    <h3 class="section-title mb-3 flex items-center gap-1.5">
+                        <i data-lucide="ratio" class="w-4 h-4 text-accent-cyan"></i>
                         Meilleur ratio de sets
                     </h3>
-                    <div class="space-y-2">
+                    <div class="space-y-2.5">
                         {% for ligne in classement.classement_actuel|sort(attribute='ratio_sets', reverse=true) %}
                         {% if loop.index <= 5 %}
-                        <div class="flex items-center gap-3">
-                            <span class="text-sm font-bold w-5 text-center" style="color: var(--accent-gold);">{{ loop.index }}</span>
-                            <a href="{{ path_for_entity('equipe', ligne.equipe_id) }}" class="flex-1 text-sm font-medium hover:text-white transition"
-                               style="color: var(--text-secondary);">{{ ligne.equipe_nom|truncate_name(25) }}</a>
-                            <span class="font-bold" style="color: var(--accent-cyan);">
+                        <div class="flex items-center gap-3 text-sm">
+                            <span class="font-bold w-5 text-center text-accent-gold">{{ loop.index }}</span>
+                            <a href="{{ path_for_entity('equipe', ligne.equipe_id) }}" class="flex-1 text-secondary hover:text-white transition font-medium truncate">
+                                {{ ligne.equipe_nom }}
+                            </a>
+                            <span class="font-bold text-accent-cyan font-mono">
                                 {% if ligne.sets_perdus > 0 %}{{ "%.2f"|format(ligne.ratio_sets) }}{% elif ligne.sets_gagnes > 0 %}∞{% else %}—{% endif %}
                             </span>
                         </div>
@@ -547,13 +561,13 @@
                     </div>
                 </div>
 
-                <!-- Série actuelle -->
+                <!-- Séries en cours -->
                 <div class="card p-5">
-                    <h3 class="text-sm font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">
-                        <i data-lucide="activity" class="w-4 h-4 inline-block mr-1" style="color: var(--accent-gold);"></i>
+                    <h3 class="section-title mb-3 flex items-center gap-1.5">
+                        <i data-lucide="activity" class="w-4 h-4 text-accent-gold"></i>
                         Séries en cours
                     </h3>
-                    <div class="space-y-2">
+                    <div class="space-y-2.5">
                         {% for ligne in classement.classement_actuel %}
                         {% if ligne.serie %}
                         {% set ns = namespace(streak=0, type=ligne.serie[-1]) %}
@@ -563,10 +577,11 @@
                             {% endif %}
                         {% endfor %}
                         {% if ns.streak >= 2 %}
-                        <div class="flex items-center gap-3">
-                            <a href="{{ path_for_entity('equipe', ligne.equipe_id) }}" class="flex-1 text-sm font-medium hover:text-white transition"
-                               style="color: var(--text-secondary);">{{ ligne.equipe_nom|truncate_name(25) }}</a>
-                            <span class="badge {% if ns.type == 'V' %}badge-green{% else %}badge-red{% endif %}">
+                        <div class="flex items-center gap-3 text-sm">
+                            <a href="{{ path_for_entity('equipe', ligne.equipe_id) }}" class="flex-1 text-secondary hover:text-white transition font-medium truncate">
+                                {{ ligne.equipe_nom }}
+                            </a>
+                            <span class="badge {% if ns.type == 'V' %}badge-green{% else %}badge-red{% endif %} font-mono">
                                 {{ ns.streak }} {{ ns.type }} consécutives
                             </span>
                         </div>
@@ -577,17 +592,17 @@
                 </div>
             </div>
             {% else %}
-            <div class="card p-12 text-center" style="color: var(--text-muted);">
-                <i data-lucide="bar-chart-2" class="w-12 h-12 mx-auto mb-4 opacity-30"></i>
-                <p class="text-lg font-semibold mb-2">Statistiques non disponibles</p>
-                <p class="text-sm">Aucun match joué dans cette compétition pour le moment.</p>
+            <div class="card p-12 text-center text-muted">
+                <i data-lucide="bar-chart-2" class="w-12 h-12 mx-auto mb-3 opacity-30"></i>
+                <p class="text-base font-semibold text-primary mb-1">Statistiques non disponibles</p>
+                <p class="text-xs">Aucun match joué dans cette compétition pour le moment.</p>
             </div>
             {% endif %}
         </div>
 
     </div>
 
-    <!-- Carte interactive — Clubs et Matchs de la compétition -->
+    <!-- ═══════════ Carte interactive ═══════════ -->
     {{ map_card(
         competition_id=competition.id,
         title="Carte de la compétition (Clubs, Salles & Matchs)",
@@ -604,7 +619,6 @@
 {% if classement and classement.classement_actuel|length > 1 %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Color palette for teams
     const teamColors = [
         '#3b82f6', '#ef4444', '#22c55e', '#f59e0b', '#a855f7',
         '#06b6d4', '#ec4899', '#14b8a6', '#f97316', '#8b5cf6',
@@ -612,7 +626,7 @@ document.addEventListener('DOMContentLoaded', function() {
         '#6366f1', '#f43f5e', '#34d399', '#fbbf24', '#c084fc',
     ];
 
-    // ═══════════ Points bar chart ═══════════
+    // Points bar chart in standing macro
     const pointsCtx = document.getElementById('pointsChart0');
     if (pointsCtx) {
         const classementData = [
@@ -634,10 +648,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     label: 'Points',
                     data: classementData.map(e => e.points),
                     backgroundColor: classementData.map((_, i) =>
-                        i === 0 ? 'rgba(245, 158, 11, 0.7)' :
-                        i === 1 ? 'rgba(148, 163, 184, 0.7)' :
-                        i === 2 ? 'rgba(180, 83, 9, 0.7)' :
-                        'rgba(59, 130, 246, 0.5)'
+                        i === 0 ? 'rgba(245, 158, 11, 0.75)' :
+                        i === 1 ? 'rgba(148, 163, 184, 0.75)' :
+                        i === 2 ? 'rgba(180, 83, 9, 0.75)' :
+                        'rgba(59, 130, 246, 0.55)'
                     ),
                     borderColor: classementData.map((_, i) =>
                         i === 0 ? '#f59e0b' :
@@ -656,12 +670,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 scales: {
                     x: {
                         beginAtZero: true,
-                        grid: { color: 'rgba(42, 48, 80, 0.5)' },
-                        ticks: { color: '#5a6178' },
+                        grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                        ticks: { color: '#71717a' },
                     },
                     y: {
                         grid: { display: false },
-                        ticks: { color: '#8b92a8', font: { size: 11 } }
+                        ticks: { color: '#a1a1aa', font: { size: 11 } }
                     }
                 },
                 plugins: {
@@ -680,98 +694,34 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     {% if classement.evolution|length > 1 %}
-    // ═══════════ Evolution rank chart ═══════════
-    const evoCtx = document.getElementById('evolutionChart');
-    if (evoCtx) {
-        const journees = {{ classement.journees|tojson }};
-        const nbEquipes = {{ classement.nb_equipes }};
+    // Lazy render function for evolution charts
+    window.renderEvolutionCharts = function() {
+        const evoCtx = document.getElementById('evolutionChart');
+        if (evoCtx && !evoCtx.dataset.rendered) {
+            evoCtx.dataset.rendered = "true";
+            const journees = {{ classement.journees|tojson }};
+            const nbEquipes = {{ classement.nb_equipes }};
+            const evolution = {{ evolution_json|tojson }};
+            const teamsMap = {};
 
-        // Build datasets per team (rank evolution)
-        const evolution = {{ evolution_json|tojson }};
-        const teamsMap = {};
-
-        evolution.forEach((evo, journeeIdx) => {
-            evo.classement.forEach(ligne => {
-                if (!teamsMap[ligne.equipe_id]) {
-                    teamsMap[ligne.equipe_id] = {
-                        nom: ligne.equipe_nom,
-                        ranks: new Array(journees.length).fill(null),
-                        points: new Array(journees.length).fill(null),
-                    };
-                }
-                teamsMap[ligne.equipe_id].ranks[journeeIdx] = ligne.rang;
-                teamsMap[ligne.equipe_id].points[journeeIdx] = ligne.points;
+            evolution.forEach((evo, journeeIdx) => {
+                evo.classement.forEach(ligne => {
+                    if (!teamsMap[ligne.equipe_id]) {
+                        teamsMap[ligne.equipe_id] = {
+                            nom: ligne.equipe_nom,
+                            ranks: new Array(journees.length).fill(null),
+                            points: new Array(journees.length).fill(null),
+                        };
+                    }
+                    teamsMap[ligne.equipe_id].ranks[journeeIdx] = ligne.rang;
+                    teamsMap[ligne.equipe_id].points[journeeIdx] = ligne.points;
+                });
             });
-        });
 
-        const teamIds = Object.keys(teamsMap);
-        const datasets = teamIds.map((id, i) => ({
-            label: teamsMap[id].nom.length > 18 ? teamsMap[id].nom.substring(0, 18) + '…' : teamsMap[id].nom,
-            data: teamsMap[id].ranks,
-            borderColor: teamColors[i % teamColors.length],
-            backgroundColor: teamColors[i % teamColors.length] + '33',
-            borderWidth: 2,
-            pointRadius: 3,
-            pointHoverRadius: 6,
-            tension: 0.3,
-            fill: false,
-            spanGaps: true,
-        }));
-
-        new Chart(evoCtx, {
-            type: 'line',
-            data: { labels: journees, datasets: datasets },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    y: {
-                        reverse: true,
-                        min: 1,
-                        max: nbEquipes,
-                        ticks: {
-                            stepSize: 1,
-                            color: '#8b92a8',
-                            callback: (v) => v + (v === 1 ? 'er' : 'e'),
-                        },
-                        grid: { color: 'rgba(42, 48, 80, 0.3)' },
-                        title: { display: true, text: 'Position', color: '#8b92a8' },
-                    },
-                    x: {
-                        grid: { color: 'rgba(42, 48, 80, 0.3)' },
-                        ticks: { color: '#8b92a8', maxRotation: 45 },
-                        title: { display: true, text: 'Journée', color: '#8b92a8' },
-                    }
-                },
-                plugins: {
-                    legend: {
-                        position: 'bottom',
-                        labels: {
-                            color: '#8b92a8',
-                            font: { size: 10 },
-                            usePointStyle: true,
-                            boxWidth: 8,
-                        }
-                    },
-                    tooltip: {
-                        callbacks: {
-                            label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y}${ctx.parsed.y === 1 ? 'er' : 'e'}`,
-                        }
-                    }
-                },
-                interaction: {
-                    mode: 'index',
-                    intersect: false,
-                },
-            }
-        });
-
-        // ═══════════ Points evolution chart ═══════════
-        const ptsEvoCtx = document.getElementById('pointsEvolutionChart');
-        if (ptsEvoCtx) {
-            const ptsDatasets = teamIds.map((id, i) => ({
+            const teamIds = Object.keys(teamsMap);
+            const datasets = teamIds.map((id, i) => ({
                 label: teamsMap[id].nom.length > 18 ? teamsMap[id].nom.substring(0, 18) + '…' : teamsMap[id].nom,
-                data: teamsMap[id].points,
+                data: teamsMap[id].ranks,
                 borderColor: teamColors[i % teamColors.length],
                 backgroundColor: teamColors[i % teamColors.length] + '33',
                 borderWidth: 2,
@@ -782,30 +732,36 @@ document.addEventListener('DOMContentLoaded', function() {
                 spanGaps: true,
             }));
 
-            new Chart(ptsEvoCtx, {
+            new Chart(evoCtx, {
                 type: 'line',
-                data: { labels: journees, datasets: ptsDatasets },
+                data: { labels: journees, datasets: datasets },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
                     scales: {
                         y: {
-                            beginAtZero: true,
-                            ticks: { color: '#8b92a8' },
-                            grid: { color: 'rgba(42, 48, 80, 0.3)' },
-                            title: { display: true, text: 'Points cumulés', color: '#8b92a8' },
+                            reverse: true,
+                            min: 1,
+                            max: nbEquipes,
+                            ticks: {
+                                stepSize: 1,
+                                color: '#a1a1aa',
+                                callback: (v) => v + (v === 1 ? 'er' : 'e'),
+                            },
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            title: { display: true, text: 'Position', color: '#71717a' },
                         },
                         x: {
-                            grid: { color: 'rgba(42, 48, 80, 0.3)' },
-                            ticks: { color: '#8b92a8', maxRotation: 45 },
-                            title: { display: true, text: 'Journée', color: '#8b92a8' },
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { color: '#a1a1aa', maxRotation: 45 },
+                            title: { display: true, text: 'Journée', color: '#71717a' },
                         }
                     },
                     plugins: {
                         legend: {
                             position: 'bottom',
                             labels: {
-                                color: '#8b92a8',
+                                color: '#a1a1aa',
                                 font: { size: 10 },
                                 usePointStyle: true,
                                 boxWidth: 8,
@@ -813,7 +769,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         },
                         tooltip: {
                             callbacks: {
-                                label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y} pts`,
+                                label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y}${ctx.parsed.y === 1 ? 'er' : 'e'}`,
                             }
                         }
                     },
@@ -823,8 +779,68 @@ document.addEventListener('DOMContentLoaded', function() {
                     },
                 }
             });
+
+            // Points evolution
+            const ptsEvoCtx = document.getElementById('pointsEvolutionChart');
+            if (ptsEvoCtx && !ptsEvoCtx.dataset.rendered) {
+                ptsEvoCtx.dataset.rendered = "true";
+                const ptsDatasets = teamIds.map((id, i) => ({
+                    label: teamsMap[id].nom.length > 18 ? teamsMap[id].nom.substring(0, 18) + '…' : teamsMap[id].nom,
+                    data: teamsMap[id].points,
+                    borderColor: teamColors[i % teamColors.length],
+                    backgroundColor: teamColors[i % teamColors.length] + '33',
+                    borderWidth: 2,
+                    pointRadius: 3,
+                    pointHoverRadius: 6,
+                    tension: 0.3,
+                    fill: false,
+                    spanGaps: true,
+                }));
+
+                new Chart(ptsEvoCtx, {
+                    type: 'line',
+                    data: { labels: journees, datasets: ptsDatasets },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                ticks: { color: '#a1a1aa' },
+                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                title: { display: true, text: 'Points cumulés', color: '#71717a' },
+                            },
+                            x: {
+                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                ticks: { color: '#a1a1aa', maxRotation: 45 },
+                                title: { display: true, text: 'Journée', color: '#71717a' },
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    color: '#a1a1aa',
+                                    font: { size: 10 },
+                                    usePointStyle: true,
+                                    boxWidth: 8,
+                                }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y} pts`,
+                                }
+                            }
+                        },
+                        interaction: {
+                            mode: 'index',
+                            intersect: false,
+                        },
+                    }
+                });
+            }
         }
-    }
+    };
     {% endif %}
 });
 </script>

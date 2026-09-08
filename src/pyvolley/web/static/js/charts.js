@@ -7,6 +7,8 @@ window.PyVolleyCharts = (function() {
 
     // ── Color palettes ──
     const colors = {
+        primary: '#FACC15',
+        primaryLight: '#FDE047',
         blue: '#3b82f6',
         blueLight: '#60a5fa',
         red: '#ef4444',
@@ -17,9 +19,9 @@ window.PyVolleyCharts = (function() {
         purple: '#a855f7',
         cyan: '#06b6d4',
         pink: '#ec4899',
-        gridLine: 'rgba(42, 48, 80, 0.5)',
-        text: '#5a6178',
-        textLight: '#8b92a8',
+        gridLine: 'rgba(39, 39, 42, 0.6)',
+        text: '#52525b',
+        textLight: '#a1a1aa',
     };
 
     // 20 distinct colors for multi-team charts
@@ -33,12 +35,14 @@ window.PyVolleyCharts = (function() {
     // ── Default scale configuration ──
     const defaultScales = {
         x: {
-            grid: { color: colors.gridLine },
-            ticks: { color: colors.text, font: { size: 11 } },
+            grid: { color: colors.gridLine, drawBorder: false },
+            ticks: { color: colors.text, font: { size: 11, family: 'Inter' } },
+            border: { color: 'transparent' },
         },
         y: {
-            grid: { color: colors.gridLine },
-            ticks: { color: colors.text, font: { size: 11 } },
+            grid: { color: colors.gridLine, drawBorder: false },
+            ticks: { color: colors.text, font: { size: 11, family: 'Inter' } },
+            border: { color: 'transparent' },
             beginAtZero: true,
         },
     };
@@ -120,6 +124,17 @@ window.PyVolleyCharts = (function() {
             maintainAspectRatio: false,
             plugins: {
                 legend: { display: false },
+                tooltip: {
+                    backgroundColor: '#18181b',
+                    titleColor: '#fafafa',
+                    bodyColor: '#a1a1aa',
+                    borderColor: '#27272a',
+                    borderWidth: 1,
+                    cornerRadius: 6,
+                    padding: 10,
+                    titleFont: { family: 'Inter', weight: '600' },
+                    bodyFont: { family: 'Inter' },
+                },
             },
         };
 

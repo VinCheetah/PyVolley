@@ -1,0 +1,447 @@
+/**
+ * PyVolley — Match Stats Hub Component (Alpine.js)
+ * 
+ * Manages the interactive statistics hub on the match detail page:
+ * - Face-to-face team metric comparison with winning meters
+ * - Per-rotation position stats and radar/history charts
+ * - Individual player analytics (points, break ratio, service series)
+ * - Automatic Chart.js rendering and lifecycle management
+ */
+
+function matchStatsHub(payload) {
+    return {
+        data: payload || { face_to_face: [], teams: { A: {}, B: {} }, players: [] },
+        section: 'teams',
+        teamPage: 'face',
+        playerPage: 'global',
+        selectedPlayerId: null,
+        charts: { teamPosition: null, teamHistory: null, playerHistory: null, playerSet: null },
+
+        teamName(side) {
+            return ((this.data.teams || {})[side] || {}).name || (side === 'A' ? 'Équipe A' : 'Équipe B');
+        },
+
+        playersBySide(side) {
+            return (this.data.players || [])
+                .filter((p) => p.side === side)
+                .sort((a, b) => (b.points_joues || 0) - (a.points_joues || 0));
+        },
+
+        selectedPlayer() {
+            return (this.data.players || []).find((p) => p.joueur_id === this.selectedPlayerId) || null;
+        },
+
+        selectPlayer(joueurId) {
+            this.selectedPlayerId = joueurId;
+            this.playerPage = 'detail';
+            setTimeout(() => this.renderPlayerCharts(), 0);
+        },
+
+        clearPlayer() {
+            this.selectedPlayerId = null;
+            if (this.charts.playerHistory) { this.charts.playerHistory.destroy(); this.charts.playerHistory = null; }
+            if (this.charts.playerSet) { this.charts.playerSet.destroy(); this.charts.playerSet = null; }
+        },
+
+        queueTeamCharts() {
+            setTimeout(() => this.renderTeamCharts(), 0);
+        },
+
+        queuePlayerCharts() {
+            setTimeout(() => this.renderPlayerCharts(), 0);
+        },
+
+        faceRows() {
+            return this.data && Array.isArray(this.data.face_to_face) ? this.data.face_to_face : [];
+        },
+
+        clampPct(value) {
+            const n = Number(value);
+            if (!Number.isFinite(n)) return 0;
+            return Math.max(0, Math.min(100, Math.round(n)));
+        },
+
+        normalizedFacePct(row, sideKey) {
+            const a = Math.abs(Number(row.a || 0));
+            const b = Math.abs(Number(row.b || 0));
+            const total = a + b;
+            if (total <= 0) return 0;
+            const raw = sideKey === 'a' ? a : b;
+            const pct = (raw / total) * 100;
+            return Math.max(5, this.clampPct(pct));
+        },
+
+        faceCompareMode(row) {
+            if (row && row.comparison) return row.comparison;
+            return 'higher';
+        },
+
+        hasComparableWinner(row) {
+            const mode = this.faceCompareMode(row);
+            const a = Number(row.a || 0);
+            const b = Number(row.b || 0);
+            if (mode === 'none') return false;
+            return a !== b;
+        },
+
+        isFaceWinner(row, sideKey) {
+            if (!this.hasComparableWinner(row)) return false;
+            const mode = this.faceCompareMode(row);
+            const a = Number(row.a || 0);
+            const b = Number(row.b || 0);
+            if (mode === 'lower') {
+                return sideKey === 'a' ? a < b : b < a;
+            }
+            return sideKey === 'a' ? a > b : b > a;
+        },
+
+        isFaceLoser(row, sideKey) {
+            if (!this.hasComparableWinner(row)) return false;
+            return !this.isFaceWinner(row, sideKey);
+        },
+
+        teamSnapshot(side) {
+            const team = (this.data.teams || {})[side] || {};
+            const s = team.summary || {};
+            const sideout = Number(s.sideout_efficacite_pct || 0);
+            const breakRatio = Number(s.break_point_ratio_pct || 0);
+            const maxSerie = Number(s.max_serie || 0);
+            return `Side-out ${sideout.toFixed(1)}% · Break ${breakRatio.toFixed(1)}% · Série max ${maxSerie}`;
+        },
+
+        formatFaceValue(row, sideKey) {
+            const key = sideKey === 'a' ? 'a' : 'b';
+            const raw = row[key];
+            if (row.unit === '%') return `${raw}%`;
+            if (row.unit === ' min') return `${raw} min`;
+            if (row.unit === ' joueurs') return `${raw} j.`;
+            return `${raw}`;
+        },
+
+        currentTeamData() {
+            return (this.data.teams || {})[this.teamPage] || null;
+        },
+
+        currentTeamPositions() {
+            const team = this.currentTeamData();
+            return team && team.positions ? team.positions : [];
+        },
+
+        currentTeamLevels() {
+            const team = this.currentTeamData();
+            return (team && team.levels) || { competition_level: null, season_groups: [], best_groups: [], player_rows: [] };
+        },
+
+        currentTeamLevelRows() {
+            const levels = this.currentTeamLevels();
+            const rows = Array.isArray(levels.player_rows) ? levels.player_rows : [];
+            return rows.filter((player) => {
+                const season = Array.isArray(player.season_levels) ? player.season_levels : [];
+                return season.length > 0 || Boolean(player.best_level_label);
+            });
+        },
+
+        currentTeamCards() {
+            const team = this.currentTeamData();
+            const s = (team && team.summary) || {};
+
+            const toneFromPct = (value) => {
+                const pct = Number(value || 0);
+                if (pct >= 65) return 'positive';
+                if (pct >= 45) return 'warning';
+                return 'risk';
+            };
+
+            const services = Number(s.services || 0);
+            const maxSerie = Number(s.max_serie || 0);
+            return [
+                {
+                    label: 'Efficacité globale',
+                    value: `${s.efficacite_pct || 0}%`,
+                    hint: 'Pts gagnés / pts joués',
+                    color: 'color: var(--accent-green);',
+                    tone: toneFromPct(s.efficacite_pct),
+                    meter: this.clampPct(s.efficacite_pct),
+                },
+                {
+                    label: 'Efficacité side-out',
+                    value: `${s.sideout_efficacite_pct || 0}%`,
+                    hint: `${s.sideout_successes || 0}/${s.sideout_attempts || 0} side-outs`,
+                    color: 'color: var(--accent-blue);',
+                    tone: toneFromPct(s.sideout_efficacite_pct),
+                    meter: this.clampPct(s.sideout_efficacite_pct),
+                },
+                {
+                    label: 'Efficacité 1er side-out',
+                    value: `${s.first_sideout_efficacite_pct || 0}%`,
+                    hint: `${s.first_sideout_successes || 0}/${s.first_sideout_attempts || 0} side-outs immédiats`,
+                    color: 'color: var(--accent-cyan);',
+                    tone: toneFromPct(s.first_sideout_efficacite_pct),
+                    meter: this.clampPct(s.first_sideout_efficacite_pct),
+                },
+                {
+                    label: 'Conversion de break',
+                    value: `${s.break_point_ratio_pct || 0}%`,
+                    hint: `${s.break_points || 0}/${s.break_opportunities || 0} points au service`,
+                    color: 'color: var(--accent-purple);',
+                    tone: toneFromPct(s.break_point_ratio_pct),
+                    meter: this.clampPct(s.break_point_ratio_pct),
+                },
+                {
+                    label: 'Mises en jeu',
+                    value: services,
+                    hint: 'Volume de mise en jeu',
+                    color: 'color: var(--accent-blue);',
+                    tone: 'neutral',
+                    meter: this.clampPct((services / 40) * 100),
+                },
+                {
+                    label: 'Série max au service',
+                    value: maxSerie,
+                    hint: 'Rallyes consécutifs au service',
+                    color: 'color: var(--accent-gold);',
+                    tone: maxSerie >= 5 ? 'positive' : 'warning',
+                    meter: this.clampPct(maxSerie * 12),
+                },
+            ];
+        },
+
+        renderTeamCharts() {
+            if (this.teamPage !== 'A' && this.teamPage !== 'B') return;
+            if (typeof Chart === 'undefined') {
+                console.warn('Chart.js indisponible pour renderTeamCharts');
+                return;
+            }
+            const team = this.currentTeamData();
+            if (!team) return;
+
+            try {
+                if (this.charts.teamPosition) this.charts.teamPosition.destroy();
+                if (this.charts.teamHistory) this.charts.teamHistory.destroy();
+
+                const sideColor = this.teamPage === 'A' ? '#60a5fa' : '#f87171';
+                const pos = team.positions || [];
+                const posCtx = document.getElementById('team-position-chart');
+                if (posCtx) {
+                    this.charts.teamPosition = new Chart(posCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: pos.map((p) => p.position),
+                        datasets: [
+                            {
+                                label: 'Efficacité %',
+                                data: pos.map((p) => p.efficacite_pct || 0),
+                                backgroundColor: sideColor,
+                                borderRadius: 8,
+                            },
+                            {
+                                type: 'line',
+                                label: 'Tours service',
+                                data: pos.map((p) => p.service_turns || 0),
+                                borderColor: '#f59e0b',
+                                backgroundColor: 'rgba(245, 158, 11, 0.2)',
+                                yAxisID: 'y1',
+                                tension: 0.3,
+                            },
+                        ],
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: { beginAtZero: true, ticks: { color: '#a1a1aa' }, grid: { color: 'rgba(39, 39, 42, 0.6)' } },
+                            y1: { beginAtZero: true, position: 'right', ticks: { color: '#a1a1aa' }, grid: { drawOnChartArea: false } },
+                            x: { ticks: { color: '#a1a1aa' }, grid: { display: false } },
+                        },
+                        plugins: { legend: { labels: { color: '#d4d4d8' } } },
+                    },
+                    });
+                }
+
+                const history = team.history || [];
+                const historyCtx = document.getElementById('team-history-chart');
+                if (historyCtx) {
+                    this.charts.teamHistory = new Chart(historyCtx, {
+                    type: 'line',
+                    data: {
+                        labels: history.map((h) => h.label),
+                        datasets: [
+                            {
+                                label: 'Points marqués',
+                                data: history.map((h) => h.points_marques || 0),
+                                borderColor: sideColor,
+                                backgroundColor: 'transparent',
+                                tension: 0.35,
+                            },
+                            {
+                                label: 'Efficacité %',
+                                data: history.map((h) => h.efficacite_pct || 0),
+                                borderColor: '#22c55e',
+                                backgroundColor: 'transparent',
+                                tension: 0.35,
+                                yAxisID: 'y1',
+                            },
+                            {
+                                label: 'Side-out %',
+                                data: history.map((h) => h.sideout_efficacite_pct || 0),
+                                borderColor: '#60a5fa',
+                                backgroundColor: 'transparent',
+                                borderDash: [5, 3],
+                                tension: 0.35,
+                                yAxisID: 'y1',
+                            },
+                            {
+                                label: '1er side-out %',
+                                data: history.map((h) => h.first_sideout_efficacite_pct || 0),
+                                borderColor: '#FACC15',
+                                backgroundColor: 'transparent',
+                                borderDash: [7, 4],
+                                tension: 0.35,
+                                yAxisID: 'y1',
+                            },
+                            {
+                                label: 'Break ratio %',
+                                data: history.map((h) => h.break_point_ratio_pct || 0),
+                                borderColor: '#a855f7',
+                                backgroundColor: 'transparent',
+                                borderDash: [2, 4],
+                                tension: 0.35,
+                                yAxisID: 'y1',
+                            },
+                        ],
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: { beginAtZero: true, ticks: { color: '#a1a1aa' }, grid: { color: 'rgba(39, 39, 42, 0.6)' } },
+                            y1: {
+                                beginAtZero: true,
+                                max: 100,
+                                position: 'right',
+                                ticks: { color: '#a1a1aa', callback: (v) => `${v}%` },
+                                grid: { drawOnChartArea: false },
+                            },
+                            x: { ticks: { color: '#a1a1aa' }, grid: { display: false } },
+                        },
+                        plugins: { legend: { labels: { color: '#d4d4d8' } } },
+                    },
+                    });
+                }
+            } catch (err) {
+                console.warn('Erreur renderTeamCharts', err);
+            }
+        },
+
+        renderPlayerCharts() {
+            const player = this.selectedPlayer();
+            if (!player) return;
+            if (typeof Chart === 'undefined') {
+                console.warn('Chart.js indisponible pour renderPlayerCharts');
+                return;
+            }
+
+            try {
+                if (this.charts.playerHistory) this.charts.playerHistory.destroy();
+                if (this.charts.playerSet) this.charts.playerSet.destroy();
+
+                const history = [...(player.history || [])].reverse();
+                const historyCtx = document.getElementById('player-history-chart');
+                if (historyCtx) {
+                    this.charts.playerHistory = new Chart(historyCtx, {
+                    type: 'line',
+                    data: {
+                        labels: ['Actuel', ...history.map((h) => h.label)],
+                        datasets: [
+                            {
+                                label: 'Points joués',
+                                data: [player.points_joues || 0, ...history.map((h) => h.points_joues || 0)],
+                                borderColor: '#FACC15',
+                                backgroundColor: 'rgba(250, 204, 21, 0.12)',
+                                fill: true,
+                                tension: 0.35,
+                            },
+                            {
+                                label: 'Efficacité %',
+                                data: [player.efficacite_pct || 0, ...history.map((h) => h.efficacite_pct || 0)],
+                                borderColor: '#22c55e',
+                                backgroundColor: 'transparent',
+                                tension: 0.35,
+                                yAxisID: 'y1',
+                            },
+                            {
+                                label: 'Break ratio %',
+                                data: [player.break_point_ratio_pct || 0, ...history.map((h) => h.break_point_ratio_pct || 0)],
+                                borderColor: '#a855f7',
+                                backgroundColor: 'transparent',
+                                borderDash: [4, 3],
+                                tension: 0.35,
+                                yAxisID: 'y1',
+                            },
+                        ],
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: { beginAtZero: true, ticks: { color: '#a1a1aa' }, grid: { color: 'rgba(39, 39, 42, 0.6)' } },
+                            y1: {
+                                beginAtZero: true,
+                                max: 100,
+                                position: 'right',
+                                ticks: { color: '#a1a1aa', callback: (v) => `${v}%` },
+                                grid: { drawOnChartArea: false },
+                            },
+                            x: { ticks: { color: '#a1a1aa' }, grid: { display: false } },
+                        },
+                        plugins: { legend: { labels: { color: '#d4d4d8' } } },
+                    },
+                    });
+                }
+
+                const perSet = player.detail_services_par_set || [];
+                const setCtx = document.getElementById('player-set-chart');
+                if (setCtx) {
+                    this.charts.playerSet = new Chart(setCtx, {
+                    type: 'bar',
+                    data: {
+                        labels: perSet.map((s) => `Set ${s.set_numero}`),
+                        datasets: [
+                            {
+                                label: 'Services',
+                                data: perSet.map((s) => s.nb_services || 0),
+                                backgroundColor: '#3b82f6',
+                                borderRadius: 8,
+                            },
+                            {
+                                label: 'Meilleure série',
+                                data: perSet.map((s) => s.max_serie || 0),
+                                backgroundColor: '#FACC15',
+                                borderRadius: 8,
+                            },
+                        ],
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            y: { beginAtZero: true, ticks: { color: '#a1a1aa' }, grid: { color: 'rgba(39, 39, 42, 0.6)' } },
+                            x: { ticks: { color: '#a1a1aa' }, grid: { display: false } },
+                        },
+                        plugins: { legend: { labels: { color: '#d4d4d8' } } },
+                    },
+                    });
+                }
+            } catch (err) {
+                console.warn('Erreur renderPlayerCharts', err);
+            }
+        },
+
+        init() {
+            if (!this.selectedPlayerId && this.data.players && this.data.players.length) {
+                this.selectedPlayerId = this.data.players[0].joueur_id;
+            }
+            setTimeout(() => this.renderTeamCharts(), 0);
+        },
+    };
+}

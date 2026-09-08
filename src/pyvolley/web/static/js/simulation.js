@@ -362,7 +362,7 @@
         g.setAttribute('transform', 'translate('+info.coord.x+','+info.coord.y+')');
 
         const fill = info.libero ? '#f59e0b' : (info.team === 'A' ? '#3b82f6' : '#ef4444');
-        const stroke = info.serving ? '#f59e0b' : (info.team === 'A' ? '#2563eb' : '#dc2626');
+        const stroke = info.serving ? '#FACC15' : (info.team === 'A' ? '#2563eb' : '#dc2626');
 
         const circle = document.createElementNS(ns, 'circle');
         circle.setAttribute('class', 'player-bg');
@@ -391,7 +391,7 @@
         const srvT = document.createElementNS(ns, 'text');
         srvT.setAttribute('class','serve-icon');
         srvT.setAttribute('text-anchor','middle'); srvT.setAttribute('y',-32);
-        srvT.setAttribute('fill','#f59e0b'); srvT.setAttribute('font-size','14');
+        srvT.setAttribute('fill','#FACC15'); srvT.setAttribute('font-size','14');
         srvT.textContent = '🏐';
         srvT.style.opacity = info.serving ? 1 : 0;
         g.appendChild(srvT);
@@ -412,7 +412,7 @@
         const circle = el.querySelector('.player-bg');
         if (!circle) return;
         const fill = info.libero ? '#f59e0b' : (info.team === 'A' ? '#3b82f6' : '#ef4444');
-        const stroke = info.serving ? '#f59e0b' : (info.team === 'A' ? '#2563eb' : '#dc2626');
+        const stroke = info.serving ? '#FACC15' : (info.team === 'A' ? '#2563eb' : '#dc2626');
         circle.setAttribute('fill', fill);
         circle.setAttribute('stroke', stroke);
         circle.setAttribute('stroke-width', info.serving ? 3 : 1.5);

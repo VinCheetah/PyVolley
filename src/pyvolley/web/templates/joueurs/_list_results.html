@@ -1,0 +1,56 @@
+{# ═══════════════════════════════════════════════════════════════
+   PyVolley — Joueurs List Results Fragment (HTMX Target)
+   ═══════════════════════════════════════════════════════════════ #}
+
+{% from "macros/ui.html" import pagination %}
+
+<div id="joueurs-results" class="space-y-4">
+    <div class="flex items-center justify-between text-xs px-1" style="color: var(--text-muted);">
+        <span>{{ total }} joueur{{ 's' if total > 1 }} trouvé{{ 's' if total > 1 }}</span>
+        {% if query or genre %}
+        <span class="flex items-center gap-2">
+            {% if query %}<span class="badge">Recherche: {{ query }}</span>{% endif %}
+            {% if genre %}<span class="badge badge-yellow">{{ genre }}</span>{% endif %}
+        </span>
+        {% endif %}
+    </div>
+
+    <!-- Players Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {% for j in joueurs %}
+        <a href="/joueurs/{{ j.id }}"
+           class="card card-interactive p-4 flex items-center gap-3.5 no-underline group">
+            <!-- Avatar / Initials -->
+            <div class="w-11 h-11 rounded-xl flex items-center justify-center font-black text-sm flex-shrink-0 transition-transform group-hover:scale-105"
+                 style="background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-primary);">
+                {{ (j.nom[:1] ~ (j.prenom[:1] if j.prenom else ''))|upper }}
+            </div>
+
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-1.5">
+                    <h3 class="font-bold text-sm text-white group-hover:underline transition truncate">
+                        {{ j.nom }} {{ j.prenom }}
+                    </h3>
+                </div>
+                <div class="flex items-center gap-2 text-xs mt-1" style="color: var(--text-muted);">
+                    <span class="font-mono text-[0.7rem] px-1.5 py-0.5 rounded" style="background: var(--bg-secondary); border: 1px solid var(--border-color);">Lic. {{ j.licence }}</span>
+                    {% if j.club %}
+                    <span class="truncate text-xs">{{ j.club.nom }}</span>
+                    {% endif %}
+                </div>
+            </div>
+
+            <i data-lucide="chevron-right" class="w-4 h-4 text-zinc-500 group-hover:text-white group-hover:translate-x-0.5 transition flex-shrink-0"></i>
+        </a>
+        {% else %}
+        <div class="col-span-full text-center py-12 card border-dashed">
+            <i data-lucide="user-x" class="w-8 h-8 mx-auto mb-2 text-zinc-500"></i>
+            <p class="text-sm font-semibold text-zinc-300">Aucun joueur trouvé</p>
+            <p class="text-xs text-zinc-500 mt-1">Essayez d'ajuster votre recherche ou réinitialisez les filtres.</p>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Pagination -->
+    {{ pagination(page, has_prev, has_next, '/joueurs', guard=true) }}
+</div>

@@ -1,169 +1,184 @@
 {% extends "base.html" %}
-{% from "macros/ui.html" import stat_card %}
+{% from "macros/stats_cards.html" import metric_card %}
+{% from "macros/badges.html" import niveau_badge %}
 {% block title %}PyVolley — Tableau de bord{% endblock %}
 
 {% block content %}
-<div class="space-y-8">
+<div class="space-y-6">
 
-    <!-- Hero Section -->
-    <section class="hero-card">
-        <div class="relative z-10 max-w-2xl">
-            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold mb-4 bg-tint-blue border border-accent-blue/30 text-accent-blue-light">
-                <span class="pulse-dot"></span> Données FFVB & Statistiques
-            </div>
-            <h1 class="text-4xl md:text-5xl font-black tracking-tight mb-3">
-                <span class="gradient-text">PyVolley</span>
-            </h1>
-            <p class="text-base md:text-lg text-secondary mb-6 leading-relaxed">
-                Explorez les statistiques, les rejeux de matchs, les performances des joueurs et l'historique des clubs du volleyball français.
-            </p>
-            <form action="/search" method="get" class="relative max-w-xl">
-                <i data-lucide="search" class="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-muted"></i>
-                <input type="text" name="q"
-                       placeholder="Rechercher un joueur, une équipe, un club, un arbitre..."
-                       class="search-input text-base py-3.5 pl-12 pr-32">
-                <button type="submit"
-                        class="btn-primary absolute right-2 top-1/2 -translate-y-1/2 px-5 py-2 text-sm">
-                    Rechercher
-                </button>
-            </form>
-        </div>
-        <!-- Decorative volleyball -->
-        <div class="absolute right-6 top-1/2 -translate-y-1/2 text-8xl opacity-15 select-none hidden md:block pointer-events-none transform hover:scale-110 transition">
-            🏐
-        </div>
-    </section>
+    <!-- Page Header -->
+    <div class="page-header">
+        <h1 class="page-title">Tableau de bord</h1>
+        <p class="page-subtitle">Vue d'ensemble des données volleyball FFVB</p>
+    </div>
 
     <!-- Stats Cards -->
-    <section class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4">
-        {{ stat_card(stats.matchs, 'Matchs', href='/matchs') }}
-        {{ stat_card(stats.joueurs, 'Joueurs', href='/joueurs', gradient='linear-gradient(135deg, #22c55e, #06b6d4)') }}
-        {{ stat_card(stats.equipes, 'Équipes', href='/equipes', gradient='linear-gradient(135deg, #a855f7, #3b82f6)') }}
-        {{ stat_card(stats.clubs, 'Clubs', href='/clubs', gradient='linear-gradient(135deg, #f59e0b, #ef4444)') }}
-        {{ stat_card(stats.arbitres, 'Arbitres', href='/arbitres', gradient='linear-gradient(135deg, #06b6d4, #a855f7)') }}
-        {{ stat_card(stats.competitions, 'Compétitions', href='/competitions', gradient='linear-gradient(135deg, #ef4444, #f59e0b)') }}
+    <section class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <a href="/matchs" class="no-underline block">
+            {{ metric_card('Matchs', stats.matchs, icon='swords', color='#3b82f6') }}
+        </a>
+        <a href="/joueurs" class="no-underline block">
+            {{ metric_card('Joueurs', stats.joueurs, icon='users', color='#22c55e') }}
+        </a>
+        <a href="/equipes" class="no-underline block">
+            {{ metric_card('Équipes', stats.equipes, icon='shield', color='#a855f7') }}
+        </a>
+        <a href="/clubs" class="no-underline block">
+            {{ metric_card('Clubs', stats.clubs, icon='building-2', color='#f59e0b') }}
+        </a>
+        <a href="/competitions" class="no-underline block">
+            {{ metric_card('Compétitions', stats.competitions, icon='trophy', color='#ef4444') }}
+        </a>
+        <a href="/arbitres" class="no-underline block">
+            {{ metric_card('Arbitres', stats.arbitres, icon='flag', color='#06b6d4') }}
+        </a>
     </section>
 
     <!-- Charts Row -->
-    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <!-- Matchs par saison -->
-        <div class="card p-6">
-            <h3 class="section-title mb-4">
-                <i data-lucide="bar-chart-3" class="w-4 h-4 inline-block mr-1 text-accent-blue"></i>
+        <div class="card p-5">
+            <h3 class="section-title mb-3 flex items-center gap-1.5">
+                <i data-lucide="bar-chart-3" class="w-3.5 h-3.5"></i>
                 Matchs par saison
             </h3>
-            <div style="height: 250px;">
+            <div style="height: 240px;">
                 <canvas id="chartSaison"></canvas>
             </div>
         </div>
 
         <!-- Matchs par mois -->
-        <div class="card p-6">
-            <h3 class="section-title mb-4">
-                <i data-lucide="trending-up" class="w-4 h-4 inline-block mr-1 text-accent-cyan"></i>
+        <div class="card p-5">
+            <h3 class="section-title mb-3 flex items-center gap-1.5">
+                <i data-lucide="trending-up" class="w-3.5 h-3.5"></i>
                 Activité mensuelle
             </h3>
-            <div style="height: 250px;">
+            <div style="height: 240px;">
                 <canvas id="chartMois"></canvas>
             </div>
         </div>
     </section>
 
     <!-- Quick Navigation -->
-    <section class="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <a href="/joueurs" class="card card-interactive p-6 flex items-start gap-4 no-underline group">
+    <section class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <a href="/joueurs" class="card card-interactive p-5 flex items-start gap-3 no-underline group">
             <div class="icon-highlight-box bg-tint-blue group-hover:scale-110 transition">
-                <i data-lucide="users" class="w-5 h-5 text-accent-blue"></i>
+                <i data-lucide="users" class="w-4 h-4 text-accent-blue"></i>
             </div>
-            <div class="flex-1">
-                <h3 class="font-semibold text-white mb-1 group-hover:text-accent-blue-light transition">Joueurs</h3>
-                <p class="text-sm text-secondary">Rechercher et consulter les fiches joueurs et leurs statistiques détaillées</p>
+            <div class="flex-1 min-w-0">
+                <h3 class="font-semibold text-primary mb-0.5 text-sm">Joueurs</h3>
+                <p class="text-xs text-secondary">Profils tactiques, rôles bayésiens et historique</p>
             </div>
-            <i data-lucide="arrow-right" class="w-4 h-4 text-muted group-hover:text-accent-blue group-hover:translate-x-1 transition self-center"></i>
+            <i data-lucide="arrow-right" class="w-4 h-4 text-muted group-hover:text-accent-primary group-hover:translate-x-1 transition self-center"></i>
         </a>
-        <a href="/matchs" class="card card-interactive p-6 flex items-start gap-4 no-underline group">
+        <a href="/matchs" class="card card-interactive p-5 flex items-start gap-3 no-underline group">
             <div class="icon-highlight-box bg-tint-red group-hover:scale-110 transition">
-                <i data-lucide="swords" class="w-5 h-5 text-accent-red"></i>
+                <i data-lucide="swords" class="w-4 h-4 text-accent-red"></i>
             </div>
-            <div class="flex-1">
-                <h3 class="font-semibold text-white mb-1 group-hover:text-accent-red-light transition">Matchs</h3>
-                <p class="text-sm text-secondary">Feuilles de match détaillées avec analyse de momentum et simulation</p>
+            <div class="flex-1 min-w-0">
+                <h3 class="font-semibold text-primary mb-0.5 text-sm">Matchs</h3>
+                <p class="text-xs text-secondary">Rejeu de sets, rotations et momentum</p>
             </div>
-            <i data-lucide="arrow-right" class="w-4 h-4 text-muted group-hover:text-accent-red group-hover:translate-x-1 transition self-center"></i>
+            <i data-lucide="arrow-right" class="w-4 h-4 text-muted group-hover:text-accent-primary group-hover:translate-x-1 transition self-center"></i>
         </a>
-        <a href="/statistiques" class="card card-interactive p-6 flex items-start gap-4 no-underline group">
-            <div class="icon-highlight-box bg-tint-gold group-hover:scale-110 transition">
-                <i data-lucide="bar-chart" class="w-5 h-5 text-accent-gold"></i>
+        <a href="/statistiques" class="card card-interactive p-5 flex items-start gap-3 no-underline group">
+            <div class="icon-highlight-box bg-tint-primary group-hover:scale-110 transition">
+                <i data-lucide="bar-chart" class="w-4 h-4 text-accent-primary"></i>
             </div>
-            <div class="flex-1">
-                <h3 class="font-semibold text-white mb-1 group-hover:text-accent-gold transition">Statistiques</h3>
-                <p class="text-sm text-secondary">Graphiques globaux, tendances d'activité et records du volleyball</p>
+            <div class="flex-1 min-w-0">
+                <h3 class="font-semibold text-primary mb-0.5 text-sm">Statistiques</h3>
+                <p class="text-xs text-secondary">Vue d'ensemble, niveaux et classements</p>
             </div>
-            <i data-lucide="arrow-right" class="w-4 h-4 text-muted group-hover:text-accent-gold group-hover:translate-x-1 transition self-center"></i>
+            <i data-lucide="arrow-right" class="w-4 h-4 text-muted group-hover:text-accent-primary group-hover:translate-x-1 transition self-center"></i>
         </a>
     </section>
 
     <!-- Derniers matchs -->
     {% if derniers_matchs %}
     <section class="card overflow-hidden">
-        <div class="px-6 py-4 flex items-center justify-between border-b">
-            <h2 class="font-semibold flex items-center gap-2">
-                <i data-lucide="clock" class="w-4 h-4 text-accent-blue"></i>
-                Derniers matchs
+        <div class="px-5 py-3 flex items-center justify-between border-b">
+            <h2 class="font-bold flex items-center gap-2 text-primary text-sm">
+                <i data-lucide="calendar-check" class="w-4 h-4 text-accent-primary"></i>
+                Derniers matchs joués
             </h2>
-            <a href="/matchs" class="text-sm text-accent-blue transition">Voir tous →</a>
+            <a href="/matchs" class="text-xs font-semibold text-muted hover:text-accent-primary transition-colors flex items-center gap-1 no-underline">
+                Voir tous <i data-lucide="arrow-right" class="w-3 h-3"></i>
+            </a>
         </div>
-        <div class="overflow-x-auto">
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Date</th>
-                        <th>Équipe A</th>
-                        <th class="text-center">Score</th>
-                        <th>Équipe B</th>
-                        <th>Lieu</th>
-                        <th class="text-center">Détails</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for match in derniers_matchs %}
-                    <tr>
-                        <td class="whitespace-nowrap text-secondary">
-                            {{ match.date_match|format_date }}
-                        </td>
-                        <td>
+
+        <div class="divide-y">
+            {% for match in derniers_matchs %}
+            <div class="px-5 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3 transition" style="hover: rgba(255,255,255,0.02);">
+                <!-- Left: Competition, Date -->
+                <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2 mb-1.5 flex-wrap">
+                        {% if match.competition %}
+                            {{ niveau_badge(match.competition.niveau, match.competition.nom, size='sm') }}
+                            <span class="text-xs text-muted truncate" style="max-width: 220px;">{{ match.competition.nom }}</span>
+                        {% endif %}
+                        <span class="text-xs text-muted font-mono">{{ match.date_match|format_date }}</span>
+                        {% if match.lieu %}
+                        <span class="text-xs text-muted flex items-center gap-1 truncate" style="max-width: 180px;">
+                            <i data-lucide="map-pin" class="w-3 h-3"></i>
+                            {{ match.lieu }}
+                        </span>
+                        {% endif %}
+                    </div>
+
+                    <!-- Teams matchup -->
+                    <div class="flex items-center gap-2 text-sm">
+                        <div class="flex items-center gap-1.5 font-semibold min-w-0 {% if match.sets_equipe_a is not none and match.sets_equipe_b is not none and match.sets_equipe_a > match.sets_equipe_b %}text-primary{% else %}text-secondary{% endif %}">
+                            <span class="w-2 h-2 rounded-full flex-shrink-0" style="background: var(--team-a);"></span>
                             {% if match.equipe_a %}
-                            <a href="{{ path_for_entity('equipe', match.equipe_a.id) }}" class="font-medium">
-                                {{ match.equipe_a.nom|truncate_name(25) }}
+                            <a href="{{ path_for_entity('equipe', match.equipe_a.id) }}" class="truncate no-underline" style="color: inherit;">
+                                {{ match.equipe_a.nom }}
                             </a>
                             {% else %}-{% endif %}
-                        </td>
-                        <td class="text-center">
-                            {% if match.score_sets %}
-                            <span class="font-bold text-lg">
-                                <span class="score-team-a">{{ match.sets_equipe_a }}</span>
-                                <span class="text-muted">-</span>
-                                <span class="score-team-b">{{ match.sets_equipe_b }}</span>
-                            </span>
-                            {% else %}<span class="text-muted">—</span>{% endif %}
-                        </td>
-                        <td>
+                        </div>
+                        <span class="text-xs text-muted font-bold">VS</span>
+                        <div class="flex items-center gap-1.5 font-semibold min-w-0 {% if match.sets_equipe_a is not none and match.sets_equipe_b is not none and match.sets_equipe_b > match.sets_equipe_a %}text-primary{% else %}text-secondary{% endif %}">
+                            <span class="w-2 h-2 rounded-full flex-shrink-0" style="background: var(--team-b);"></span>
                             {% if match.equipe_b %}
-                            <a href="{{ path_for_entity('equipe', match.equipe_b.id) }}" class="font-medium">
-                                {{ match.equipe_b.nom|truncate_name(25) }}
+                            <a href="{{ path_for_entity('equipe', match.equipe_b.id) }}" class="truncate no-underline" style="color: inherit;">
+                                {{ match.equipe_b.nom }}
                             </a>
                             {% else %}-{% endif %}
-                        </td>
-                        <td class="text-secondary">{{ match.lieu|truncate_name(20) }}</td>
-                        <td class="text-center">
-                            <a href="{{ path_for_entity('match', match.id) }}" class="badge badge-blue">
-                                {% if match.has_details %}Détails{% else %}Voir{% endif %}
-                            </a>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: Score + Action -->
+                <div class="flex items-center justify-between md:justify-end gap-3 flex-shrink-0">
+                    {% if match.score_sets %}
+                    <div class="flex items-center gap-2">
+                        <div class="text-lg font-black font-mono tracking-wider px-3 py-1 rounded-lg" style="background: var(--bg-card-hover); border: 1px solid var(--border-color);">
+                            <span class="{% if match.sets_equipe_a is not none and match.sets_equipe_b is not none and match.sets_equipe_a > match.sets_equipe_b %}score-team-a{% else %}text-secondary{% endif %}">{{ match.sets_equipe_a }}</span>
+                            <span class="text-muted">-</span>
+                            <span class="{% if match.sets_equipe_a is not none and match.sets_equipe_b is not none and match.sets_equipe_b > match.sets_equipe_a %}score-team-b{% else %}text-secondary{% endif %}">{{ match.sets_equipe_b }}</span>
+                        </div>
+                        {% if match.sets %}
+                        <div class="hidden sm:flex items-center gap-1 text-xs font-mono text-muted">
+                            {% for s in match.sets %}
+                            <span class="px-1 py-0.5 rounded" style="background: var(--bg-card-hover); border: 1px solid var(--border-color-subtle);">{{ s.score_a or 0 }}-{{ s.score_b or 0 }}</span>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% else %}
+                    <span class="text-xs text-muted font-mono italic">Non joué</span>
+                    {% endif %}
+
+                    <a href="{{ path_for_entity('match', match.id) }}"
+                       class="btn-primary text-xs py-1.5 px-3 no-underline">
+                        {% if match.has_details %}
+                        <i data-lucide="activity" class="w-3 h-3"></i> Analyse
+                        {% else %}
+                        <i data-lucide="eye" class="w-3 h-3"></i> Feuille
+                        {% endif %}
+                    </a>
+                </div>
+            </div>
+            {% endfor %}
         </div>
     </section>
     {% endif %}
@@ -184,10 +199,10 @@ document.addEventListener('DOMContentLoaded', function() {
                 labels: saisonData.map(d => d.saison),
                 datasets: [{
                     data: saisonData.map(d => d.count),
-                    backgroundColor: 'rgba(59, 130, 246, 0.6)',
-                    borderColor: C.colors.blue,
+                    backgroundColor: saisonData.map((_, i) => i === saisonData.length - 1 ? 'rgba(250, 204, 21, 0.85)' : 'rgba(161, 161, 170, 0.25)'),
+                    borderColor: saisonData.map((_, i) => i === saisonData.length - 1 ? C.colors.primary : 'rgba(161, 161, 170, 0.4)'),
                     borderWidth: 1,
-                    borderRadius: 6,
+                    borderRadius: 4,
                 }],
             },
         });
@@ -202,12 +217,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 labels: moisData.map(d => `${moisNoms[d.month]} ${d.year}`),
                 datasets: [{
                     data: moisData.map(d => d.count),
-                    borderColor: C.colors.cyan,
-                    backgroundColor: 'rgba(6, 182, 212, 0.1)',
+                    borderColor: C.colors.primary,
+                    backgroundColor: 'rgba(250, 204, 21, 0.06)',
                     fill: true,
                     tension: 0.4,
-                    pointRadius: 3,
-                    pointBackgroundColor: C.colors.cyan,
+                    pointRadius: 2,
+                    pointBackgroundColor: C.colors.primary,
+                    borderWidth: 2,
                 }],
             },
         });

@@ -8,6 +8,9 @@ et les variables globales disponibles dans tous les templates.
 from pathlib import Path
 from datetime import date as dt_date
 
+from urllib.parse import urlencode
+from jinja2 import pass_context
+
 from fastapi.templating import Jinja2Templates
 
 from pyvolley.web.helpers.niveau import resolve_niveau_badge
@@ -116,7 +119,35 @@ def competition_url_for_equipe(equipe, fallback: str = "#") -> str:
     return fallback
 
 
+from pyvolley.core.constants import ROLE_COLORS, ROLE_LABELS, get_role_label
+
+@pass_context
+def update_query_string(context, **kwargs) -> str:
+    """Met à jour les paramètres de requête de l'URL courante.
+
+    Permet d'ajouter, modifier ou supprimer des paramètres (si value est None ou '').
+    """
+    request = context.get("request")
+    if not request:
+        valid_kwargs = {k: v for k, v in kwargs.items() if v is not None and v != ""}
+        return f"?{urlencode(valid_kwargs)}" if valid_kwargs else "?"
+
+    params = dict(request.query_params)
+    for k, v in kwargs.items():
+        if v is None or v == "":
+            params.pop(k, None)
+        else:
+            params[k] = str(v)
+
+    query_str = urlencode(params)
+    return f"?{query_str}" if query_str else "?"
+
+
 templates.env.globals["now_date"] = lambda: dt_date.today().isoformat()
 templates.env.globals["resolve_niveau_badge"] = resolve_niveau_badge
 templates.env.globals["path_for_entity"] = path_for_entity
 templates.env.globals["competition_url_for_equipe"] = competition_url_for_equipe
+templates.env.globals["get_role_label"] = get_role_label
+templates.env.globals["ROLE_COLORS"] = ROLE_COLORS
+templates.env.globals["ROLE_LABELS"] = ROLE_LABELS
+templates.env.globals["update_query_string"] = update_query_string

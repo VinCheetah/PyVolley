@@ -99,6 +99,13 @@ def poule_detail(
         key=lambda p: p.code,
     )
 
+    # Calcul des journées uniques pour filtrage interactif
+    journees_set = {m.journee for m in matchs if m.journee}
+    journees_disponibles = sorted(
+        list(journees_set),
+        key=lambda j: int(j) if j.isdigit() else 999,
+    )
+
     return templates.TemplateResponse(
         "poules/detail.html",
         {
@@ -111,5 +118,6 @@ def poule_detail(
             "nb_equipes": len(equipe_ids),
             "sibling_poules": sibling_poules,
             "is_youth": is_youth,
+            "journees_disponibles": journees_disponibles,
         },
     )

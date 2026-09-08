@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "macros/ui.html" import breadcrumb %}
+{% from "macros/badges.html" import role_badge %}
 {% from "macros/map.html" import map_head, map_card %}
 {% block title %}{{ equipe.nom }} - PyVolley{% endblock %}
 {% block extra_head %}
@@ -218,10 +219,12 @@
                             </td>
                             <td class="text-center">
                                 {% if role.primary_code %}
-                                <span class="badge badge-blue text-xs">{{ role.primary_label }}</span>
-                                {% if role.is_multi_role %}
-                                <span class="badge badge-gold text-xs">Polyvalent</span>
-                                {% endif %}
+                                <div class="inline-flex items-center gap-1">
+                                    {{ role_badge(role.primary_code, role.confidence_pct, size='sm') }}
+                                    {% if role.is_multi_role %}
+                                    <span class="badge badge-gold text-[0.65rem]">Polyvalent</span>
+                                    {% endif %}
+                                </div>
                                 {% else %}
                                 <span style="color: var(--text-muted);">—</span>
                                 {% endif %}

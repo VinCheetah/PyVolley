@@ -9,7 +9,7 @@
     <!-- ═══ Header ═══ -->
     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <h1 class="text-2xl font-bold flex items-center gap-2">
-            <i data-lucide="swords" class="w-6 h-6" style="color: var(--accent-red);"></i>
+            <i data-lucide="swords" class="w-6 h-6" style="color: var(--accent-primary);"></i>
             Matchs
             <span class="badge">{{ total }}</span>
         </h1>
@@ -35,7 +35,7 @@
                     <span class="filter-date-hint">Format : jj/mm/aaaa</span>
                 </div>
                 <div class="flex gap-2">
-                    <button type="submit" class="pagination-btn" style="background: var(--accent-blue); color: white; border-color: var(--accent-blue);">Filtrer</button>
+                    <button type="submit" class="pagination-btn btn-primary">Filtrer</button>
                     <a href="/matchs" class="pagination-btn">Réinitialiser</a>
                 </div>
                 {% if selected_departements and selected_departements|length > 0 %}

@@ -1,0 +1,216 @@
+{# ═══════════════════════════════════════════════════════════════
+   Match Detail — Résumé Tab
+   Information card, sets breakdown table, cumulative match momentum chart
+   ═══════════════════════════════════════════════════════════════ #}
+
+<div x-show="activeTab === 'resume'" class="space-y-6">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- Informations -->
+    <div class="card p-6">
+        <h3 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+            <i data-lucide="info" class="w-4 h-4 inline-block mr-1"></i> Informations
+        </h3>
+        <dl class="space-y-3">
+            <div class="flex justify-between items-center py-1" style="border-bottom: 1px solid var(--border-color-subtle);">
+                <dt style="color: var(--text-secondary);">Code match</dt>
+                <dd class="font-mono font-medium">{{ match.code_match }}</dd>
+            </div>
+            {% if match.competition %}
+            <div class="flex justify-between items-center py-1" style="border-bottom: 1px solid var(--border-color-subtle);">
+                <dt style="color: var(--text-secondary);">Compétition</dt>
+                <dd class="font-medium text-right max-w-xs">
+                    <a href="{{ path_for_entity('competition', match.competition.id) }}" class="hover:text-white transition" style="color: var(--text-primary);">{{ match.competition.nom }}</a>
+                </dd>
+            </div>
+            {% endif %}
+            {% if match.poule %}
+            <div class="flex justify-between items-center py-1" style="border-bottom: 1px solid var(--border-color-subtle);">
+                <dt style="color: var(--text-secondary);">Poule</dt>
+                <dd class="font-medium">{{ match.poule.nom or match.poule.code }}</dd>
+            </div>
+            {% endif %}
+            {% if match.journee %}
+            <div class="flex justify-between items-center py-1" style="border-bottom: 1px solid var(--border-color-subtle);">
+                <dt style="color: var(--text-secondary);">Journée</dt>
+                <dd class="font-medium">{{ match.journee }}</dd>
+            </div>
+            {% endif %}
+            {% if match.forfait %}
+            <div class="flex justify-between items-center py-1" style="border-bottom: 1px solid var(--border-color-subtle);">
+                <dt style="color: var(--text-secondary);">Forfait</dt>
+                <dd>
+                    <span class="badge badge-red">
+                        <i data-lucide="alert-circle" class="w-3 h-3 mr-1"></i> Match forfait
+                    </span>
+                </dd>
+            </div>
+            {% endif %}
+            {% if match.saison %}
+            <div class="flex justify-between items-center py-1" style="border-bottom: 1px solid var(--border-color-subtle);">
+                <dt style="color: var(--text-secondary);">Saison</dt>
+                <dd class="font-medium">{{ match.saison.code }}</dd>
+            </div>
+            {% endif %}
+            {% if match.lieu %}
+            <div class="flex justify-between items-center py-1" style="border-bottom: 1px solid var(--border-color-subtle);">
+                <dt style="color: var(--text-secondary);">Lieu</dt>
+                <dd class="font-medium">{{ match.lieu }}</dd>
+            </div>
+            {% endif %}
+            {% if match.salle %}
+            <div class="flex justify-between items-center py-1" style="border-bottom: 1px solid var(--border-color-subtle);">
+                <dt style="color: var(--text-secondary);">Salle</dt>
+                <dd class="font-medium">{{ match.salle }}</dd>
+            </div>
+            {% endif %}
+            {% if match.duree_totale %}
+            <div class="flex justify-between items-center py-1" style="border-bottom: 1px solid var(--border-color-subtle);">
+                <dt style="color: var(--text-secondary);">Durée totale</dt>
+                <dd class="font-medium">{{ match.duree_totale }}</dd>
+            </div>
+            {% endif %}
+            {% if match.score_export or match.score_pdf %}
+            <div class="flex justify-between items-start py-1" style="border-bottom: 1px solid var(--border-color-subtle);">
+                <dt style="color: var(--text-secondary);">Scores</dt>
+                <dd class="text-right">
+                    {% if match.score_conflict %}
+                    <div class="flex flex-col items-end gap-1">
+                        <span class="badge badge-green" title="Feuille de match parsée">PDF {{ match.score_pdf or '—' }}</span>
+                        <span class="badge badge-purple" title="Scraping global">Scrape {{ match.score_export or '—' }}</span>
+                    </div>
+                    {% elif match.score_pdf %}
+                    <span class="badge badge-green" title="Feuille de match parsée">PDF {{ match.score_pdf }}</span>
+                    {% else %}
+                    <span class="badge badge-purple" title="Scraping global">Scrape {{ match.score_export }}</span>
+                    {% endif %}
+                </dd>
+            </div>
+            {% endif %}
+            {% if match.competition and match.competition.entite and match.saison %}
+            <div class="flex justify-between items-center py-1" style="{% if match.source_url %}border-bottom: 1px solid var(--border-color-subtle);{% endif %}">
+                <dt style="color: var(--text-secondary);">Feuille de match</dt>
+                <dd>
+                    <a href="https://www.ffvbbeach.org/ffvbapp/resu/ffvolley_fdme.php?saison={{ match.saison.code|replace('-', '/') }}&codent={{ match.competition.entite.code }}&codmatch={{ match.code_match }}"
+                       target="_blank" rel="noopener noreferrer"
+                       class="badge badge-green hover:opacity-80 transition">
+                        <i data-lucide="file-text" class="w-3 h-3 mr-1"></i> Voir sur FFVB
+                        <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
+                    </a>
+                </dd>
+            </div>
+            {% endif %}
+            {% if match.source_url %}
+            <div class="flex justify-between items-center py-1">
+                <dt style="color: var(--text-secondary);">Lien FFVB</dt>
+                <dd>
+                    <a href="{{ match.source_url }}"
+                       target="_blank" rel="noopener noreferrer"
+                       class="badge badge-purple hover:opacity-80 transition">
+                        <i data-lucide="globe" class="w-3 h-3 mr-1"></i> Page match
+                        <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
+                    </a>
+                </dd>
+            </div>
+            {% elif match.source_pdf %}
+            <div class="flex justify-between items-center py-1">
+                <dt style="color: var(--text-secondary);">Source</dt>
+                <dd class="font-mono text-xs" style="color: var(--text-muted);">
+                    <i data-lucide="file-text" class="w-3 h-3 inline mr-1"></i>PDF importé
+                </dd>
+            </div>
+            {% endif %}
+        </dl>
+    </div>
+
+    <!-- Sets summary -->
+    <div class="card p-6">
+        <h3 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+            <i data-lucide="layers" class="w-4 h-4 inline-block mr-1"></i> Détail des sets
+        </h3>
+        {% if match.sets %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Set</th>
+                    <th class="text-center" style="color: var(--team-a-light);">{{ match.equipe_a.nom|truncate_name(12) if match.equipe_a else 'A' }}</th>
+                    <th class="text-center" style="color: var(--team-b-light);">{{ match.equipe_b.nom|truncate_name(12) if match.equipe_b else 'B' }}</th>
+                    <th class="text-center">Durée</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for set in match.sets %}
+                <tr class="cursor-pointer" @click="activeSet = {{ set.numero }}; activeTab = 'sets'">
+                    <td class="font-medium">Set {{ set.numero }}</td>
+                    <td class="text-center font-bold {% if set.score_a is not none and set.score_b is not none and set.score_a > set.score_b %}score-team-a{% endif %}">
+                        {{ set.score_a or 0 }}
+                    </td>
+                    <td class="text-center font-bold {% if set.score_a is not none and set.score_b is not none and set.score_b > set.score_a %}score-team-b{% endif %}">
+                        {{ set.score_b or 0 }}
+                    </td>
+                    <td class="text-center" style="color: var(--text-muted);">
+                        {% if set.duree_minutes %}{{ set.duree_minutes }} min{% elif set.heure_debut and set.heure_fin %}{{ set.heure_debut }} - {{ set.heure_fin }}{% else %}-{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-center py-6" style="color: var(--text-muted);">Pas de détails de sets disponibles</p>
+        {% endif %}
+
+        {% if match.remarques %}
+        <div class="mt-4 p-3 rounded-lg text-sm" style="background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.2); color: var(--accent-gold);">
+            <i data-lucide="info" class="w-4 h-4 inline-block mr-1"></i>
+            {{ match.remarques }}
+        </div>
+        {% endif %}
+    </div>
+
+    </div>
+
+    {% if match.equipe_a and match.equipe_a.club %}
+    <!-- Lieu du match & Accès -->
+    {{ map_card(
+        entity_type="salle",
+        club_id=match.equipe_a.club.id,
+        title="Localisation de la salle & Accès",
+        height="320px",
+        show_filter=False,
+        show_search=False,
+        show_legend=False
+    ) }}
+    {% endif %}
+
+    {% if has_point_timeline|default(false) %}
+    <div class="card p-6">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <h3 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                <i data-lucide="trending-up" class="w-4 h-4 inline-block mr-1"></i> Évolution du match (cumulée)
+            </h3>
+            <div class="momentum-legend">
+                <span class="momentum-legend-item"><span class="momentum-dot momentum-dot-a"></span>{{ match.equipe_a.nom|truncate_name(20) if match.equipe_a else 'Équipe A' }}</span>
+                <span class="momentum-legend-item"><span class="momentum-dot momentum-dot-b"></span>{{ match.equipe_b.nom|truncate_name(20) if match.equipe_b else 'Équipe B' }}</span>
+                <span class="momentum-legend-item"><span class="momentum-symbol">◆</span> Changement</span>
+                <span class="momentum-legend-item"><span class="momentum-symbol">●</span> Temps mort</span>
+            </div>
+        </div>
+        <div class="momentum-chart-wrap">
+            <canvas id="match-momentum-total"></canvas>
+        </div>
+        {% if momentum_debug %}
+        <div id="momentum-health" class="text-xs mt-2" style="color: var(--text-secondary);">
+            Vérification visuel : en attente d'initialisation…
+        </div>
+        <div class="mt-3 p-3 rounded-lg text-xs font-mono" style="background: var(--bg-card); border: 1px solid var(--border-color); color: var(--text-secondary);">
+            <div class="font-semibold mb-1" style="color: var(--accent-primary);">Momentum Debug</div>
+            <pre id="momentum-debug-summary" style="white-space: pre-wrap; margin: 0;">Initialisation…</pre>
+        </div>
+        {% else %}
+        <div id="momentum-health" style="display: none;"></div>
+        {% endif %}
+        <div class="text-xs mt-3" style="color: var(--text-muted);">
+            Axe horizontal : points joués cumulés sur tout le match (sans remise à zéro entre les sets). Axe vertical : écart de points (A − B).
+        </div>
+    </div>
+    {% endif %}
+</div>

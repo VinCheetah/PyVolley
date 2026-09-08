@@ -1,0 +1,173 @@
+{# ═══════════════════════════════════════════════════════════════
+   Match Detail — Simulation Tab
+   Interactive point-by-point simulation player with court SVG & controls
+   ═══════════════════════════════════════════════════════════════ #}
+
+{% if match.has_details %}
+<div x-show="activeTab === 'simulation'" x-cloak class="space-y-5">
+
+    <!-- Contrôles de simulation -->
+    <div class="card p-4">
+        <div class="flex flex-wrap items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+                <span class="text-xs font-bold uppercase tracking-wider flex items-center gap-1.5" style="color: var(--text-muted);">
+                    <i data-lucide="play-circle" class="w-4 h-4" style="color: var(--accent-primary);"></i> Simulation
+                </span>
+                <div class="flex gap-1.5" id="sim-set-btns">
+                    {% for set in match.sets %}
+                    <button class="sim-set-btn {% if loop.first %}active{% endif %}" data-set="{{ loop.index0 }}">
+                        Set {{ set.numero }}
+                    </button>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="flex items-center gap-2" id="sim-controls">
+                <button class="sim-btn" id="sim-btn-start" title="Début (Home)">⏮</button>
+                <button class="sim-btn" id="sim-btn-prev" title="Précédent (←)">◀</button>
+                <button class="sim-btn sim-btn-play" id="sim-btn-play" title="Lecture/Pause (Espace)">▶</button>
+                <button class="sim-btn" id="sim-btn-next" title="Suivant (→)">▶</button>
+                <button class="sim-btn" id="sim-btn-end" title="Fin (End)">⏭</button>
+                <div class="sim-timeline" id="sim-timeline">
+                    <div class="sim-timeline-fill" id="sim-timeline-fill"></div>
+                </div>
+                <span class="text-xs font-mono font-medium" style="color: var(--text-secondary);" id="sim-progress">0 / 0</span>
+                <div class="flex items-center gap-2 ml-2 pl-2 border-l border-zinc-800">
+                    <span class="text-xs font-medium" style="color: var(--text-muted);">Vitesse</span>
+                    <input type="range" id="sim-speed" min="1" max="10" value="5" step="1" class="sim-speed-slider">
+                    <span class="text-xs font-mono font-bold" style="color: var(--accent-primary);" id="sim-speed-label">1.0×</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Zone de simulation : Terrain centré -->
+    <div class="flex flex-col items-center gap-4" style="max-width: 580px; margin: 0 auto;">
+
+        <!-- Scoreboard -->
+        <div class="card p-4 w-full" style="background: var(--bg-card); border-color: var(--border-color);">
+            <div class="flex items-center justify-center gap-6">
+                <div class="text-center min-w-0 flex-1">
+                    <div class="text-xs font-bold uppercase truncate" style="color: var(--team-a-light);" id="sim-sb-name-a">
+                        {{ match.equipe_a.nom|truncate_name(18) if match.equipe_a else 'A' }}
+                    </div>
+                    <div class="text-sm mt-0.5" id="sim-serve-a" style="opacity: 0; transition: opacity 0.3s;">🏐</div>
+                </div>
+                <div class="flex items-center gap-3 flex-shrink-0">
+                    <span class="sim-score-value team-a font-mono" id="sim-score-a">0</span>
+                    <span class="text-2xl font-light" style="color: var(--text-muted);">:</span>
+                    <span class="sim-score-value team-b font-mono" id="sim-score-b">0</span>
+                </div>
+                <div class="text-center min-w-0 flex-1">
+                    <div class="text-xs font-bold uppercase truncate" style="color: var(--team-b-light);" id="sim-sb-name-b">
+                        {{ match.equipe_b.nom|truncate_name(18) if match.equipe_b else 'B' }}
+                    </div>
+                    <div class="text-sm mt-0.5" id="sim-serve-b" style="opacity: 0; transition: opacity 0.3s;">🏐</div>
+                </div>
+            </div>
+            <div class="flex justify-center gap-1.5 mt-2" id="sim-sets-chips"></div>
+            <div class="text-center text-xs mt-1 font-mono font-medium" style="color: var(--text-muted);" id="sim-set-label">Set 1</div>
+        </div>
+
+        <!-- Terrain SVG -->
+        <div class="card p-4 relative w-full" style="overflow: hidden; background: var(--bg-card); border-color: var(--border-color);">
+            <svg class="sim-court-svg" viewBox="0 0 500 700" id="sim-court">
+                <defs>
+                    <linearGradient id="simCourtGradA" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#14151b"/>
+                        <stop offset="100%" stop-color="#191c24"/>
+                    </linearGradient>
+                    <linearGradient id="simCourtGradB" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#191c24"/>
+                        <stop offset="100%" stop-color="#181519"/>
+                    </linearGradient>
+                    <filter id="simGlow">
+                        <feGaussianBlur stdDeviation="3" result="blur"/>
+                        <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+                    </filter>
+                </defs>
+                <!-- Demi-terrains A & B -->
+                <rect x="25" y="20" width="450" height="320" rx="6" fill="url(#simCourtGradA)" stroke="rgba(59,130,246,0.18)" stroke-width="1"/>
+                <rect x="25" y="340" width="450" height="340" rx="6" fill="url(#simCourtGradB)" stroke="rgba(239,68,68,0.18)" stroke-width="1"/>
+                <!-- Lignes de délimitation extérieures -->
+                <rect x="25" y="20" width="450" height="660" rx="6" fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2"/>
+                <!-- Filet / Ligne centrale -->
+                <rect x="15" y="334" width="470" height="12" rx="2" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.15)" stroke-width="1"/>
+                <line x1="15" y1="340" x2="485" y2="340" stroke="#f4f4f5" stroke-width="2"/>
+                <!-- Antennes gauche et droite (jaune Spyke) -->
+                <line x1="25" y1="328" x2="25" y2="352" stroke="#FACC15" stroke-width="3" stroke-linecap="round"/>
+                <line x1="475" y1="328" x2="475" y2="352" stroke="#FACC15" stroke-width="3" stroke-linecap="round"/>
+                <text x="250" y="343" text-anchor="middle" fill="rgba(255,255,255,0.35)" font-size="8" font-family="ui-monospace, monospace" font-weight="700" letter-spacing="3">FILET</text>
+                <!-- Lignes d'attaque 3m -->
+                <line x1="25" y1="200" x2="475" y2="200" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" stroke-dasharray="6,4"/>
+                <text x="468" y="195" text-anchor="end" fill="rgba(255,255,255,0.25)" font-size="8" font-family="ui-monospace, monospace">3m</text>
+                <line x1="25" y1="480" x2="475" y2="480" stroke="rgba(255,255,255,0.4)" stroke-width="1.5" stroke-dasharray="6,4"/>
+                <text x="468" y="495" text-anchor="end" fill="rgba(255,255,255,0.25)" font-size="8" font-family="ui-monospace, monospace">3m</text>
+                <!-- Labels équipes -->
+                <text x="250" y="14" text-anchor="middle" fill="var(--team-a-light)" font-size="11" font-weight="700" opacity="0.85" id="sim-court-label-a"></text>
+                <text x="250" y="694" text-anchor="middle" fill="var(--team-b-light)" font-size="11" font-weight="700" opacity="0.85" id="sim-court-label-b"></text>
+                <!-- Joueurs (dynamique SVG) -->
+                <g id="sim-players-group"></g>
+            </svg>
+
+            <!-- Overlay animations -->
+            <div class="sim-flash sim-flash-a" id="sim-flash-a"></div>
+            <div class="sim-flash sim-flash-b" id="sim-flash-b"></div>
+            <div class="sim-timeout-overlay" id="sim-timeout-anim">
+                <span class="sim-timeout-icon">⏸️</span>
+                <span class="sim-timeout-team"></span>
+            </div>
+            <div class="sim-sub-overlay" id="sim-sub-anim">
+                <span class="sim-sub-num sim-sub-out-num" id="sim-sub-out-num"></span>
+                <span class="sim-sub-arrow">➡</span>
+                <span class="sim-sub-num sim-sub-in-num" id="sim-sub-in-num"></span>
+            </div>
+            <div class="sim-sanction-card" id="sim-sanction-anim"></div>
+        </div>
+
+        <!-- Événement courant -->
+        <div class="card p-3.5 sim-event-display w-full" id="sim-event-display">
+            <span class="text-lg mr-2">🏐</span>
+            <div>
+                <div class="text-sm font-semibold">Prêt à démarrer</div>
+                <div class="text-xs" style="color: var(--text-secondary);">Utilisez les contrôles pour lancer la simulation</div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Graphique de progression des scores -->
+    {% if match.sets %}
+    <div class="card p-6">
+        <h3 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+            <i data-lucide="bar-chart-3" class="w-4 h-4 inline-block mr-1" style="color: var(--accent-primary);"></i> Progression des scores par set
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-{{ match.sets|length }} gap-4">
+            {% for set in match.sets %}
+            <div class="text-center p-3 rounded-xl" style="background: var(--bg-secondary); border: 1px solid var(--border-color-subtle);">
+                <div class="text-xs font-semibold mb-3 uppercase tracking-wider" style="color: var(--text-muted);">Set {{ set.numero }}</div>
+                <div class="relative h-28 flex items-end justify-center gap-3 pb-2">
+                    {% set max_score = [set.score_a or 0, set.score_b or 0] | max %}
+                    {% if max_score > 0 %}
+                    <div class="w-9 rounded-t-md transition-all duration-300 relative group"
+                         style="background: var(--team-a-bg); border: 1px solid var(--team-a); height: {{ ((set.score_a or 0) / max_score * 90)|round(0) }}px;">
+                    </div>
+                    <div class="w-9 rounded-t-md transition-all duration-300 relative group"
+                         style="background: var(--team-b-bg); border: 1px solid var(--team-b); height: {{ ((set.score_b or 0) / max_score * 90)|round(0) }}px;">
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="flex justify-center items-center gap-3 pt-2 border-t border-zinc-800 text-sm font-bold font-mono">
+                    <span class="score-team-a">{{ set.score_a or 0 }}</span>
+                    <span style="color: var(--text-muted);" class="font-sans font-light">:</span>
+                    <span class="score-team-b">{{ set.score_b or 0 }}</span>
+                </div>
+                {% if set.duree_minutes %}
+                <div class="text-[0.7rem] mt-1 font-mono" style="color: var(--text-muted);">{{ set.duree_minutes }} min</div>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endif %}

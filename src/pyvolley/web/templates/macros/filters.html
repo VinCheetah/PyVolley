@@ -1,0 +1,67 @@
+{# ═══════════════════════════════════════════════════════════════
+   PyVolley — Filters Macro
+   Barre de filtres dynamique avec HTMX et Alpine.js
+   ═══════════════════════════════════════════════════════════════ #}
+
+{% macro filter_bar(target_url, hx_target='#results-container', q_value='', saisons=[], current_saison=none, genres=[], current_genre='', placeholder='Rechercher...') %}
+<div class="card p-3 mb-4"
+     x-data="{ showAdvanced: false }">
+    <form hx-get="{{ target_url }}"
+          hx-target="{{ hx_target }}"
+          hx-push-url="true"
+          hx-indicator="#filter-spinner"
+          class="flex flex-wrap items-center gap-3">
+
+        <!-- Search input with debounce -->
+        <div class="relative flex-1" style="min-width: 200px;">
+            <i data-lucide="search" class="w-4 h-4 absolute left-3 top-1/2" style="transform: translateY(-50%); color: var(--text-muted);"></i>
+            <input type="text"
+                   name="q"
+                   value="{{ q_value }}"
+                   placeholder="{{ placeholder }}"
+                   hx-trigger="keyup changed delay:350ms, search"
+                   class="w-full py-2 pl-9 pr-3 text-sm rounded-lg transition"
+                   style="background: var(--bg-primary); border: 1px solid var(--border-color); color: var(--text-primary);"
+                   onfocus="this.style.borderColor='var(--accent-primary)'; this.style.boxShadow='0 0 0 3px var(--accent-primary-bg)';"
+                   onblur="this.style.borderColor='var(--border-color)'; this.style.boxShadow='none';">
+        </div>
+
+        <!-- Saisons select -->
+        {% if saisons %}
+        <div style="min-width: 130px;">
+            <select name="saison_id"
+                    hx-trigger="change"
+                    class="filter-select w-full">
+                <option value="">Toutes saisons</option>
+                {% for s in saisons %}
+                <option value="{{ s.id }}" {% if current_saison and (current_saison == s.id or current_saison == s.code) %}selected{% endif %}>
+                    {{ s.code }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        {% endif %}
+
+        <!-- Genres select -->
+        {% if genres %}
+        <div style="min-width: 120px;">
+            <select name="genre"
+                    hx-trigger="change"
+                    class="filter-select w-full">
+                <option value="">Tous genres</option>
+                {% for g in genres %}
+                <option value="{{ g }}" {% if current_genre == g %}selected{% endif %}>
+                    {{ g|title }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        {% endif %}
+
+        <!-- Loading spinner -->
+        <div id="filter-spinner" class="htmx-indicator flex items-center justify-center px-2">
+            <div class="w-4 h-4 rounded-full animate-spin" style="border: 2px solid var(--accent-primary); border-top-color: transparent;"></div>
+        </div>
+    </form>
+</div>
+{% endmacro %}

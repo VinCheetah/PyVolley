@@ -9,7 +9,7 @@
     <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
             <h1 class="text-2xl font-bold">
-                <i data-lucide="shield" class="w-6 h-6 inline-block mr-2 text-accent-green"></i>
+                <i data-lucide="shield" class="w-6 h-6 inline-block mr-2" style="color: var(--accent-primary);"></i>
                 Équipes
             </h1>
             <p class="text-muted">{{ total }} équipes enregistrées</p>
@@ -21,7 +21,7 @@
         <div class="flex gap-2 max-w-2xl w-full">
             <input type="text" name="q" value="{{ query or '' }}" placeholder="Rechercher une équipe..."
                    class="search-input flex-1">
-            <button type="submit" class="pagination-btn" style="background: var(--accent-green); color: white; border-color: var(--accent-green);">
+            <button type="submit" class="pagination-btn btn-primary">
                 <i data-lucide="search" class="w-4 h-4"></i>
             </button>
             {% if query or genre or niveau or categorie or current_saison_id %}
@@ -105,7 +105,7 @@
                     <td class="font-semibold text-white">{{ eq.nom }}</td>
                     <td>
                         {% if eq.club %}
-                        <a href="{{ path_for_entity('club', eq.club.id) }}" class="hover:text-white transition text-accent-blue">
+                        <a href="{{ path_for_entity('club', eq.club.id) }}" class="hover:text-white transition" style="color: var(--text-primary);">
                             {{ eq.club.nom|truncate_name(25) }}
                         </a>
                         {% else %}

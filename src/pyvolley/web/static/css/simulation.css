@@ -12,17 +12,17 @@
   justify-content: center;
   width: 2.25rem;
   height: 2.25rem;
-  border-radius: 0.5rem;
-  border: 1px solid var(--border, rgba(42, 48, 80, 0.6));
-  background: var(--bg-secondary, #111827);
-  color: #8b92a8;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition);
 }
 .sim-btn:hover {
-  border-color: var(--accent, #3b82f6);
-  color: #c9cfe0;
-  background: rgba(59, 130, 246, 0.08);
+  border-color: var(--accent-primary-border);
+  color: var(--accent-primary);
+  background: var(--accent-primary-bg);
 }
 .sim-btn:disabled {
   opacity: 0.35;
@@ -32,23 +32,24 @@
   width: 2.75rem;
   height: 2.75rem;
   border-radius: 50%;
-  border: 2px solid var(--accent, #3b82f6);
-  background: rgba(59, 130, 246, 0.12);
-  color: var(--accent, #3b82f6);
+  border: 2px solid var(--accent-primary);
+  background: var(--accent-primary);
+  color: var(--text-inverse);
   font-size: 1.1rem;
 }
 .sim-btn-play:hover {
-  background: var(--accent, #3b82f6);
-  color: #fff;
+  background: var(--accent-primary-light);
+  transform: scale(1.05);
+  box-shadow: 0 0 16px rgba(250, 204, 21, 0.35);
 }
 .sim-btn-play.sim-playing {
-  border-color: #f59e0b;
-  color: #f59e0b;
-  background: rgba(245, 158, 11, 0.12);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  background: var(--accent-primary-bg);
 }
 .sim-btn-play.sim-playing:hover {
-  background: #f59e0b;
-  color: #fff;
+  background: var(--accent-primary);
+  color: var(--text-inverse);
 }
 
 /* ── Timeline ── */
@@ -57,7 +58,7 @@
   flex: 1;
   height: 6px;
   border-radius: 999px;
-  background: rgba(42, 48, 80, 0.6);
+  background: var(--bg-card-hover);
   cursor: pointer;
   overflow: hidden;
 }
@@ -67,7 +68,7 @@
   left: 0;
   height: 100%;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--team-a, #3b82f6), var(--accent, #3b82f6));
+  background: linear-gradient(90deg, var(--team-a, #3b82f6), var(--accent-primary));
   transition: width 0.15s ease;
 }
 
@@ -77,7 +78,7 @@
   width: 5rem;
   height: 4px;
   border-radius: 999px;
-  background: rgba(42, 48, 80, 0.6);
+  background: var(--bg-card-hover);
   outline: none;
 }
 .sim-speed-slider::-webkit-slider-thumb {
@@ -85,39 +86,40 @@
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: var(--accent, #3b82f6);
+  background: var(--accent-primary);
   cursor: pointer;
-  border: 2px solid var(--bg-primary, #0b0e17);
+  border: 2px solid var(--bg-primary);
 }
 .sim-speed-slider::-moz-range-thumb {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: var(--accent, #3b82f6);
+  background: var(--accent-primary);
   cursor: pointer;
-  border: 2px solid var(--bg-primary, #0b0e17);
+  border: 2px solid var(--bg-primary);
 }
 
 /* ── Set selector chips ── */
 .sim-set-btn {
-  padding: 0.25rem 0.75rem;
+  padding: 0.35rem 0.85rem;
   border-radius: 999px;
   font-size: 0.75rem;
   font-weight: 600;
-  border: 1px solid var(--border, rgba(42, 48, 80, 0.6));
-  background: transparent;
-  color: #8b92a8;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all var(--transition);
 }
 .sim-set-btn:hover {
-  border-color: var(--accent, #3b82f6);
-  color: #c9cfe0;
+  border-color: var(--border-color-hover);
+  color: var(--text-primary);
 }
 .sim-set-btn.active {
-  background: var(--accent, #3b82f6);
-  border-color: var(--accent, #3b82f6);
-  color: #fff;
+  background: var(--accent-primary-bg);
+  border-color: var(--accent-primary-border);
+  color: var(--accent-primary);
+  font-weight: 700;
 }
 
 /* ── Set result chips ── */
@@ -127,32 +129,38 @@
   justify-content: center;
   min-width: 3.5rem;
   padding: 0.2rem 0.5rem;
-  border-radius: 0.375rem;
+  border-radius: var(--radius-sm);
   font-size: 0.7rem;
   font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   letter-spacing: 0.03em;
   transition: all 0.3s;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
 }
 .sim-set-chip.won-a {
   background: rgba(59, 130, 246, 0.15);
-  color: var(--team-a, #3b82f6);
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: var(--team-a-light, #60a5fa);
+  border-color: rgba(59, 130, 246, 0.35);
 }
 .sim-set-chip.won-b {
   background: rgba(239, 68, 68, 0.15);
-  color: var(--team-b, #ef4444);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: var(--team-b-light, #f87171);
+  border-color: rgba(239, 68, 68, 0.35);
 }
 .sim-set-chip.active {
-  transform: scale(1.1);
-  box-shadow: 0 0 10px rgba(59, 130, 246, 0.3);
+  transform: scale(1.05);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  box-shadow: 0 0 10px rgba(250, 204, 21, 0.25);
 }
 
 /* ── Court SVG ── */
 .sim-court-svg {
   max-width: 100%;
   height: auto;
-  filter: drop-shadow(0 0 20px rgba(59, 130, 246, 0.08));
+  filter: drop-shadow(0 12px 32px rgba(0, 0, 0, 0.55));
 }
 
 /* ── Player tokens on court ── */
@@ -205,9 +213,9 @@
   justify-content: center;
   gap: 0.5rem;
   transition: all 0.3s;
-  border: 1px solid var(--border, rgba(42, 48, 80, 0.6));
-  background: var(--bg-secondary, #111827);
-  color: #c9cfe0;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-primary);
 }
 .sim-event-display[data-type="point_a"] {
   border-color: rgba(59, 130, 246, 0.4);

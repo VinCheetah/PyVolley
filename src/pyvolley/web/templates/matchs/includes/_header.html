@@ -1,0 +1,8 @@
+{# ═══════════════════════════════════════════════════════════════
+   Match Detail — Header Section
+   Renders competition info, team names, score, badges & set scores summary
+   ═══════════════════════════════════════════════════════════════ #}
+
+{% from "macros/scoreboard.html" import match_scoreboard %}
+
+{{ match_scoreboard(match) }}

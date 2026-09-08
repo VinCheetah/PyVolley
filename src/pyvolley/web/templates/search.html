@@ -7,7 +7,7 @@
     <!-- Search Header -->
     <div>
         <h1 class="text-2xl font-bold mb-4">
-            <i data-lucide="search" class="w-6 h-6 inline-block mr-2 text-accent-blue"></i>
+            <i data-lucide="search" class="w-6 h-6 inline-block mr-2" style="color: var(--accent-primary);"></i>
             Recherche
         </h1>
         <form action="/search" method="get" class="space-y-4" id="searchForm">
@@ -28,7 +28,7 @@
                     <i data-lucide="chevron-down" class="w-3 h-3 transition-transform"
                        :class="showFilters && 'rotate-180'"></i>
                     {% if genre or niveau or ligue or (season_ids and season_ids|length > 0) or date_from or date_to %}
-                    <span class="badge badge-blue text-xs">Actifs</span>
+                    <span class="badge badge-yellow text-xs">Actifs</span>
                     {% endif %}
                 </button>
 
@@ -145,33 +145,33 @@
         <!-- Tabs -->
         <div class="flex gap-2 flex-wrap">
             <button @click="tab = 'joueurs'"
-                    :class="tab === 'joueurs' ? 'badge-blue' : ''"
-                    class="badge cursor-pointer transition">
-                <i data-lucide="user" class="w-3 h-3"></i>
+                    :class="{ 'active': tab === 'joueurs' }"
+                    class="tab-btn-pill">
+                <i data-lucide="user" class="w-3.5 h-3.5"></i>
                 Joueurs ({{ joueurs|length }})
             </button>
             <button @click="tab = 'clubs'"
-                    :class="tab === 'clubs' ? 'badge-green' : ''"
-                    class="badge cursor-pointer transition">
-                <i data-lucide="building" class="w-3 h-3"></i>
+                    :class="{ 'active': tab === 'clubs' }"
+                    class="tab-btn-pill">
+                <i data-lucide="building" class="w-3.5 h-3.5"></i>
                 Clubs ({{ clubs|length }})
             </button>
             <button @click="tab = 'equipes'"
-                    :class="tab === 'equipes' ? 'badge-purple' : ''"
-                    class="badge cursor-pointer transition">
-                <i data-lucide="users" class="w-3 h-3"></i>
+                    :class="{ 'active': tab === 'equipes' }"
+                    class="tab-btn-pill">
+                <i data-lucide="users" class="w-3.5 h-3.5"></i>
                 Équipes ({{ equipes|length }})
             </button>
             <button @click="tab = 'entraineurs'"
-                    :class="tab === 'entraineurs' ? 'badge-green' : ''"
-                    class="badge cursor-pointer transition">
-                <i data-lucide="clipboard-list" class="w-3 h-3"></i>
+                    :class="{ 'active': tab === 'entraineurs' }"
+                    class="tab-btn-pill">
+                <i data-lucide="clipboard-list" class="w-3.5 h-3.5"></i>
                 Entraîneurs ({{ entraineurs|length }})
             </button>
             <button @click="tab = 'arbitres'"
-                    :class="tab === 'arbitres' ? 'badge-gold' : ''"
-                    class="badge cursor-pointer transition">
-                <i data-lucide="shield" class="w-3 h-3"></i>
+                    :class="{ 'active': tab === 'arbitres' }"
+                    class="tab-btn-pill">
+                <i data-lucide="shield" class="w-3.5 h-3.5"></i>
                 Arbitres ({{ arbitres|length }})
             </button>
         </div>

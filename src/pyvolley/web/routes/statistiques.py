@@ -162,7 +162,12 @@ def palmares_page(
     categorie: Optional[str] = Query(None),
     niveau_min: Optional[str] = Query(None),
     niveau_max: Optional[str] = Query(None),
+    niveau: Optional[str] = Query(None),
+    niveau_echelon: Optional[str] = Query(None),
     departement: Optional[str] = Query(None),
+    ligue: Optional[str] = Query(None),
+    club_id: Optional[int] = Query(None),
+    competition_id: Optional[int] = Query(None),
     session: Session = Depends(get_session),
 ):
     from pyvolley.database.stats_service import StatsAmusantesService, StatsFilters
@@ -186,7 +191,12 @@ def palmares_page(
         categorie=categorie,
         niveau_min=niveau_min,
         niveau_max=niveau_max,
+        niveau=niveau,
+        niveau_echelon=niveau_echelon,
         departement=departement,
+        ligue=ligue,
+        club_id=club_id,
+        competition_id=competition_id,
     )
 
     all_stats, from_cache = service.get_cached_or_compute(filters)
@@ -208,7 +218,12 @@ def palmares_page(
                 "categorie": categorie or "",
                 "niveau_min": niveau_min or "",
                 "niveau_max": niveau_max or "",
+                "niveau": niveau or "",
+                "niveau_echelon": niveau_echelon or "",
                 "departement": departement or "",
+                "ligue": ligue or "",
+                "club_id": club_id,
+                "competition_id": competition_id,
             },
         },
     )

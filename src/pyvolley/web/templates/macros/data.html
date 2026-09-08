@@ -11,18 +11,28 @@
    chart_suffix: unique suffix for chart canvas ID (e.g. "_poule1") #}
 {% macro classement_table(cls, title, chart_suffix) %}
 <div class="card overflow-hidden">
-    <div class="p-4 border-b">
-        <h2 class="section-title">
-            <i data-lucide="list-ordered" class="w-4 h-4 inline-block mr-1"></i>
+    <div class="p-4 border-b flex items-center justify-between">
+        <h2 class="section-title flex items-center gap-1.5">
+            <i data-lucide="list-ordered" class="w-3.5 h-3.5"></i>
             {{ title }}
         </h2>
+        <div class="flex items-center gap-2 text-xs text-muted">
+            <span class="inline-flex items-center gap-1">
+                <span class="w-2 h-2 rounded-full bg-accent-green"></span> Qualification
+            </span>
+            {% if cls.classement_actuel|length >= 6 %}
+            <span class="inline-flex items-center gap-1">
+                <span class="w-2 h-2 rounded-full bg-accent-red"></span> Relégation
+            </span>
+            {% endif %}
+        </div>
     </div>
-    <div class="overflow-x-auto">
-        <table class="data-table" style="min-width: 900px;">
+    <div class="standing-table-wrap">
+        <table class="data-table-sticky">
             <thead>
                 <tr>
-                    <th class="text-center w-12">#</th>
-                    <th>Équipe</th>
+                    <th class="sticky-col-rank text-center">#</th>
+                    <th class="sticky-col-team">Équipe</th>
                     <th class="text-center">Pts</th>
                     <th class="text-center">MJ</th>
                     <th class="text-center">V</th>
@@ -37,52 +47,49 @@
                 </tr>
             </thead>
             <tbody>
+                {% set nb_total = cls.classement_actuel|length %}
                 {% for ligne in cls.classement_actuel %}
-                <tr>
-                    <td class="text-center">
+                {% set is_playoff = (loop.index <= 2) %}
+                {% set is_relegation = (nb_total >= 6 and loop.index > nb_total - 2) %}
+                <tr class="{% if is_playoff %}standing-row-playoff{% elif is_relegation %}standing-row-relegation{% endif %}">
+                    <td class="sticky-col-rank text-center">
                         {% if ligne.rang == 1 %}
-                        <span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold rank-gold">
-                            {{ ligne.rang }}
-                        </span>
+                        <span class="rank-badge rank-badge-1">{{ ligne.rang }}</span>
                         {% elif ligne.rang == 2 %}
-                        <span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold rank-silver">
-                            {{ ligne.rang }}
-                        </span>
+                        <span class="rank-badge rank-badge-2">{{ ligne.rang }}</span>
                         {% elif ligne.rang == 3 %}
-                        <span class="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold rank-bronze">
-                            {{ ligne.rang }}
-                        </span>
+                        <span class="rank-badge rank-badge-3">{{ ligne.rang }}</span>
                         {% else %}
-                        <span class="font-semibold text-muted">{{ ligne.rang }}</span>
+                        <span class="rank-badge-standard text-xs font-semibold">{{ ligne.rang }}</span>
                         {% endif %}
                     </td>
-                    <td>
-                        <a href="{{ path_for_entity('equipe', ligne.equipe_id) }}" class="font-semibold text-primary hover:text-white transition">
-                            {{ ligne.equipe_nom|truncate_name(30) }}
+                    <td class="sticky-col-team">
+                        <a href="{{ path_for_entity('equipe', ligne.equipe_id) }}" class="font-semibold truncate block hover:text-accent-primary transition" title="{{ ligne.equipe_nom }}">
+                            {{ ligne.equipe_nom|truncate_name(26) }}
                         </a>
                     </td>
                     <td class="text-center">
-                        <span class="font-bold text-lg text-accent-gold">{{ ligne.points }}</span>
+                        <span class="font-bold text-lg text-accent-primary">{{ ligne.points }}</span>
                     </td>
                     <td class="text-center font-medium">{{ ligne.matchs_joues }}</td>
                     <td class="text-center font-medium text-accent-green">{{ ligne.victoires }}</td>
                     <td class="text-center font-medium text-accent-red">{{ ligne.defaites }}</td>
-                    <td class="text-center text-xs text-secondary">
-                        <span class="text-accent-green-light">{{ ligne.victoires_3_0 }}</span> /
-                        <span class="text-accent-green">{{ ligne.victoires_3_1 }}</span> /
-                        <span class="text-accent-cyan">{{ ligne.victoires_3_2 }}</span>
+                    <td class="text-center text-xs">
+                        <span class="text-accent-green-light font-medium">{{ ligne.victoires_3_0 }}</span> /
+                        <span class="text-accent-green font-medium">{{ ligne.victoires_3_1 }}</span> /
+                        <span class="text-accent-cyan font-medium">{{ ligne.victoires_3_2 }}</span>
                     </td>
-                    <td class="text-center text-xs text-secondary">
-                        <span class="text-accent-red">{{ ligne.defaites_0_3 }}</span> /
-                        <span class="text-accent-red-light">{{ ligne.defaites_1_3 }}</span> /
-                        <span>{{ ligne.defaites_2_3 }}</span>
+                    <td class="text-center text-xs">
+                        <span class="text-accent-red font-medium">{{ ligne.defaites_0_3 }}</span> /
+                        <span class="text-accent-red-light font-medium">{{ ligne.defaites_1_3 }}</span> /
+                        <span class="text-secondary font-medium">{{ ligne.defaites_2_3 }}</span>
                     </td>
                     <td class="text-center">
-                        <span class="font-medium text-accent-blue">{{ ligne.sets_gagnes }}</span>
+                        <span class="font-medium text-white">{{ ligne.sets_gagnes }}</span>
                         <span class="text-muted">-</span>
                         <span class="text-secondary">{{ ligne.sets_perdus }}</span>
                         {% set ds = ligne.sets_gagnes - ligne.sets_perdus %}
-                        <span class="text-xs ml-1 {% if ds > 0 %}text-accent-green{% elif ds < 0 %}text-accent-red{% else %}text-muted{% endif %}">
+                        <span class="text-xs ml-0.5 {% if ds > 0 %}text-accent-green{% elif ds < 0 %}text-accent-red{% else %}text-muted{% endif %}">
                             ({% if ds > 0 %}+{% endif %}{{ ds }})
                         </span>
                     </td>
@@ -96,7 +103,7 @@
                         {% endif %}
                     </td>
                     <td class="text-center text-sm">
-                        <span class="text-accent-blue">{{ ligne.points_marques }}</span>
+                        <span class="text-white">{{ ligne.points_marques }}</span>
                         <span class="text-muted">-</span>
                         <span class="text-secondary">{{ ligne.points_encaisses }}</span>
                     </td>
@@ -110,9 +117,9 @@
                         {% endif %}
                     </td>
                     <td class="text-center">
-                        <div class="flex gap-0.5 justify-center">
-                            {% for r in ligne.serie[-8:] %}
-                            <span class="inline-block w-4 h-4 rounded text-xs font-bold flex items-center justify-center leading-none {% if r == 'V' %}bg-tint-green text-accent-green{% else %}bg-tint-red text-accent-red{% endif %}">
+                        <div class="streak-container justify-center">
+                            {% for r in ligne.serie[-6:] %}
+                            <span class="streak-dot {% if r == 'V' %}v{% else %}d{% endif %}" title="{% if r == 'V' %}Victoire{% else %}Défaite{% endif %}">
                                 {{ r }}
                             </span>
                             {% endfor %}
@@ -126,9 +133,9 @@
 </div>
 
 {% if cls.classement_actuel|length > 1 %}
-<div class="card p-6">
-    <h2 class="section-title mb-4">
-        <i data-lucide="bar-chart-3" class="w-4 h-4 inline-block mr-1"></i> Points par équipe
+<div class="card p-5 mt-4">
+    <h2 class="section-title mb-3 flex items-center gap-1.5">
+        <i data-lucide="bar-chart-3" class="w-3.5 h-3.5"></i> Points par équipe
     </h2>
     <div style="height: {{ [cls.classement_actuel|length * 32 + 40, 700]|min }}px; max-height: 700px;">
         <canvas id="pointsChart{{ chart_suffix }}"></canvas>

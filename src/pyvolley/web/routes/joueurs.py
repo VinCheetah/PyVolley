@@ -6,6 +6,7 @@ Les routes sont exécutées de manière synchrone (`def`) pour tirer parti
 du threadpool Starlette de FastAPI sans bloquer l'Event Loop.
 """
 
+from datetime import date as dt_date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -22,6 +23,49 @@ from pyvolley.web.services.joueur_view_service import JoueurViewService
 from pyvolley.web.templateconfig import templates
 
 router = APIRouter()
+
+
+# Backwards compatibility re-exports
+def _extract_youth_ages_from_text(value: Optional[str]) -> list[int]:
+    return JoueurViewService.extract_youth_ages_from_text(value)
+
+
+def _estimate_player_max_age(rows: list[dict], reference_date: Optional[dt_date] = None) -> Optional[dict]:
+    ref_date = reference_date or dt_date.today()
+    age_candidates: list[dict] = []
+    for row in rows:
+        season_end_yr = JoueurViewService.season_end_year_from_row(row)
+        if not season_end_yr:
+            continue
+        match = row.get("match")
+        competition = row.get("competition")
+        equipe_joueur = row.get("equipe_joueur")
+        saison = row.get("saison")
+        season_code = saison.code if saison else None
+
+        texts_to_inspect: list[Optional[str]] = []
+        if competition:
+            texts_to_inspect.extend([getattr(competition, "nom", None), getattr(competition, "categorie", None), getattr(competition, "division", None)])
+        if equipe_joueur:
+            texts_to_inspect.extend([getattr(equipe_joueur, "nom", None), getattr(equipe_joueur, "categorie", None), getattr(equipe_joueur, "division", None)])
+
+        detected_ages: set[int] = set()
+        for text in texts_to_inspect:
+            detected_ages.update(JoueurViewService.extract_youth_ages_from_text(text))
+
+        for age_limit in detected_ages:
+            b_min, b_max = JoueurViewService.compute_birth_date_bounds(age_limit, season_end_yr)
+            age_candidates.append({
+                "age_limit": age_limit,
+                "season_code": season_code,
+                "season_end_year": season_end_yr,
+                "match_id": match.id if match else None,
+                "birth_date_min": b_min,
+                "birth_date_max": b_max,
+            })
+
+    return JoueurViewService.estimate_player_age(age_candidates, ref_date)
+
 
 
 @router.get("/joueurs", response_class=HTMLResponse)
@@ -44,9 +88,10 @@ def joueurs_list(
         total = repo.count()
 
     genres = equipe_repo.get_distinct_genres()
+    template_name = "joueurs/_list_results.html" if request.headers.get("HX-Request") else "joueurs/list.html"
     return templates.TemplateResponse(
         request,
-        "joueurs/list.html",
+        template_name,
         {
             "joueurs": joueurs,
             "query": q,

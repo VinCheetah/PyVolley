@@ -71,6 +71,7 @@ def competitions_list(
     saison_id: Optional[str] = Query(None),
     genre: Optional[str] = None,
     categorie: Optional[str] = None,
+    q: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     repo: CompetitionRepository = Depends(get_competition_repo),
     saison_repo: SaisonRepository = Depends(get_saison_repo),
@@ -85,12 +86,14 @@ def competitions_list(
         saison_id=saison_id_int,
         genre=genre,
         categorie=categorie,
+        q=q,
         exclude_code_only=True,
     )
     total = repo.count_filtered(
         saison_id=saison_id_int,
         genre=genre,
         categorie=categorie,
+        q=q,
         exclude_code_only=True,
     )
     saisons = saison_repo.get_all(limit=20)
@@ -111,6 +114,7 @@ def competitions_list(
             "genres": genres,
             "categorie": categorie or "",
             "categories": categories,
+            "q": q or "",
         },
     )
 
@@ -190,6 +194,13 @@ def competition_detail(
     matchs = match_repo.search(competition_id=competition_id, limit=500)
     equipes = competition_repo.get_equipes_for_competition(competition_id)
 
+    # Calcul des journées uniques pour filtrage interactif
+    journees_set = {m.journee for m in matchs if m.journee}
+    journees_disponibles = sorted(
+        list(journees_set),
+        key=lambda j: int(j) if j.isdigit() else 999,
+    )
+
     return templates.TemplateResponse(
         "competitions/detail.html",
         {
@@ -201,6 +212,7 @@ def competition_detail(
             "is_multi_poule": is_multi_poule,
             "matchs": matchs,
             "equipes": equipes,
+            "journees_disponibles": journees_disponibles,
         },
     )
 

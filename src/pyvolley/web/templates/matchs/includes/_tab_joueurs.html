@@ -1,0 +1,122 @@
+{# ═══════════════════════════════════════════════════════════════
+   Match Detail — Joueurs Tab
+   Rosters d'équipe A et B avec numéros de maillots, postes, capitaines et libéros
+   ═══════════════════════════════════════════════════════════════ #}
+
+{% from "macros/badges.html" import role_badge %}
+
+{% if participants_a or participants_b %}
+<div x-show="activeTab === 'joueurs'" x-cloak class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- Equipe A -->
+    <div class="card p-6">
+        <div class="flex items-center justify-between mb-4 pb-3 border-b border-zinc-800">
+            <h3 class="text-sm font-bold uppercase tracking-wider text-white flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full" style="background: var(--accent-primary);"></span>
+                {{ match.equipe_a.nom if match.equipe_a else 'Équipe A' }}
+            </h3>
+            <span class="text-xs font-mono" style="color: var(--text-muted);">{{ participants_a|length }} joueurs</span>
+        </div>
+
+        {% if officiels_a %}
+        <div class="mb-4 p-3 rounded-xl space-y-1.5" style="background: var(--bg-secondary); border: 1px solid var(--border-color);">
+            {% for o in officiels_a %}
+            <div class="text-xs flex items-center gap-2" style="color: var(--text-muted);">
+                <span class="badge text-[0.65rem] font-bold uppercase">
+                    {{ o.role }}
+                </span>
+                <span class="font-medium text-white">{{ o.nom }}{% if o.prenom %} {{ o.prenom }}{% endif %}</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="space-y-2">
+            {% for p in participants_a %}
+            <div class="flex items-center justify-between p-2.5 rounded-xl transition group hover:border-zinc-700"
+                 style="background: var(--bg-secondary); border: 1px solid var(--border-color);">
+                <div class="flex items-center gap-3 min-w-0">
+                    <span class="w-8 h-8 rounded-lg flex items-center justify-center font-black text-sm flex-shrink-0
+                                {% if p.est_libero %}border border-amber-500/50 text-amber-400{% else %}text-white{% endif %}"
+                          style="background: var(--bg-card); border: 1px solid var(--border-color);">
+                        {{ p.numero_maillot or '?' }}
+                    </span>
+                    <div class="min-w-0">
+                        <a href="{{ path_for_entity('joueur', p.joueur.id) }}" class="font-bold text-sm text-white hover:underline transition truncate block no-underline">
+                            {{ p.joueur.nom }} <span class="font-normal" style="color: var(--text-muted);">{{ p.joueur.prenom }}</span>
+                        </a>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    {% if p.role_principal or p.role_code %}
+                        {{ role_badge(p.role_principal or p.role_code, p.role_confiance, size='sm') }}
+                    {% endif %}
+                    {% if p.est_capitaine %}
+                    <span class="badge badge-gold text-[0.65rem] font-black uppercase" title="Capitaine d'équipe">CAP</span>
+                    {% endif %}
+                    {% if p.est_libero %}
+                    <span class="badge badge-red text-[0.65rem] font-black uppercase" title="Libéro">LIB</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Equipe B -->
+    <div class="card p-6">
+        <div class="flex items-center justify-between mb-4 pb-3 border-b border-zinc-800">
+            <h3 class="text-sm font-bold uppercase tracking-wider text-white flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-zinc-500"></span>
+                {{ match.equipe_b.nom if match.equipe_b else 'Équipe B' }}
+            </h3>
+            <span class="text-xs font-mono" style="color: var(--text-muted);">{{ participants_b|length }} joueurs</span>
+        </div>
+
+        {% if officiels_b %}
+        <div class="mb-4 p-3 rounded-xl space-y-1.5" style="background: var(--bg-secondary); border: 1px solid var(--border-color);">
+            {% for o in officiels_b %}
+            <div class="text-xs flex items-center gap-2" style="color: var(--text-muted);">
+                <span class="badge text-[0.65rem] font-bold uppercase">
+                    {{ o.role }}
+                </span>
+                <span class="font-medium text-white">{{ o.nom }}{% if o.prenom %} {{ o.prenom }}{% endif %}</span>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <div class="space-y-2">
+            {% for p in participants_b %}
+            <div class="flex items-center justify-between p-2.5 rounded-xl transition group hover:border-zinc-700"
+                 style="background: var(--bg-secondary); border: 1px solid var(--border-color);">
+                <div class="flex items-center gap-3 min-w-0">
+                    <span class="w-8 h-8 rounded-lg flex items-center justify-center font-black text-sm flex-shrink-0
+                                {% if p.est_libero %}border border-amber-500/50 text-amber-400{% else %}text-white{% endif %}"
+                          style="background: var(--bg-card); border: 1px solid var(--border-color);">
+                        {{ p.numero_maillot or '?' }}
+                    </span>
+                    <div class="min-w-0">
+                        <a href="{{ path_for_entity('joueur', p.joueur.id) }}" class="font-bold text-sm text-white hover:underline transition truncate block no-underline">
+                            {{ p.joueur.nom }} <span class="font-normal" style="color: var(--text-muted);">{{ p.joueur.prenom }}</span>
+                        </a>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    {% if p.role_principal or p.role_code %}
+                        {{ role_badge(p.role_principal or p.role_code, p.role_confiance, size='sm') }}
+                    {% endif %}
+                    {% if p.est_capitaine %}
+                    <span class="badge badge-gold text-[0.65rem] font-black uppercase" title="Capitaine d'équipe">CAP</span>
+                    {% endif %}
+                    {% if p.est_libero %}
+                    <span class="badge badge-red text-[0.65rem] font-black uppercase" title="Libéro">LIB</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}

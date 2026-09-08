@@ -1,0 +1,49 @@
+{# ═══════════════════════════════════════════════════════════════
+   Match Detail — Sanctions Tab
+   Table of sanctions (warnings, penalties, expulsions, disqualifications)
+   ═══════════════════════════════════════════════════════════════ #}
+
+{% if match.sanctions %}
+<div x-show="activeTab === 'sanctions'" x-cloak class="card overflow-hidden">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Set</th>
+                <th>Type</th>
+                <th>Équipe</th>
+                <th>Joueur N°</th>
+                <th>Score</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in match.sanctions %}
+            <tr>
+                <td class="font-medium">Set {{ s.set_numero }}</td>
+                <td>
+                    {% if s.type_sanction == 'A' %}
+                    <span class="badge badge-gold">Avertissement</span>
+                    {% elif s.type_sanction == 'P' %}
+                    <span class="badge badge-red">Pénalité</span>
+                    {% elif s.type_sanction == 'E' %}
+                    <span class="badge badge-red">Expulsion</span>
+                    {% elif s.type_sanction == 'D' %}
+                    <span class="badge badge-red font-bold">Disqualification</span>
+                    {% else %}
+                    <span class="badge">{{ s.type_sanction }}</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <span class="badge {% if s.equipe == 'A' %}badge-blue{% else %}badge-red{% endif %}">
+                        Eq. {{ s.equipe }}
+                    </span>
+                </td>
+                <td class="font-mono">{{ s.joueur_numero or '-' }}</td>
+                <td class="font-mono" style="color: var(--text-muted);">
+                    {% if s.score_a is not none %}{{ s.score_a }}-{{ s.score_b }}{% else %}-{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}

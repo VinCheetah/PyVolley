@@ -9,12 +9,12 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 
-    <!-- Core CSS (Tokens, Resets, Components, Data) -->
+    <!-- Core CSS -->
     <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/layout.css">
     <link rel="stylesheet" href="/static/css/components.css">
     <link rel="stylesheet" href="/static/css/data.css">
-
-    <!-- Utility CSS (Token-mapped utility classes) -->
+    <link rel="stylesheet" href="/static/css/competitions.css">
     <link rel="stylesheet" href="/static/css/utilities.css">
 
     <!-- Alpine.js & HTMX -->
@@ -32,119 +32,171 @@
 
     {% block extra_head %}{% endblock %}
 </head>
-<body class="min-h-screen" x-data="{ mobileMenu: false, searchOpen: false }">
+<body x-data="{
+    sidebarCollapsed: localStorage.getItem('pv-sidebar') === 'collapsed',
+    mobileOpen: false,
+    toggleSidebar() {
+        this.sidebarCollapsed = !this.sidebarCollapsed;
+        localStorage.setItem('pv-sidebar', this.sidebarCollapsed ? 'collapsed' : 'open');
+    },
+    openMobile() { this.mobileOpen = true; },
+    closeMobile() { this.mobileOpen = false; }
+}" @keydown.window.prevent.bracket-left="toggleSidebar()">
 
-    <!-- ═══════════════ Navigation ═══════════════ -->
-    <nav class="navbar sticky top-0 z-50">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6">
-            <div class="flex items-center justify-between h-16 gap-4">
+    <div class="app-shell">
 
-                <!-- Logo -->
-                <a href="/" class="flex items-center gap-3 group no-underline flex-shrink-0">
-                    <div class="w-9 h-9 rounded-xl flex items-center justify-center text-white font-black text-sm tracking-wider"
-                         style="background: linear-gradient(135deg, #3b82f6, #06b6d4); box-shadow: 0 4px 14px rgba(59, 130, 246, 0.35);">
-                        PV
-                    </div>
-                    <span class="font-extrabold text-lg tracking-tight gradient-text hidden sm:inline">PyVolley</span>
+        <!-- ═══════════════ Sidebar ═══════════════ -->
+        <aside class="sidebar"
+               :class="{ 'collapsed': sidebarCollapsed, 'mobile-open': mobileOpen }">
+
+            <!-- Sidebar Header -->
+            <div class="sidebar-header">
+                <a href="/" class="no-underline flex items-center gap-3" style="color: inherit;">
+                    <div class="sidebar-logo">PV</div>
+                    <span class="sidebar-brand">PyVolley</span>
+                </a>
+            </div>
+
+            <!-- Sidebar Navigation -->
+            <nav class="sidebar-nav">
+                <div class="sidebar-nav-section">Navigation</div>
+
+                <a href="/" class="sidebar-nav-item {% if request.url.path == '/' %}active{% endif %}">
+                    <i data-lucide="layout-dashboard" class="nav-icon"></i>
+                    <span class="nav-label">Tableau de bord</span>
+                </a>
+                <a href="/matchs" class="sidebar-nav-item {% if '/matchs' in request.url.path %}active{% endif %}">
+                    <i data-lucide="swords" class="nav-icon"></i>
+                    <span class="nav-label">Matchs</span>
+                </a>
+                <a href="/joueurs" class="sidebar-nav-item {% if '/joueurs' in request.url.path %}active{% endif %}">
+                    <i data-lucide="users" class="nav-icon"></i>
+                    <span class="nav-label">Joueurs</span>
+                </a>
+                <a href="/equipes" class="sidebar-nav-item {% if '/equipes' in request.url.path %}active{% endif %}">
+                    <i data-lucide="shield" class="nav-icon"></i>
+                    <span class="nav-label">Équipes</span>
+                </a>
+                <a href="/clubs" class="sidebar-nav-item {% if '/clubs' in request.url.path %}active{% endif %}">
+                    <i data-lucide="building-2" class="nav-icon"></i>
+                    <span class="nav-label">Clubs</span>
                 </a>
 
-                <!-- Desktop Nav Links -->
-                <div class="hidden lg:flex items-center gap-1 xl:gap-2">
-                    <a href="/" class="nav-link {% if request.url.path == '/' %}active{% endif %}">Accueil</a>
-                    <a href="/matchs" class="nav-link {% if '/matchs' in request.url.path %}active{% endif %}">Matchs</a>
-                    <a href="/joueurs" class="nav-link {% if '/joueurs' in request.url.path %}active{% endif %}">Joueurs</a>
-                    <a href="/equipes" class="nav-link {% if '/equipes' in request.url.path %}active{% endif %}">Équipes</a>
-                    <a href="/clubs" class="nav-link {% if '/clubs' in request.url.path %}active{% endif %}">Clubs</a>
-                    <a href="/arbitres" class="nav-link {% if '/arbitres' in request.url.path %}active{% endif %}">Arbitres</a>
-                    <a href="/entraineurs" class="nav-link {% if '/entraineurs' in request.url.path %}active{% endif %}">Entraîneurs</a>
-                    <a href="/competitions" class="nav-link {% if '/competitions' in request.url.path %}active{% endif %}">Compétitions</a>
-                    <a href="/statistiques" class="nav-link {% if '/statistiques' in request.url.path %}active{% endif %}">Stats</a>
-                    <a href="/palmares" class="nav-link {% if '/palmares' in request.url.path %}active{% endif %}">Palmarès</a>
-                </div>
+                <div class="sidebar-nav-section" style="margin-top: 0.5rem;">Compétitions</div>
 
-                <!-- Search + Mobile menu -->
-                <div class="flex items-center gap-2">
-                    <!-- Search toggle -->
-                    <button @click="searchOpen = !searchOpen; if(searchOpen) $nextTick(() => $refs.searchInput.focus())"
-                            class="p-2 rounded-lg transition text-secondary hover:text-white hover:bg-white/5"
-                            :style="searchOpen ? 'color: var(--accent-blue); background: rgba(59, 130, 246, 0.12);' : ''"
-                            title="Recherche rapide (ouvre la barre de recherche)">
-                        <i data-lucide="search" class="w-5 h-5"></i>
-                    </button>
+                <a href="/competitions" class="sidebar-nav-item {% if '/competitions' in request.url.path %}active{% endif %}">
+                    <i data-lucide="trophy" class="nav-icon"></i>
+                    <span class="nav-label">Compétitions</span>
+                </a>
+                <a href="/palmares" class="sidebar-nav-item {% if '/palmares' in request.url.path %}active{% endif %}">
+                    <i data-lucide="medal" class="nav-icon"></i>
+                    <span class="nav-label">Palmarès</span>
+                </a>
+                <a href="/statistiques" class="sidebar-nav-item {% if '/statistiques' in request.url.path %}active{% endif %}">
+                    <i data-lucide="bar-chart-3" class="nav-icon"></i>
+                    <span class="nav-label">Statistiques</span>
+                </a>
 
-                    <!-- Mobile menu toggle -->
-                    <button @click="mobileMenu = !mobileMenu" class="lg:hidden p-2 rounded-lg text-secondary hover:text-white hover:bg-white/5"
-                            aria-label="Menu de navigation">
-                        <i data-lucide="menu" class="w-5 h-5" x-show="!mobileMenu"></i>
-                        <i data-lucide="x" class="w-5 h-5" x-show="mobileMenu" x-cloak></i>
-                    </button>
-                </div>
+                <div class="sidebar-nav-section" style="margin-top: 0.5rem;">Acteurs</div>
+
+                <a href="/arbitres" class="sidebar-nav-item {% if '/arbitres' in request.url.path %}active{% endif %}">
+                    <i data-lucide="flag" class="nav-icon"></i>
+                    <span class="nav-label">Arbitres</span>
+                </a>
+                <a href="/entraineurs" class="sidebar-nav-item {% if '/entraineurs' in request.url.path %}active{% endif %}">
+                    <i data-lucide="clipboard-list" class="nav-icon"></i>
+                    <span class="nav-label">Entraîneurs</span>
+                </a>
+            </nav>
+
+            <!-- Sidebar Footer -->
+            <div class="sidebar-footer">
+                <button @click="toggleSidebar()" class="sidebar-toggle" title="Réduire / Agrandir">
+                    <i data-lucide="panel-left-close" class="w-4 h-4" x-show="!sidebarCollapsed"></i>
+                    <i data-lucide="panel-left-open" class="w-4 h-4" x-show="sidebarCollapsed" x-cloak></i>
+                    <span class="toggle-label">Réduire</span>
+                </button>
             </div>
+        </aside>
 
-            <!-- Search bar (expandable) -->
-            <div x-show="searchOpen" x-cloak x-transition.opacity class="pb-4 pt-1">
-                <div class="search-panel-dropdown p-3 max-w-2xl mx-auto">
-                    <form action="/search" method="get" class="relative">
-                        <i data-lucide="search" class="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted"></i>
-                        <input type="text" name="q" placeholder="Rechercher un joueur, club, équipe, arbitre, compétition..."
-                               class="search-input text-sm py-2.5 pl-10 pr-24"
-                               x-ref="searchInput"
-                               @keydown.escape="searchOpen = false">
-                        <button type="submit" class="btn-primary absolute right-1.5 top-1/2 -translate-y-1/2 px-3 py-1.5 text-xs">
-                            Chercher
-                        </button>
-                    </form>
-                </div>
-            </div>
+        <!-- Mobile overlay -->
+        <div class="sidebar-overlay"
+             :class="{ 'visible': mobileOpen }"
+             @click="closeMobile()"></div>
 
-            <!-- Mobile menu -->
-            <div x-show="mobileMenu" x-cloak x-transition class="lg:hidden pb-4">
-                <div class="mobile-nav-panel space-y-1">
-                    <a href="/" class="block px-3 py-2 rounded-lg text-sm nav-link {% if request.url.path == '/' %}active{% endif %}">Accueil</a>
-                    <a href="/matchs" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/matchs' in request.url.path %}active{% endif %}">Matchs</a>
-                    <a href="/joueurs" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/joueurs' in request.url.path %}active{% endif %}">Joueurs</a>
-                    <a href="/equipes" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/equipes' in request.url.path %}active{% endif %}">Équipes</a>
-                    <a href="/clubs" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/clubs' in request.url.path %}active{% endif %}">Clubs</a>
-                    <a href="/arbitres" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/arbitres' in request.url.path %}active{% endif %}">Arbitres</a>
-                    <a href="/entraineurs" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/entraineurs' in request.url.path %}active{% endif %}">Entraîneurs</a>
-                    <a href="/competitions" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/competitions' in request.url.path %}active{% endif %}">Compétitions</a>
-                    <a href="/statistiques" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/statistiques' in request.url.path %}active{% endif %}">Statistiques</a>
-                    <a href="/palmares" class="block px-3 py-2 rounded-lg text-sm nav-link {% if '/palmares' in request.url.path %}active{% endif %}">Palmarès</a>
+        <!-- ═══════════════ Main Content ═══════════════ -->
+        <div class="main-wrapper">
+
+            <!-- Topbar -->
+            <header class="topbar">
+                <!-- Mobile menu button -->
+                <button class="mobile-menu-btn" @click="openMobile()" aria-label="Menu">
+                    <i data-lucide="menu" class="w-4 h-4"></i>
+                </button>
+
+                <!-- Global search -->
+                <form action="/search" method="get" class="search-global">
+                    <i data-lucide="search" class="search-global-icon"></i>
+                    <input type="text" name="q"
+                           placeholder="Rechercher un joueur, club, équipe..."
+                           class="search-global-input"
+                           autocomplete="off">
+                    <span class="search-global-shortcut">⌘K</span>
+                </form>
+
+                {% block topbar_right %}
+                <div class="topbar-breadcrumb">
+                    {% block breadcrumb %}{% endblock %}
                 </div>
-            </div>
+                {% endblock %}
+            </header>
+
+            <!-- Page Content -->
+            <main class="content fade-in">
+                {% block content %}{% endblock %}
+            </main>
+
         </div>
-    </nav>
 
-    <!-- ═══════════════ Main Content ═══════════════ -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 py-8 fade-in">
-        {% block content %}{% endblock %}
-    </main>
-
-    <!-- ═══════════════ Footer ═══════════════ -->
-    <footer class="border-t bg-secondary mt-16 py-8">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6">
-            <div class="flex flex-col md:flex-row items-center justify-between gap-4">
-                <div class="flex items-center gap-2">
-                    <span class="font-bold gradient-text">PyVolley</span>
-                    <span class="text-muted">—</span>
-                    <span class="text-muted text-sm">Données volleyball FFVB</span>
-                </div>
-                <div class="flex items-center gap-6 text-sm text-muted">
-                    <a href="/api/docs" class="hover:text-white transition">API Docs</a>
-                    <span>© 2024-2026</span>
-                </div>
-            </div>
-        </div>
-    </footer>
+    </div>
 
     <!-- Initialize Lucide icons -->
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             lucide.createIcons();
         });
-        // Re-init after Alpine updates
         document.addEventListener('alpine:initialized', () => {
             lucide.createIcons();
+        });
+        document.body.addEventListener('htmx:afterSwap', () => {
+            lucide.createIcons();
+        });
+
+        // Keyboard shortcuts: Cmd/Ctrl+K or '/' to focus search, Cmd/Ctrl+B to toggle sidebar
+        document.addEventListener('keydown', (e) => {
+            const isTyping = ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
+            
+            // Cmd/Ctrl+K or '/' to search
+            if (((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') || (!isTyping && e.key === '/')) {
+                e.preventDefault();
+                const input = document.querySelector('.search-global-input');
+                if (input) {
+                    input.focus();
+                    input.select();
+                }
+            }
+
+            // Cmd/Ctrl+B to toggle sidebar
+            if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') {
+                e.preventDefault();
+                const body = document.querySelector('body');
+                if (body && window.Alpine) {
+                    const alpineData = Alpine.$data(body);
+                    if (alpineData && typeof alpineData.toggleSidebar === 'function') {
+                        alpineData.toggleSidebar();
+                    }
+                }
+            }
         });
     </script>
 

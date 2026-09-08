@@ -15,12 +15,12 @@
 }
 
 .pyvolley-map-wrapper:focus-within {
-  border-color: rgba(59, 130, 246, 0.3);
+  border-color: var(--accent-primary-border);
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
 }
 
 .pyvolley-map-wrapper .leaflet-container {
-  background: var(--bg-primary, #0b0e17);
+  background: var(--bg-primary, #09090b);
   font-family: 'Inter', system-ui, -apple-system, sans-serif;
   outline: none;
 }

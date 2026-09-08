@@ -1,95 +1,29 @@
 {% extends "base.html" %}
-{% from "macros/ui.html" import pagination %}
-{% block title %}Joueurs - PyVolley{% endblock %}
+{% from "macros/filters.html" import filter_bar %}
+{% block title %}Joueurs — PyVolley{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
 
     <!-- Header -->
-    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-            <h1 class="text-2xl font-bold">
-                <i data-lucide="user" class="w-6 h-6 inline-block mr-2 text-accent-blue"></i>
-                Joueurs
+            <h1 class="text-2xl sm:text-3xl font-black text-white flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center shadow-sm"
+                     style="background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--accent-primary);">
+                    <i data-lucide="users" class="w-5 h-5"></i>
+                </div>
+                <span>Joueurs</span>
             </h1>
-            <p class="text-muted">{{ total }} joueurs enregistrés</p>
+            <p class="text-sm mt-1" style="color: var(--text-secondary);">Annuaire des licenciés, fiches sportives et historiques de compétition</p>
         </div>
     </div>
 
-    <!-- Search & Filters -->
-    <form action="/joueurs" method="get" class="space-y-3">
-        <div class="flex gap-2 max-w-2xl w-full">
-            <input type="text" name="q" value="{{ query or '' }}" placeholder="Rechercher un joueur..."
-                   class="search-input flex-1">
-            <button type="submit" class="pagination-btn btn-primary">
-                <i data-lucide="search" class="w-4 h-4"></i>
-            </button>
-            {% if query or genre %}
-            <a href="/joueurs" class="pagination-btn">
-                <i data-lucide="x" class="w-4 h-4"></i>
-            </a>
-            {% endif %}
-        </div>
+    <!-- Filters Bar -->
+    {{ filter_bar('/joueurs', hx_target='#joueurs-results', q_value=query or '', genres=genres, current_genre=genre, placeholder='Rechercher un joueur par nom ou prénom...') }}
 
-        <div class="flex flex-wrap gap-3">
-            <select name="genre" class="filter-select" onchange="this.form.submit()">
-                <option value="">Genre : Tous</option>
-                {% for g in genres %}
-                <option value="{{ g }}" {% if genre == g %}selected{% endif %}>{{ g }}</option>
-                {% endfor %}
-            </select>
-        </div>
-    </form>
-
-    {% if genre %}
-    <div class="flex flex-wrap gap-2 items-center">
-        <span class="text-xs font-semibold uppercase text-muted">Filtre :</span>
-        <span class="badge {% if genre == 'MASCULIN' %}badge-blue{% elif genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %}">{{ genre }}</span>
-    </div>
-    {% endif %}
-
-    <!-- Table -->
-    <div class="card overflow-hidden">
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>Nom</th>
-                    <th>Prénom</th>
-                    <th>Licence</th>
-                    <th class="text-right">Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for j in joueurs %}
-                <tr>
-                    <td class="font-semibold text-white">{{ j.nom }}</td>
-                    <td class="text-secondary">{{ j.prenom }}</td>
-                    <td>
-                        <span class="font-mono text-xs text-muted">{{ j.licence }}</span>
-                    </td>
-                    <td class="text-right">
-                        <a href="{{ path_for_entity('joueur', j.id) }}" class="badge badge-blue">
-                            Voir <i data-lucide="arrow-right" class="w-3 h-3 inline-block ml-1"></i>
-                        </a>
-                    </td>
-                </tr>
-                {% else %}
-                <tr>
-                    <td colspan="4" class="text-center py-8 text-muted">
-                        {% if query or genre %}
-                        Aucun joueur trouvé pour ces critères
-                        {% else %}
-                        Aucun joueur enregistré
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-
-    <!-- Pagination -->
-    {{ pagination(page, has_prev, has_next, '/joueurs', guard=true) }}
+    <!-- Results Container (HTMX Target) -->
+    {% include "joueurs/_list_results.html" %}
 
 </div>
 {% endblock %}
