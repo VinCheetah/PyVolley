@@ -424,23 +424,4 @@ def simulate(
         raise typer.Exit(1)
 
 
-def stats():
-    """📊 Statistiques de la base de données."""
-    from pyvolley.database.connection import get_db, init_db
-    from pyvolley.database.repositories import (
-        JoueurRepository, ClubRepository, EquipeRepository, MatchRepository,
-    )
 
-    init_db()
-
-    with get_db() as session:
-        table = Table(title="📊 Statistiques PyVolley")
-        table.add_column("Entité", style="cyan")
-        table.add_column("Nombre", justify="right", style="green")
-
-        table.add_row("Matchs", str(MatchRepository(session).count()))
-        table.add_row("Joueurs", str(JoueurRepository(session).count()))
-        table.add_row("Équipes", str(EquipeRepository(session).count()))
-        table.add_row("Clubs", str(ClubRepository(session).count()))
-
-        console.print(table)

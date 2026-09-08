@@ -60,9 +60,9 @@ from pyvolley.cli.helpers import (
 )
 
 # ── Sous-applications (Namespaces) ─────────────────────────────────────────
-from pyvolley.cli.list_commands import list_app
-from pyvolley.cli.reports import report_app
-from pyvolley.cli.roles_cli import roles_app
+from pyvolley.cli.commands.list_cmd import list_app
+from pyvolley.cli.commands.report_cmd import report_app
+from pyvolley.cli.commands.roles_cmd import roles_app
 from pyvolley.cli.commands.dev_cmd import dev_app
 from pyvolley.cli.commands.compute_cmd import (
     compute_app,
