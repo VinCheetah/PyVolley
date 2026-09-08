@@ -20,6 +20,7 @@ s'il est dans plusieurs poules.
 from __future__ import annotations
 
 import csv
+import html
 import io
 import logging
 from dataclasses import dataclass, field
@@ -210,6 +211,10 @@ def parse_adressier_csv(
     if not content.strip():
         logger.warning("Adressier vide")
         return []
+
+    # Unescape HTML entities (ex: &#039; for apostrophe) to prevent semicolons
+    # from breaking the CSV delimiter ';'
+    content = html.unescape(content)
 
     reader = csv.reader(io.StringIO(content), delimiter=";")
     clubs: list[AdressierClubInfo] = []

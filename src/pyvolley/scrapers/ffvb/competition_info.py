@@ -114,42 +114,45 @@ class CompetitionIndex:
 # =====================================================================
 
 
+from pyvolley.core.constants import Categorie, Genre, Niveau
+
+
 # ── Genre ────────────────────────────────────────────────────────────
 
 _GENRE_PATTERNS: list[tuple[re.Pattern, str]] = [
-    (re.compile(r'\bMASCULIN(?:E|S|ES)?\b', re.IGNORECASE), "MASCULIN"),
-    (re.compile(r'\bMASC\b', re.IGNORECASE), "MASCULIN"),
-    (re.compile(r'\bF[EÉ]MININ(?:E|S|ES)?\b', re.IGNORECASE), "FEMININ"),
-    (re.compile(r'\bFEM\b', re.IGNORECASE), "FEMININ"),
-    (re.compile(r'\bMIXTE\b', re.IGNORECASE), "MIXTE"),
+    (re.compile(r'\bMASCULIN(?:E|S|ES)?\b', re.IGNORECASE), Genre.MASCULIN.value),
+    (re.compile(r'\bMASC\b', re.IGNORECASE), Genre.MASCULIN.value),
+    (re.compile(r'\bF[EÉ]MININ(?:E|S|ES)?\b', re.IGNORECASE), Genre.FEMININ.value),
+    (re.compile(r'\bFEM\b', re.IGNORECASE), Genre.FEMININ.value),
+    (re.compile(r'\bMIXTE\b', re.IGNORECASE), Genre.MIXTE.value),
 ]
 
 # Genre déduit du code de poule (dernière lettre avant les chiffres)
 # xM* = Masculin, xF* = Féminin
 _GENRE_FROM_CODE = {
-    "M": "MASCULIN",
-    "F": "FEMININ",
+    "M": Genre.MASCULIN.value,
+    "F": Genre.FEMININ.value,
 }
 
 
 # ── Catégorie d'âge ──────────────────────────────────────────────────
 
 _CATEGORIE_PATTERNS: list[tuple[re.Pattern, str]] = [
-    (re.compile(r'\bSENIORS?\b', re.IGNORECASE), "SENIOR"),
-    (re.compile(r'\bM21\b', re.IGNORECASE), "M21"),
-    (re.compile(r'\bM20\b', re.IGNORECASE), "M20"),
-    (re.compile(r'\bM18\b', re.IGNORECASE), "M18"),
-    (re.compile(r'\bM17\b', re.IGNORECASE), "M17"),
-    (re.compile(r'\bM15\b', re.IGNORECASE), "M15"),
-    (re.compile(r'\bM13\b', re.IGNORECASE), "M13"),
-    (re.compile(r'\bU21\b', re.IGNORECASE), "M21"),
-    (re.compile(r'\bU20\b', re.IGNORECASE), "M20"),
-    (re.compile(r'\bU18\b', re.IGNORECASE), "M18"),
-    (re.compile(r'\bU17\b', re.IGNORECASE), "M17"),
-    (re.compile(r'\bU15\b', re.IGNORECASE), "M15"),
-    (re.compile(r'\bU13\b', re.IGNORECASE), "M13"),
-    (re.compile(r'\bJEUNES?\b', re.IGNORECASE), "JEUNE"),
-    (re.compile(r'\bV[EÉ]T[EÉ]RANS?\b', re.IGNORECASE), "VETERAN"),
+    (re.compile(r'\bSENIORS?\b', re.IGNORECASE), Categorie.SENIOR.value),
+    (re.compile(r'\bM21\b', re.IGNORECASE), Categorie.M21.value),
+    (re.compile(r'\bM20\b', re.IGNORECASE), Categorie.M20.value),
+    (re.compile(r'\bM18\b', re.IGNORECASE), Categorie.M18.value),
+    (re.compile(r'\bM17\b', re.IGNORECASE), Categorie.M17.value),
+    (re.compile(r'\bM15\b', re.IGNORECASE), Categorie.M15.value),
+    (re.compile(r'\bM13\b', re.IGNORECASE), Categorie.M13.value),
+    (re.compile(r'\bU21\b', re.IGNORECASE), Categorie.M21.value),
+    (re.compile(r'\bU20\b', re.IGNORECASE), Categorie.M20.value),
+    (re.compile(r'\bU18\b', re.IGNORECASE), Categorie.M18.value),
+    (re.compile(r'\bU17\b', re.IGNORECASE), Categorie.M17.value),
+    (re.compile(r'\bU15\b', re.IGNORECASE), Categorie.M15.value),
+    (re.compile(r'\bU13\b', re.IGNORECASE), Categorie.M13.value),
+    (re.compile(r'\bJEUNES?\b', re.IGNORECASE), Categorie.JEUNES.value),
+    (re.compile(r'\bV[EÉ]T[EÉ]RANS?\b', re.IGNORECASE), Categorie.VETERAN.value),
 ]
 
 
@@ -157,38 +160,44 @@ _CATEGORIE_PATTERNS: list[tuple[re.Pattern, str]] = [
 
 # Ordonnés du plus spécifique au moins spécifique
 _NIVEAU_PATTERNS: list[tuple[re.Pattern, str]] = [
+    # Professionnel
+    (re.compile(r'\bPRO\s*[AB]?\b', re.IGNORECASE), Niveau.PRO.value),
+    (re.compile(r'\bLIGUE\s*[AB]\b', re.IGNORECASE), Niveau.PRO.value),
+    (re.compile(r'\bLAM\b|\bLAF\b|\bLBM\b|\bLBF\b', re.IGNORECASE), Niveau.PRO.value),
+    (re.compile(r'\bMARMARA\s+SPIKELIGUE\b', re.IGNORECASE), Niveau.PRO.value),
+    (re.compile(r'\bSAFORELLE\s+POWER\s*6\b', re.IGNORECASE), Niveau.PRO.value),
     # Elite
-    (re.compile(r'\bELITE\b', re.IGNORECASE), "ELITE"),
-    (re.compile(r'\bPRO\s*[AB]?\b', re.IGNORECASE), "ELITE"),
-    (re.compile(r'\bLIGUE\s*[AB]\b', re.IGNORECASE), "ELITE"),
-    (re.compile(r'\bLAM\b|\bLAF\b|\bLBM\b|\bLBF\b', re.IGNORECASE), "ELITE"),
-    (re.compile(r'\bTQE\b', re.IGNORECASE), "ELITE"),
-    (re.compile(r'\bELITE\s+AVENIR\b', re.IGNORECASE), "ELITE"),
-    (re.compile(r'\bSUPERCOUPE\b', re.IGNORECASE), "ELITE"),
+    (re.compile(r'\bELITE\b', re.IGNORECASE), Niveau.ELITE.value),
+    (re.compile(r'\bTQE\b', re.IGNORECASE), Niveau.ELITE.value),
+    (re.compile(r'\bELITE\s+AVENIR\b', re.IGNORECASE), Niveau.ELITE.value),
+    (re.compile(r'\bSUPERCOUPE\b', re.IGNORECASE), Niveau.ELITE.value),
     # Pré-nationale (avant nationale pour éviter un match partiel)
-    (re.compile(r'\bPR[EÉ][\s-]*NATIONAL(?:E|AUX|ES?)?\b', re.IGNORECASE), "PRE_NATIONALE"),
-    (re.compile(r'\bPRENATIONAL\b', re.IGNORECASE), "PRE_NATIONALE"),
-    (re.compile(r'\bPR[EÉ][\s-]*R[EÉ]GIONAL(?:E|AUX|ES?)?\b', re.IGNORECASE), "PRE_NATIONALE"),
-    (re.compile(r'\bACCESSION\b', re.IGNORECASE), "PRE_NATIONALE"),
+    (re.compile(r'\bPR[EÉ][\s-]*NATIONAL(?:E|AUX|ES?)?\b', re.IGNORECASE), Niveau.PRE_NATIONALE.value),
+    (re.compile(r'\bPRENATIONAL\b', re.IGNORECASE), Niveau.PRE_NATIONALE.value),
+    # Pré-régionale (échelon départemental supérieur)
+    (re.compile(r'\bPR[EÉ][\s-]*R[EÉ]GIONAL(?:E|AUX|ES?)?\b', re.IGNORECASE), Niveau.PRE_REGIONALE.value),
+    (re.compile(r'\bPREREGIONAL\b', re.IGNORECASE), Niveau.PRE_REGIONALE.value),
+    (re.compile(r'\bACCESSION\b', re.IGNORECASE), Niveau.PRE_NATIONALE.value),
     # Nationale
-    (re.compile(r'\bNATIONAL(?:E|AUX|ES?)?\s*\d?\b', re.IGNORECASE), "NATIONALE"),
-    (re.compile(r'\bCOUPE\s+DE\s+FRANCE\b', re.IGNORECASE), "NATIONALE"),
-    (re.compile(r'\bFINALE?\s+N\d[MF]\b', re.IGNORECASE), "NATIONALE"),
-    (re.compile(r'\bULTRAMARIN\b', re.IGNORECASE), "NATIONALE"),
+    (re.compile(r'\bNATIONAL(?:E|AUX|ES?)?\s*\d?\b', re.IGNORECASE), Niveau.NATIONALE.value),
+    (re.compile(r'\bCOUPE\s+DE\s+FRANCE\b', re.IGNORECASE), Niveau.NATIONALE.value),
+    (re.compile(r'\bFINALE?\s+N\d[MF]\b', re.IGNORECASE), Niveau.NATIONALE.value),
+    (re.compile(r'\bULTRAMARIN\b', re.IGNORECASE), Niveau.NATIONALE.value),
     # Régionale
-    (re.compile(r'\bR[EÉ]GIONAL(?:E|AUX|ES?)?\s*\d?\b', re.IGNORECASE), "REGIONALE"),
-    (re.compile(r'\bTOURNOI\s+R[EÉ]GIONAL\b', re.IGNORECASE), "REGIONALE"),
-    (re.compile(r'\bCHAMPIONNAT\s+R[EÉ]GIONAL\b', re.IGNORECASE), "REGIONALE"),
-    (re.compile(r'\bTID\b', re.IGNORECASE), "REGIONALE"),  # Tournoi InterDépartemental
+    (re.compile(r'\bR[EÉ]GIONAL(?:E|AUX|ES?)?\s*\d?\b', re.IGNORECASE), Niveau.REGIONALE.value),
+    (re.compile(r'\bTOURNOI\s+R[EÉ]GIONAL\b', re.IGNORECASE), Niveau.REGIONALE.value),
+    (re.compile(r'\bCHAMPIONNAT\s+R[EÉ]GIONAL\b', re.IGNORECASE), Niveau.REGIONALE.value),
+    (re.compile(r'\bTID\b', re.IGNORECASE), Niveau.REGIONALE.value),  # Tournoi InterDépartemental
     # Départementale
-    (re.compile(r'\bD[EÉ]PARTEMENTAL(?:E|AUX|ES?)?\b', re.IGNORECASE), "DEPARTEMENTALE"),
-    (re.compile(r'\bD[EÉ]P\.?\b', re.IGNORECASE), "DEPARTEMENTALE"),
+    (re.compile(r'\bD[EÉ]PARTEMENTAL(?:E|AUX|ES?)?\b', re.IGNORECASE), Niveau.DEPARTEMENTALE.value),
+    (re.compile(r'\bD[EÉ]P\.?\b', re.IGNORECASE), Niveau.DEPARTEMENTALE.value),
     # Loisir
-    (re.compile(r'\bLOISIRS?\b', re.IGNORECASE), "LOISIR"),
-    (re.compile(r'\bBRASSAGES?\b', re.IGNORECASE), "LOISIR"),
-    (re.compile(r'\bCOMPET\s*FUN\b', re.IGNORECASE), "LOISIR"),
-    (re.compile(r'\bCOMPET\s*MOUV\b', re.IGNORECASE), "LOISIR"),
+    (re.compile(r'\bLOISIRS?\b', re.IGNORECASE), Niveau.LOISIR.value),
+    (re.compile(r'\bBRASSAGES?\b', re.IGNORECASE), Niveau.LOISIR.value),
+    (re.compile(r'\bCOMPET\s*FUN\b', re.IGNORECASE), Niveau.LOISIR.value),
+    (re.compile(r'\bCOMPET\s*MOUV\b', re.IGNORECASE), Niveau.LOISIR.value),
 ]
+
 
 
 # ── Division (chiffre après le niveau) ───────────────────────────────

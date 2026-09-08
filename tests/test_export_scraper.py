@@ -491,6 +491,64 @@ class TestExportMatchInfo:
         assert m.sets_equipe_a == 3
         assert m.sets_equipe_b == 0
 
+    def test_forfait_sets_extracted_from_score_sets(self):
+        """En cas de forfait sans sets détaillés, les sets sont déduits de score_sets."""
+        m1 = ExportMatchInfo(
+            code_match="EFA001", entite_code="ABCCS", poule_code="EFA",
+            saison="2025/2026", sets=[],
+            score_sets="3/0", forfait=True, match_joue=True,
+        )
+        assert m1.sets_equipe_a == 3
+        assert m1.sets_equipe_b == 0
+
+        m2 = ExportMatchInfo(
+            code_match="EFA002", entite_code="ABCCS", poule_code="EFA",
+            saison="2025/2026", sets=[],
+            score_sets="0/3", forfait=True, match_joue=True,
+        )
+        assert m2.sets_equipe_a == 0
+        assert m2.sets_equipe_b == 3
+
+
+class TestNormalizePouleCode:
+    """Tests de la détection et normalisation des phases Aller / Retour."""
+
+    def test_dsfa_aller(self):
+        from pyvolley.scrapers.ffvb.export_scraper import normalize_poule_code
+        base, phase = normalize_poule_code("DSFA")
+        assert base == "DSF"
+        assert phase == "ALLER"
+
+    def test_dsfr_retour(self):
+        from pyvolley.scrapers.ffvb.export_scraper import normalize_poule_code
+        base, phase = normalize_poule_code("DSFR")
+        assert base == "DSF"
+        assert phase == "RETOUR"
+
+    def test_prmr_retour(self):
+        from pyvolley.scrapers.ffvb.export_scraper import normalize_poule_code
+        base, phase = normalize_poule_code("PRMR")
+        assert base == "PRM"
+        assert phase == "RETOUR"
+
+    def test_prma_preserves_poule_a(self):
+        from pyvolley.scrapers.ffvb.export_scraper import normalize_poule_code
+        base, phase = normalize_poule_code("PRMA")
+        assert base == "PRMA"
+        assert phase is None
+
+    def test_cmxa_youth_division(self):
+        from pyvolley.scrapers.ffvb.export_scraper import normalize_poule_code
+        base, phase = normalize_poule_code("CMXA")
+        assert base == "CMX"
+        assert phase == "ALLER"
+
+    def test_ema_short_code(self):
+        from pyvolley.scrapers.ffvb.export_scraper import normalize_poule_code
+        base, phase = normalize_poule_code("EMA")
+        assert base == "EMA"
+        assert phase is None
+
 
 class TestArbitreInfo:
     """Tests du dataclass ArbitreInfo."""

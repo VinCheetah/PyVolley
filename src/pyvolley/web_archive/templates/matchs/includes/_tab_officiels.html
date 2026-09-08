@@ -1,0 +1,28 @@
+{# ═══════════════════════════════════════════════════════════════
+   Match Detail — Officiels Tab
+   Referees and match officials cards
+   ═══════════════════════════════════════════════════════════════ #}
+
+{% if match.arbitrages %}
+<div x-show="activeTab === 'officiels'" x-cloak class="card p-6">
+    <h3 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+        <i data-lucide="shield" class="w-4 h-4 inline-block mr-1"></i> Arbitres du match
+    </h3>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {% for am in match.arbitrages %}
+        <a href="{{ path_for_entity('arbitre', am.arbitre.id) }}" class="card card-interactive p-4 flex items-center gap-3 no-underline">
+            <div class="w-10 h-10 rounded-full flex items-center justify-center"
+                 style="background: rgba(168,85,247,0.15);">
+                <i data-lucide="shield" class="w-5 h-5" style="color: var(--accent-purple);"></i>
+            </div>
+            <div>
+                <div class="font-semibold text-white">
+                    {{ am.arbitre.nom }}{% if am.arbitre.prenom %} {{ am.arbitre.prenom }}{% endif %}
+                </div>
+                <div class="text-xs" style="color: var(--text-muted);">{{ am.role }}</div>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}

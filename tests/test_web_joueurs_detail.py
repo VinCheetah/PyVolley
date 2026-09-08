@@ -96,3 +96,16 @@ def test_web_joueur_detail_page_renders_successfully():
     assert response.status_code == 200
     assert "GARDIES" in response.text
     assert "Paul" in response.text
+
+    # Test full-page list load
+    list_res = client.get("/joueurs")
+    assert list_res.status_code == 200
+    assert "<!DOCTYPE html>" in list_res.text
+    assert "GARDIES" in list_res.text
+
+    # Test HTMX partial request
+    htmx_res = client.get("/joueurs?q=GARDIES", headers={"HX-Request": "true"})
+    assert htmx_res.status_code == 200
+    assert "<!DOCTYPE html>" not in htmx_res.text
+    assert "joueurs-results" in htmx_res.text
+    assert "GARDIES" in htmx_res.text

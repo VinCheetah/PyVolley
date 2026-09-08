@@ -1,24 +1,32 @@
 """Récupération de logos clubs depuis Volleybox.
 
 Stratégie de collecte :
-- scraping HTML direct Volleybox,
+- scraping HTML direct Volleybox (cartes de listing avec logo direct dans ``data-src``),
 - recherche ciblée ``country=FR&name=...`` depuis des mots-clés du club,
-- fallback index global (pages clubs FR) si besoin de couverture.
+- index catalogué des clubs français avec cache local persistant JSON,
+- matching par tokens, acronymes, proximité de ville et département,
+- pénalisation des équipes réserves / jeunes pour favoriser l'équipe première,
+- fallback recherche web si configuré.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from difflib import SequenceMatcher
-from typing import Optional
+import json
+import logging
+from pathlib import Path
 import re
+import time
+from typing import Optional
 import unicodedata
 from urllib.parse import quote_plus, unquote, urljoin, urlparse
 
+from bs4 import BeautifulSoup
 import requests
 from requests import RequestException
-from bs4 import BeautifulSoup
 
+logger = logging.getLogger(__name__)
 
 _VOLLEYBOX_FR_CLUBS = (
     "https://volleybox.net/fr/clubs?country=FR&type=C&orderValue=id&orderDirection=desc"
@@ -36,11 +44,12 @@ _PAGE_RE = re.compile(r"(?:\?|&)page=(\d+)")
 _CITY_RE = re.compile(r"([A-Za-zÀ-ÖØ-öø-ÿ'\-\s\d]+),\s*France", re.IGNORECASE)
 _GOOGLE_RESULT_RE = re.compile(r"^/url\?q=([^&]+)")
 
+_RESERVE_TEAM_RE = re.compile(r"(?:-(?:u\d+|m\d+|\d+|ii|iii|iv|b|c|reserve))+$", re.IGNORECASE)
+
 _GENERIC_TOKENS = {
     "club",
     "clubs",
     "volley",
-    "volleyball",
     "volleyball",
     "ball",
     "team",
@@ -55,6 +64,11 @@ _GENERIC_TOKENS = {
     "et",
     "d",
     "l",
+    "as",
+    "us",
+    "vb",
+    "vbc",
+    "vc",
 }
 
 
@@ -79,20 +93,31 @@ class _TeamEntry:
     tokens: set[str]
     city: Optional[str] = None
     city_tokens: set[str] = field(default_factory=set)
+    logo_url: Optional[str] = None
+    name: Optional[str] = None
 
 
 class VolleyboxLogoScraper:
-    def __init__(self, timeout: float = 25.0, max_fr_pages: int = 40):
+    def __init__(
+        self,
+        timeout: float = 25.0,
+        max_fr_pages: int = 40,
+        cache_path: Optional[Path | str] = None,
+        cache_ttl_days: int = 7,
+    ):
         self.timeout = timeout
         self.max_fr_pages = max(1, max_fr_pages)
+        self.cache_ttl_days = cache_ttl_days
+        self.cache_path = Path(cache_path) if cache_path else None
         self._session = requests.Session()
         self._session.headers.update(
             {
                 "User-Agent": (
-                    "Mozilla/5.0 (X11; Linux x86_64) "
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                     "AppleWebKit/537.36 (KHTML, like Gecko) "
                     "Chrome/124.0 Safari/537.36"
-                )
+                ),
+                "Accept-Language": "fr-FR,fr;q=0.9,en-US;q=0.8",
             }
         )
         self._teams_index: Optional[list[_TeamEntry]] = None
@@ -223,12 +248,30 @@ class VolleyboxLogoScraper:
                 if not parsed:
                     continue
                 team_url, slug = parsed
+                if team_url in seen_urls:
+                    continue
+
+                # Extraction du nom complet
+                title_el = link.find(class_=lambda c: c and "title" in c)
+                name = title_el.get_text(" ", strip=True) if title_el else None
+
+                # Extraction de la ville
                 context_text = link.parent.get_text(" ", strip=True) if link.parent else ""
                 city = self._extract_city_from_text(context_text) or self._extract_city_from_text(
                     link.get_text(" ", strip=True)
                 )
-                if team_url in seen_urls:
-                    continue
+
+                # Extraction du logo direct depuis data-src ou src
+                logo_url: Optional[str] = None
+                img = link.find("img")
+                if img:
+                    candidate_src = img.get("data-src") or img.get("src") or ""
+                    candidate_src = candidate_src.strip()
+                    if candidate_src.startswith("/"):
+                        candidate_src = f"https://volleybox.net{candidate_src}"
+                    if self._is_valid_logo_url(candidate_src):
+                        logo_url = candidate_src
+
                 seen_urls.add(team_url)
                 entries.append(
                     _TeamEntry(
@@ -237,9 +280,12 @@ class VolleyboxLogoScraper:
                         tokens=self._tokens(slug.replace("-", " ")),
                         city=city,
                         city_tokens=self._tokens_with_numbers(city or ""),
+                        logo_url=logo_url,
+                        name=name,
                     )
                 )
 
+        # Fallback regex si pas de balisage riche
         for match in _TEAM_URL_RE.finditer(content):
             slug = match.group(1)
             team_url = f"https://volleybox.net/fr/{slug}-t{match.group(2)}"
@@ -253,29 +299,38 @@ class VolleyboxLogoScraper:
                     tokens=self._tokens(slug.replace("-", " ")),
                     city=None,
                     city_tokens=set(),
+                    logo_url=None,
+                    name=None,
                 )
             )
 
         return entries
 
-    def _search_entries_by_keywords(self, keywords: list[str], per_keyword_pages: int = 3) -> list[_TeamEntry]:
+    def _search_entries_by_keywords(self, keywords: list[str], per_keyword_pages: int = 2) -> list[_TeamEntry]:
         collected: list[_TeamEntry] = []
         seen: set[str] = set()
 
         for keyword in keywords:
             query = keyword.strip()
-            if not query:
+            if not query or len(query) < 2:
                 continue
 
             base_url = f"{_VOLLEYBOX_FR_CLUBS_SEARCH}{quote_plus(query)}"
-            first_page = self._fetch_text(base_url)
+            try:
+                first_page = self._fetch_text(base_url)
+            except RequestException:
+                continue
+
             max_page = min(max(1, per_keyword_pages), self._extract_max_page(first_page))
 
             for page_number in range(1, max_page + 1):
                 if page_number == 1:
                     content = first_page
                 else:
-                    content = self._fetch_text(f"{base_url}&page={page_number}")
+                    try:
+                        content = self._fetch_text(f"{base_url}&page={page_number}")
+                    except RequestException:
+                        break
 
                 for entry in self._extract_team_entries(content):
                     if entry.team_url in seen:
@@ -297,10 +352,78 @@ class VolleyboxLogoScraper:
                 merged.append(entry)
         return merged
 
-    def _load_teams_index(self) -> list[_TeamEntry]:
-        if self._teams_index is not None:
+    def _load_from_cache(self) -> Optional[list[_TeamEntry]]:
+        """Charge le catalogue depuis le cache disque s'il est valide."""
+        if not self.cache_path or not self.cache_path.exists():
+            return None
+
+        try:
+            mtime = self.cache_path.stat().st_mtime
+            age_days = (time.time() - mtime) / 86400.0
+            if age_days > self.cache_ttl_days:
+                logger.debug("Cache Volleybox expiré (âge: %.1f jours)", age_days)
+                return None
+
+            with open(self.cache_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            entries: list[_TeamEntry] = []
+            for item in data:
+                slug = item.get("slug", "")
+                entries.append(
+                    _TeamEntry(
+                        team_url=item.get("team_url", ""),
+                        slug=slug,
+                        tokens=self._tokens(slug.replace("-", " ")),
+                        city=item.get("city"),
+                        city_tokens=self._tokens_with_numbers(item.get("city") or ""),
+                        logo_url=item.get("logo_url"),
+                        name=item.get("name"),
+                    )
+                )
+            if entries:
+                logger.debug("Chargé %d clubs Volleybox depuis le cache", len(entries))
+                return entries
+        except Exception as exc:
+            logger.debug("Impossible de lire le cache Volleybox: %s", exc)
+
+        return None
+
+    def _save_to_cache(self, entries: list[_TeamEntry]) -> None:
+        """Sauvegarde les entrées dans le cache JSON."""
+        if not self.cache_path:
+            return
+
+        try:
+            self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = [
+                {
+                    "team_url": e.team_url,
+                    "slug": e.slug,
+                    "city": e.city,
+                    "logo_url": e.logo_url,
+                    "name": e.name,
+                }
+                for e in entries
+            ]
+            with open(self.cache_path, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            logger.info("Catalogue Volleybox sauvegardé en cache (%d clubs)", len(entries))
+        except Exception as exc:
+            logger.warning("Échec de la sauvegarde du cache Volleybox: %s", exc)
+
+    def _load_teams_index(self, force_refresh: bool = False) -> list[_TeamEntry]:
+        if self._teams_index is not None and not force_refresh:
             return self._teams_index
 
+        # 1. Vérifier le cache disque
+        if not force_refresh:
+            cached = self._load_from_cache()
+            if cached:
+                self._teams_index = cached
+                return cached
+
+        # 2. Aspirer le catalogue Volleybox FR
         entries: list[_TeamEntry] = []
         seen_urls: set[str] = set()
 
@@ -322,10 +445,21 @@ class VolleyboxLogoScraper:
             entries = []
 
         if not entries:
+            # En cas d'échec réseau, tenter de réutiliser un cache même ancien
+            cached_stale = self._load_from_cache()
+            if cached_stale:
+                self._teams_index = cached_stale
+                return cached_stale
             raise RuntimeError("Impossible de construire l'index des clubs Volleybox")
 
         self._teams_index = entries
+        self._save_to_cache(entries)
         return entries
+
+    def refresh_catalog(self) -> int:
+        """Force le rafraîchissement du catalogue Volleybox et retourne le nombre de clubs."""
+        entries = self._load_teams_index(force_refresh=True)
+        return len(entries)
 
     @classmethod
     def _score_tokens(cls, query_tokens: set[str], candidate_tokens: set[str]) -> float:
@@ -365,7 +499,7 @@ class VolleyboxLogoScraper:
 
         return variants
 
-    def _extract_name_keywords(self, club_names: list[str], max_keywords: int = 8) -> list[str]:
+    def _extract_name_keywords(self, club_names: list[str], max_keywords: int = 5) -> list[str]:
         raw_names = [name.strip() for name in club_names if name and name.strip()]
         if not raw_names:
             return []
@@ -373,12 +507,7 @@ class VolleyboxLogoScraper:
         keywords: list[str] = []
         seen: set[str] = set()
 
-        normalized_primary = self._normalize(raw_names[0])
-        if normalized_primary and normalized_primary not in seen:
-            seen.add(normalized_primary)
-            keywords.append(raw_names[0])
-
-        name_tokens: list[str] = []
+        # Extraire les tokens distinctifs
         for name in raw_names:
             for token in self._tokens(name):
                 if len(token) < 3:
@@ -386,14 +515,10 @@ class VolleyboxLogoScraper:
                 if token in seen:
                     continue
                 seen.add(token)
-                name_tokens.append(token)
+                keywords.append(token)
 
-        name_tokens.sort(key=len, reverse=True)
-        for token in name_tokens:
-            keywords.append(token)
-            if len(keywords) >= max_keywords:
-                break
-
+        # Trier par longueur décroissante (les termes plus longs sont plus sélectifs)
+        keywords.sort(key=len, reverse=True)
         return keywords[:max_keywords]
 
     def _score_city_proximity(self, target_city: Optional[str], entry: _TeamEntry) -> tuple[float, Optional[str]]:
@@ -464,17 +589,20 @@ class VolleyboxLogoScraper:
             return []
 
         entries: list[_TeamEntry] = []
+
+        # 1. Utiliser le catalogue complet s'il est déjà en cache ou mémoire
         try:
-            keywords = self._extract_name_keywords(club_names)
-            entries = self._search_entries_by_keywords(keywords, per_keyword_pages=3)
-        except (RequestException, ValueError):
+            entries = self._load_teams_index()
+        except RuntimeError:
             entries = []
 
-        if len(entries) < 25:
+        # 2. Si le catalogue n'est pas disponible, recherche ciblée par mots-clés
+        if not entries:
             try:
-                entries = self._merge_entries(entries, self._load_teams_index())
-            except RuntimeError:
-                pass
+                keywords = self._extract_name_keywords(club_names)
+                entries = self._search_entries_by_keywords(keywords, per_keyword_pages=2)
+            except (RequestException, ValueError):
+                entries = []
 
         candidates: list[LogoCandidate] = []
         for entry in entries:
@@ -493,7 +621,13 @@ class VolleyboxLogoScraper:
 
             bonus = min(0.12, 0.04 * max(support_hits - 1, 0))
             city_score, matched_city = self._score_city_proximity(target_city, entry)
-            final_score = min(1.0, best_weighted_score + bonus + (0.18 * city_score))
+
+            # Pénaliser les équipes réserves/jeunes pour favoriser l'équipe première
+            reserve_penalty = 0.0
+            if _RESERVE_TEAM_RE.search(entry.slug):
+                reserve_penalty = 0.08
+
+            final_score = min(1.0, max(0.0, best_weighted_score + bonus + (0.18 * city_score) - reserve_penalty))
             if final_score < min_score:
                 continue
 
@@ -505,6 +639,7 @@ class VolleyboxLogoScraper:
                     matched_name=best_matched_name,
                     matched_city=matched_city,
                     city_score=city_score,
+                    logo_url=entry.logo_url,
                 )
             )
 
@@ -518,7 +653,7 @@ class VolleyboxLogoScraper:
     @staticmethod
     def _is_valid_logo_url(url: str) -> bool:
         lowered = url.lower()
-        if "default_team" in lowered or "default-team" in lowered:
+        if "default_team" in lowered or "default-team" in lowered or "light-px" in lowered:
             return False
         return (
             "/media/upload/teams/" in lowered
@@ -608,7 +743,7 @@ class VolleyboxLogoScraper:
         return None
 
     def _extract_logo_url_from_generic_page(self, page_url: str) -> Optional[str]:
-        response = self._session.get(page_url, timeout=self.timeout)
+        response = self._session.get(page_url, timeout=min(8.0, self.timeout))
         response.raise_for_status()
 
         content_type = (response.headers.get("content-type") or "").lower()
@@ -821,14 +956,15 @@ class VolleyboxLogoScraper:
         if not best:
             return None
 
-        try:
-            best.logo_url = self.extract_logo_url(best.team_url)
-        except RequestException:
-            return None
+        if not best.logo_url:
+            try:
+                best.logo_url = self.extract_logo_url(best.team_url)
+            except RequestException:
+                best.logo_url = None
+
         if not best.logo_url:
             return None
 
         best.source = "volleybox"
         best.result_url = best.team_url
-
         return best

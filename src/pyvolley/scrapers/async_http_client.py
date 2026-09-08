@@ -230,9 +230,8 @@ class AsyncHttpClient:
                 logger.warning("Contenu non-PDF pour %s: %s", url, content_type)
                 return False
 
-            import aiofiles
-            async with aiofiles.open(filepath, "wb") as f:
-                await f.write(content)
+            from pathlib import Path
+            await asyncio.to_thread(Path(filepath).write_bytes, content)
 
             return True
         except Exception as e:

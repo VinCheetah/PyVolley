@@ -15,7 +15,7 @@ from datetime import datetime, date as datetime_date, time as datetime_time
 from sqlalchemy.orm import Session
 from sqlalchemy import select, delete
 
-from ..core.models import Match, Joueur, Equipe, Set, Arbitre, Sanction, Officiel
+from ..core.models import Match, Joueur, Equipe, Set, Arbitre, Sanction, Officiel, invert_match_sides
 from ..core.geo_data import extract_entite_code_from_path, get_departments_for_entite
 from pyvolley.shared.match_status import (
     compute_match_played,
@@ -23,7 +23,7 @@ from pyvolley.shared.match_status import (
     sets_indicate_played,
 )
 from pyvolley.shared.match_scores import resolve_match_score, score_sets_to_pair
-from .club_matching import normalize_club_name
+from .club_matching import normalize_club_name, detect_team_inversion
 from .models import (
     ClubDB, ClubAliasDB, EquipeDB, JoueurDB, MatchDB, SetDB,
     FormationDB, ChangementDB, TimeoutDB,
@@ -775,16 +775,18 @@ class MatchImportService:
         self._equipe_cache[cache_key] = equipe
         return equipe
 
-    def _get_or_create_club(self, nom: str) -> ClubDB:
-        """Crée ou récupère un club par nom (avec matching par alias et fuzzy).
+    def _get_or_create_club(self, nom: str) -> Optional[ClubDB]:
+        """Résout un club par nom en lecture seule.
 
-        Stratégie de résolution en 5 étapes :
+        RÈGLE MÉTIER : Le parser PDF ne doit JAMAIS créer de club en base.
+        La création de clubs relève exclusivement du scraper avec un code FFVB valide.
+
+        Stratégie de résolution en lecture seule :
         1. Cache mémoire (nom normalisé)
         2. Alias exact en BDD (nom normalisé)
         3. Nom exact en BDD
-        4. Matching souple : comparaison du nom-noyau (sans suffixes VB/volley)
-           et distance d'édition avec tous les clubs existants
-        5. Création si aucune correspondance
+        4. Matching déterministe par normalisation stricte
+        5. Aucune correspondance -> Retourne None (pas de création)
         """
         normalized = normalize_club_name(nom)
 
@@ -819,16 +821,8 @@ class MatchImportService:
                 self._club_cache[normalized] = existing_club
                 return existing_club
 
-        # 4. Créer le club
-        club = ClubDB(nom=nom)
-        self.session.add(club)
-        self.session.flush()
-
-        # Créer l'alias normalisé
-        self._create_alias_safe(normalized, club.id)
-
-        self._club_cache[normalized] = club
-        return club
+        # RÈGLE MÉTIER : Ne JAMAIS créer de club sans code FFVB dans le parser.
+        return None
 
     def _create_alias_safe(self, alias: str, club_id: int) -> None:
         """Crée un alias de club si il n'existe pas déjà."""
@@ -988,8 +982,12 @@ class MatchImportService:
             # Vérifier dans les participations déjà existantes en base
             existing_part = existing_parts_map.get(joueur_db.id)
             if existing_part:
-                if side and not existing_part.side:
+                existing_part.equipe_id = equipe_db.id
+                if side:
                     existing_part.side = side
+                existing_part.numero_maillot = joueur_data.numero
+                existing_part.est_libero = joueur_data.est_libero
+                existing_part.est_capitaine = joueur_data.est_capitaine
                 self._participation_seen.add(part_key)
                 continue
 
@@ -1492,6 +1490,37 @@ class MatchImportService:
         updated = False
         saison = match_db.saison
 
+        # ── Détection et alignement de l'orientation A/B du PDF ──
+        if not match_db.equipe_a and match_db.equipe_a_id:
+            match_db.equipe_a = self.session.get(EquipeDB, match_db.equipe_a_id)
+        if not match_db.equipe_b and match_db.equipe_b_id:
+            match_db.equipe_b = self.session.get(EquipeDB, match_db.equipe_b_id)
+
+        nom_a_db = match_db.equipe_a.nom if match_db.equipe_a else None
+        nom_b_db = match_db.equipe_b.nom if match_db.equipe_b else None
+        nom_a_pdf = parsed.equipe_a.nom if parsed.equipe_a else None
+        nom_b_pdf = parsed.equipe_b.nom if parsed.equipe_b else None
+
+        if detect_team_inversion(
+            nom_a_db,
+            nom_b_db,
+            nom_a_pdf,
+            nom_b_pdf,
+            score_export=match_db.score_export,
+            parsed_sets_a=parsed.sets_a,
+            parsed_sets_b=parsed.sets_b,
+        ):
+            logger.info(
+                "enrich_from_pdf: inversion A/B détectée pour le match %s "
+                "(PDF: %s vs %s | DB: %s vs %s). Réalignement...",
+                match_db.code_match,
+                nom_a_pdf,
+                nom_b_pdf,
+                nom_a_db,
+                nom_b_db,
+            )
+            parsed = invert_match_sides(parsed)
+
         # ── Métadonnées du match (compléter, ne pas écraser) ──
         if parsed.date and (not match_db.date_match or force):
             match_db.date_match = self._parse_date(parsed.date)
@@ -1602,6 +1631,12 @@ class MatchImportService:
             if "officiels" not in expired_relations:
                 expired_relations.append("officiels")
 
+        if (parsed.equipe_a or parsed.equipe_b) and (force or match_db.has_details):
+            self.session.execute(delete(ParticipationMatchDB).where(ParticipationMatchDB.match_id == match_db.id))
+            self._participation_seen = {k for k in self._participation_seen if k[0] != match_db.id}
+            if "participations" not in expired_relations:
+                expired_relations.append("participations")
+
         if expired_relations:
             self.session.expire(match_db, expired_relations)
 
@@ -1614,26 +1649,32 @@ class MatchImportService:
 
         # ── Équipes & Joueurs ──
         if parsed.equipe_a:
-            equipe_a_db = self._resolve_equipe(
+            equipe_a_db = match_db.equipe_a or self._resolve_equipe(
                 parsed.equipe_a, parsed, saison,
                 match_db.competition,
             )
             if equipe_a_db:
-                if not match_db.equipe_a_id or force:
+                if not match_db.equipe_a_id:
                     match_db.equipe_a_id = equipe_a_db.id
                     updated = True
-                self._import_joueurs(match_db, parsed.equipe_a, equipe_a_db)
+                if parsed.equipe_a.nom and equipe_a_db.club_id:
+                    norm_alias = normalize_club_name(parsed.equipe_a.nom)
+                    self._create_alias_safe(norm_alias, equipe_a_db.club_id)
+                self._import_joueurs(match_db, parsed.equipe_a, equipe_a_db, side="A")
 
         if parsed.equipe_b:
-            equipe_b_db = self._resolve_equipe(
+            equipe_b_db = match_db.equipe_b or self._resolve_equipe(
                 parsed.equipe_b, parsed, saison,
                 match_db.competition,
             )
             if equipe_b_db:
-                if not match_db.equipe_b_id or force:
+                if not match_db.equipe_b_id:
                     match_db.equipe_b_id = equipe_b_db.id
                     updated = True
-                self._import_joueurs(match_db, parsed.equipe_b, equipe_b_db)
+                if parsed.equipe_b.nom and equipe_b_db.club_id:
+                    norm_alias = normalize_club_name(parsed.equipe_b.nom)
+                    self._create_alias_safe(norm_alias, equipe_b_db.club_id)
+                self._import_joueurs(match_db, parsed.equipe_b, equipe_b_db, side="B")
 
         # ── Arbitres ──
         if parsed.arbitres:

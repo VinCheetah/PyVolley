@@ -130,24 +130,15 @@ def build_equipe_ffvb_url(
 
 
 def detect_genre(nom: str) -> Optional[str]:
-    """Détecte le genre depuis le nom de compétition."""
-    nom_upper = nom.upper()
-    if any(x in nom_upper for x in ("MASCULIN", " M ", "MASC")):
-        return "MASCULIN"
-    if any(x in nom_upper for x in ("FEMININ", "FÉMININ", " F ", "FEM")):
-        return "FEMININ"
-    return None
+    """Détecte le genre depuis le nom de compétition via le module unifié de catégorisation."""
+    from pyvolley.shared.categorisation import normalize_genre
+    return normalize_genre(nom)
 
 
 def detect_categorie(nom: str) -> Optional[str]:
-    """Détecte la catégorie depuis le nom de compétition."""
-    nom_upper = nom.upper()
-    if "SENIOR" in nom_upper:
-        return "SENIOR"
-    for cat in ("M21", "M20", "M18", "M17", "M15", "M13", "M11"):
-        if cat in nom_upper:
-            return cat
-    return None
+    """Détecte la catégorie depuis le nom de compétition via le module unifié de catégorisation."""
+    from pyvolley.shared.categorisation import normalize_categorie
+    return normalize_categorie(nom)
 
 
 def is_youth_entity(entity_code: str) -> bool:

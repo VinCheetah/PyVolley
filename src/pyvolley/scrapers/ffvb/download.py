@@ -65,6 +65,7 @@ def download_match_pdf(
     ctx: ScrapeContext,
     match: MatchInfo,
     output_dir: Path,
+    overwrite: bool = False,
 ) -> ScrapeResult:
     """
     Télécharge le PDF d'un match.
@@ -72,6 +73,12 @@ def download_match_pdf(
     Pour les matchs LNV dont le PDF est hébergé sur un serveur externe
     (lnv.fr, datavolley.lnv.fr), tente d'abord l'URL externe puis
     retombe sur le PDF FFVB en cas d'échec (SSL, 404, etc.).
+
+    Args:
+        ctx: Contexte de scraping.
+        match: Métadonnées du match.
+        output_dir: Répertoire de destination.
+        overwrite: Si False, réutilise le fichier local s'il existe et est valide.
 
     Returns:
         ScrapeResult avec le statut du téléchargement.
@@ -85,6 +92,13 @@ def download_match_pdf(
         journee=match.journee,
     )
     filepath.parent.mkdir(parents=True, exist_ok=True)
+
+    if not overwrite and filepath.exists() and filepath.stat().st_size >= 1000:
+        return ScrapeResult(
+            success=True,
+            message=f"Already exists: {match.filename}",
+            data={"path": str(filepath), "size": filepath.stat().st_size, "cached": True},
+        )
 
     try:
         if not match.pdf_url:

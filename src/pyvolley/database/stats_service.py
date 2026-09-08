@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any
 from collections import defaultdict
 
-from sqlalchemy import select, func, distinct, desc, asc, and_, or_, case, literal
+from sqlalchemy import select, func, distinct, desc, asc, and_, or_, case, literal, Float
 from sqlalchemy.orm import Session, joinedload
 
 from pyvolley.database.models import (
@@ -27,6 +27,7 @@ from pyvolley.shared.niveau import (
 )
 
 _MIN_MATCHES_FOR_TEAM_WINRATE = 5
+_MIN_MATCHES_FOR_PLAYER_WINRATE = 5
 
 
 # ─── Filtres ────────────────────────────────────────────────────
@@ -43,6 +44,11 @@ class StatsFilters:
     niveau_min: Optional[str] = None  # rang textuel
     niveau_max: Optional[str] = None
     departement: Optional[str] = None
+    ligue: Optional[str] = None
+    club_id: Optional[int] = None
+    competition_id: Optional[int] = None
+    niveau: Optional[str] = None
+    niveau_echelon: Optional[str] = None  # NATIONAL, REGIONAL, DEPARTEMENTAL
 
 
 # ─── Service ────────────────────────────────────────────────────
@@ -70,48 +76,126 @@ class StatsAmusantesService:
             stmt = stmt.where(MatchDB.date_match >= filters.date_from)
         if filters.date_to:
             stmt = stmt.where(MatchDB.date_match <= filters.date_to)
-        if filters.genre or filters.categorie or filters.niveau_min or filters.niveau_max:
-            # Joindre la compétition si on filtre dessus
+
+        # Filtre compétition spécifique
+        if filters.competition_id:
+            stmt = stmt.where(MatchDB.competition_id == filters.competition_id)
+
+        # Filtres nécessitant CompetitionDB
+        needs_comp = bool(
+            filters.genre
+            or filters.categorie
+            or filters.niveau_min
+            or filters.niveau_max
+            or filters.niveau
+            or filters.niveau_echelon
+        )
+        if needs_comp:
             if not self._has_join(stmt, CompetitionDB):
                 stmt = stmt.join(CompetitionDB, MatchDB.competition_id == CompetitionDB.id, isouter=True)
+
             if filters.genre:
-                stmt = stmt.where(CompetitionDB.genre == filters.genre)
+                g = str(filters.genre).upper().strip()
+                if g in ("M", "MASCULIN", "HOMME"):
+                    stmt = stmt.where(or_(func.upper(CompetitionDB.genre) == "MASCULIN", func.upper(CompetitionDB.genre) == "M"))
+                elif g in ("F", "FEMININ", "FEMME"):
+                    stmt = stmt.where(or_(func.upper(CompetitionDB.genre) == "FEMININ", func.upper(CompetitionDB.genre) == "F"))
+                elif g in ("MIXTE", "X"):
+                    stmt = stmt.where(func.upper(CompetitionDB.genre).ilike("%MIXTE%"))
+                else:
+                    stmt = stmt.where(CompetitionDB.genre == filters.genre)
+
             if filters.categorie:
                 stmt = stmt.where(CompetitionDB.categorie == filters.categorie)
+
+            if filters.niveau:
+                stmt = stmt.where(func.upper(CompetitionDB.niveau) == filters.niveau.upper())
+
+            if filters.niveau_echelon:
+                ech = filters.niveau_echelon.upper()
+                if ech == "NATIONAL":
+                    stmt = stmt.where(
+                        or_(
+                            CompetitionDB.niveau.ilike("%ELITE%"),
+                            CompetitionDB.niveau.ilike("%NATIONAL%"),
+                            CompetitionDB.niveau.ilike("%PRO%"),
+                        )
+                    )
+                elif ech == "REGIONAL":
+                    stmt = stmt.where(
+                        or_(
+                            CompetitionDB.niveau.ilike("%REGION%"),
+                            CompetitionDB.niveau.ilike("%PRE_NAT%"),
+                            CompetitionDB.niveau.ilike("%PRE NAT%"),
+                        )
+                    )
+                elif ech == "DEPARTEMENTAL":
+                    stmt = stmt.where(
+                        or_(
+                            CompetitionDB.niveau.ilike("%DEPART%"),
+                            CompetitionDB.niveau.ilike("%LOISIR%"),
+                        )
+                    )
+
+            # Filtrage niveau min/max
+            if filters.niveau_min or filters.niveau_max:
+                min_rank = _niveau_rank(filters.niveau_min)
+                max_rank = _niveau_rank(filters.niveau_max)
+                if min_rank is not None or max_rank is not None:
+                    valid_niveaux = set()
+                    for label, rank in _NIVEAU_ORDER.items():
+                        if min_rank is not None and rank < min_rank:
+                            continue
+                        if max_rank is not None and rank > max_rank:
+                            continue
+                        valid_niveaux.add(label)
+                    if valid_niveaux:
+                        stmt = stmt.where(func.upper(CompetitionDB.niveau).in_(valid_niveaux))
+
+        # Filtre département
         if filters.departement:
-            # Filtrer par département des clubs impliqués
-            dept_equipe_ids = list(self.session.scalars(
+            dept_sub = (
                 select(EquipeDB.id)
                 .join(ClubDB, EquipeDB.club_id == ClubDB.id)
                 .where(ClubDB.departement == filters.departement)
-            ))
-            if dept_equipe_ids:
-                stmt = stmt.where(
-                    or_(
-                        MatchDB.equipe_a_id.in_(dept_equipe_ids),
-                        MatchDB.equipe_b_id.in_(dept_equipe_ids),
-                    )
+                .scalar_subquery()
+            )
+            stmt = stmt.where(
+                or_(
+                    MatchDB.equipe_a_id.in_(dept_sub),
+                    MatchDB.equipe_b_id.in_(dept_sub),
                 )
-            else:
-                # Aucune équipe dans ce département → pas de résultats
-                stmt = stmt.where(literal(False))
-        # Filtrage niveau min/max
-        if filters.niveau_min or filters.niveau_max:
-            min_rank = _niveau_rank(filters.niveau_min)
-            max_rank = _niveau_rank(filters.niveau_max)
-            if min_rank is not None or max_rank is not None:
-                # On filtre les niveaux des compétitions
-                valid_niveaux = set()
-                for label, rank in _NIVEAU_ORDER.items():
-                    if min_rank is not None and rank < min_rank:
-                        continue
-                    if max_rank is not None and rank > max_rank:
-                        continue
-                    valid_niveaux.add(label)
-                if valid_niveaux:
-                    stmt = stmt.where(
-                        func.upper(CompetitionDB.niveau).in_(valid_niveaux)
-                    )
+            )
+
+        # Filtre ligue
+        if filters.ligue:
+            ligue_sub = (
+                select(EquipeDB.id)
+                .join(ClubDB, EquipeDB.club_id == ClubDB.id)
+                .where(ClubDB.ligue == filters.ligue)
+                .scalar_subquery()
+            )
+            stmt = stmt.where(
+                or_(
+                    MatchDB.equipe_a_id.in_(ligue_sub),
+                    MatchDB.equipe_b_id.in_(ligue_sub),
+                )
+            )
+
+        # Filtre club spécifique
+        if filters.club_id:
+            club_sub = (
+                select(EquipeDB.id)
+                .where(EquipeDB.club_id == filters.club_id)
+                .scalar_subquery()
+            )
+            stmt = stmt.where(
+                or_(
+                    MatchDB.equipe_a_id.in_(club_sub),
+                    MatchDB.equipe_b_id.in_(club_sub),
+                )
+            )
+
         return stmt
 
     @staticmethod
@@ -125,10 +209,12 @@ class StatsAmusantesService:
 
     def _filtered_match_ids(self, filters: StatsFilters) -> Optional[List[int]]:
         """Retourne les IDs de matchs correspondant aux filtres, ou None si pas de filtre.
-        Résultat mis en cache pour éviter les requêtes répétées."""
+        Résultat mis en cache pour compatibilité interne."""
         cache_key = (
             f"{filters.saison_id}:{filters.saison_ids}:{filters.date_from}:{filters.date_to}:"
-            f"{filters.genre}:{filters.categorie}:{filters.niveau_min}:{filters.niveau_max}:{filters.departement}"
+            f"{filters.genre}:{filters.categorie}:{filters.niveau_min}:{filters.niveau_max}:"
+            f"{filters.departement}:{filters.ligue}:{filters.club_id}:{filters.competition_id}:"
+            f"{filters.niveau}:{filters.niveau_echelon}"
         )
         if cache_key in self._match_ids_cache:
             return self._match_ids_cache[cache_key]
@@ -137,6 +223,8 @@ class StatsAmusantesService:
             filters.saison_id, filters.saison_ids, filters.date_from, filters.date_to,
             filters.genre, filters.categorie,
             filters.niveau_min, filters.niveau_max, filters.departement,
+            filters.ligue, filters.club_id, filters.competition_id,
+            filters.niveau, filters.niveau_echelon,
         ])
         if not has_filter:
             self._match_ids_cache[cache_key] = None
@@ -152,12 +240,7 @@ class StatsAmusantesService:
         self,
         filters: StatsFilters,
     ) -> tuple[int, Optional[datetime.datetime]]:
-        """Retourne la signature courante du jeu de données filtré.
-
-        La signature combine le nombre de matchs joués et le dernier
-        ``updated_at`` des matchs concernés, ce qui évite les faux cache hits
-        lorsque des données changent sans variation du volume.
-        """
+        """Retourne la signature courante du jeu de données filtré."""
         stmt = (
             select(
                 func.count(MatchDB.id).label("match_count"),
@@ -181,8 +264,6 @@ class StatsAmusantesService:
 
     def top_joueurs_matchs(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
         """Joueurs ayant joué le plus de matchs."""
-        match_ids = self._filtered_match_ids(filters)
-
         stmt = (
             select(
                 JoueurDB.id,
@@ -194,9 +275,7 @@ class StatsAmusantesService:
             .join(MatchDB, ParticipationMatchDB.match_id == MatchDB.id)
             .where(MatchDB.match_joue == True)
         )
-        if match_ids is not None:
-            stmt = stmt.where(MatchDB.id.in_(match_ids))
-
+        stmt = self._base_match_filter(stmt, filters)
         stmt = (
             stmt.group_by(JoueurDB.id, JoueurDB.nom, JoueurDB.prenom)
             .order_by(desc("nb_matchs"))
@@ -210,9 +289,6 @@ class StatsAmusantesService:
 
     def top_joueurs_victoires(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
         """Joueurs avec le plus de victoires."""
-        match_ids = self._filtered_match_ids(filters)
-
-        # On récupère les participations avec résultats
         stmt = (
             select(
                 JoueurDB.id,
@@ -237,9 +313,7 @@ class StatsAmusantesService:
             .join(MatchDB, ParticipationMatchDB.match_id == MatchDB.id)
             .where(MatchDB.match_joue == True)
         )
-        if match_ids is not None:
-            stmt = stmt.where(MatchDB.id.in_(match_ids))
-
+        stmt = self._base_match_filter(stmt, filters)
         stmt = (
             stmt.group_by(JoueurDB.id, JoueurDB.nom, JoueurDB.prenom)
             .order_by(desc("victoires"))
@@ -256,10 +330,98 @@ class StatsAmusantesService:
             for r in rows
         ]
 
-    def top_joueurs_defaites(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
-        """Joueurs avec le plus de défaites."""
-        match_ids = self._filtered_match_ids(filters)
+    def top_joueurs_ratio_victoires(self, filters: StatsFilters, limit: int = 10, min_matchs: int = _MIN_MATCHES_FOR_PLAYER_WINRATE) -> List[Dict]:
+        """Joueurs avec le meilleur taux de victoires (%) (minimum X matchs)."""
+        victoires_expr = func.sum(
+            case(
+                (and_(
+                    ParticipationMatchDB.equipe_id == MatchDB.equipe_a_id,
+                    MatchDB.sets_equipe_a > MatchDB.sets_equipe_b,
+                ), 1),
+                (and_(
+                    ParticipationMatchDB.equipe_id == MatchDB.equipe_b_id,
+                    MatchDB.sets_equipe_b > MatchDB.sets_equipe_a,
+                ), 1),
+                else_=0,
+            )
+        )
+        nb_matchs_expr = func.count(distinct(ParticipationMatchDB.match_id))
 
+        stmt = (
+            select(
+                JoueurDB.id,
+                JoueurDB.nom,
+                JoueurDB.prenom,
+                victoires_expr.label("victoires"),
+                nb_matchs_expr.label("nb_matchs"),
+            )
+            .join(ParticipationMatchDB, ParticipationMatchDB.joueur_id == JoueurDB.id)
+            .join(MatchDB, ParticipationMatchDB.match_id == MatchDB.id)
+            .where(MatchDB.match_joue == True)
+        )
+        stmt = self._base_match_filter(stmt, filters)
+        stmt = (
+            stmt.group_by(JoueurDB.id, JoueurDB.nom, JoueurDB.prenom)
+            .having(nb_matchs_expr >= min_matchs)
+            .order_by(
+                desc(func.cast(victoires_expr, Float) / nb_matchs_expr),
+                desc("victoires"),
+            )
+            .limit(limit)
+        )
+        rows = self.session.execute(stmt).all()
+        return [
+            {
+                "id": r.id, "nom": r.nom, "prenom": r.prenom,
+                "valeur": round(100.0 * (r.victoires or 0) / r.nb_matchs, 1) if r.nb_matchs else 0.0,
+                "victoires": int(r.victoires or 0),
+                "matchs": r.nb_matchs,
+            }
+            for r in rows
+        ]
+
+    def record_points_match(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
+        """Record individuel de points marqués sur un seul match."""
+        from pyvolley.database.models import JoueurMatchStatsDB
+        stmt = (
+            select(
+                JoueurDB.id.label("joueur_id"),
+                JoueurDB.nom,
+                JoueurDB.prenom,
+                JoueurMatchStatsDB.points_gagnes.label("points"),
+                MatchDB.id.label("match_id"),
+                MatchDB.code_match,
+                MatchDB.date_match,
+                MatchDB.sets_equipe_a,
+                MatchDB.sets_equipe_b,
+                EquipeDB.nom.label("equipe_nom"),
+            )
+            .join(JoueurMatchStatsDB, JoueurMatchStatsDB.joueur_id == JoueurDB.id)
+            .join(MatchDB, JoueurMatchStatsDB.match_id == MatchDB.id)
+            .outerjoin(EquipeDB, JoueurMatchStatsDB.equipe_id == EquipeDB.id)
+            .where(MatchDB.match_joue == True)
+            .where(JoueurMatchStatsDB.points_gagnes > 0)
+        )
+        stmt = self._base_match_filter(stmt, filters)
+        stmt = stmt.order_by(desc(JoueurMatchStatsDB.points_gagnes)).limit(limit)
+        rows = self.session.execute(stmt).all()
+        return [
+            {
+                "id": r.joueur_id,
+                "nom": r.nom,
+                "prenom": r.prenom,
+                "valeur": int(r.points or 0),
+                "match_id": r.match_id,
+                "code_match": r.code_match,
+                "date": r.date_match,
+                "score_sets": f"{r.sets_equipe_a}-{r.sets_equipe_b}",
+                "equipe_nom": r.equipe_nom or "",
+            }
+            for r in rows
+        ]
+
+    def top_joueurs_defaites(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
+        """Joueurs avec le plus de défaites (conservé pour rétrocompatibilité)."""
         stmt = (
             select(
                 JoueurDB.id,
@@ -284,9 +446,7 @@ class StatsAmusantesService:
             .join(MatchDB, ParticipationMatchDB.match_id == MatchDB.id)
             .where(MatchDB.match_joue == True)
         )
-        if match_ids is not None:
-            stmt = stmt.where(MatchDB.id.in_(match_ids))
-
+        stmt = self._base_match_filter(stmt, filters)
         stmt = (
             stmt.group_by(JoueurDB.id, JoueurDB.nom, JoueurDB.prenom)
             .order_by(desc("defaites"))
@@ -304,8 +464,6 @@ class StatsAmusantesService:
 
     def top_joueurs_capitaine(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
         """Joueurs ayant été le plus souvent capitaine."""
-        match_ids = self._filtered_match_ids(filters)
-
         stmt = (
             select(
                 JoueurDB.id,
@@ -318,9 +476,7 @@ class StatsAmusantesService:
             .where(ParticipationMatchDB.est_capitaine == True)
             .where(MatchDB.match_joue == True)
         )
-        if match_ids is not None:
-            stmt = stmt.where(MatchDB.id.in_(match_ids))
-
+        stmt = self._base_match_filter(stmt, filters)
         stmt = (
             stmt.group_by(JoueurDB.id, JoueurDB.nom, JoueurDB.prenom)
             .order_by(desc("nb_capitainats"))
@@ -334,8 +490,6 @@ class StatsAmusantesService:
 
     def top_joueurs_libero(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
         """Joueurs ayant été le plus souvent libero."""
-        match_ids = self._filtered_match_ids(filters)
-
         stmt = (
             select(
                 JoueurDB.id,
@@ -348,9 +502,7 @@ class StatsAmusantesService:
             .where(ParticipationMatchDB.est_libero == True)
             .where(MatchDB.match_joue == True)
         )
-        if match_ids is not None:
-            stmt = stmt.where(MatchDB.id.in_(match_ids))
-
+        stmt = self._base_match_filter(stmt, filters)
         stmt = (
             stmt.group_by(JoueurDB.id, JoueurDB.nom, JoueurDB.prenom)
             .order_by(desc("nb_liberos"))
@@ -364,8 +516,6 @@ class StatsAmusantesService:
 
     def top_joueurs_fideles(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
         """Joueurs les plus fidèles : le plus de matchs pour une même équipe."""
-        match_ids = self._filtered_match_ids(filters)
-
         stmt = (
             select(
                 JoueurDB.id,
@@ -380,9 +530,7 @@ class StatsAmusantesService:
             .join(MatchDB, ParticipationMatchDB.match_id == MatchDB.id)
             .where(MatchDB.match_joue == True)
         )
-        if match_ids is not None:
-            stmt = stmt.where(MatchDB.id.in_(match_ids))
-
+        stmt = self._base_match_filter(stmt, filters)
         stmt = (
             stmt.group_by(JoueurDB.id, JoueurDB.nom, JoueurDB.prenom, EquipeDB.nom, EquipeDB.id)
             .order_by(desc("nb_matchs"))
@@ -400,10 +548,11 @@ class StatsAmusantesService:
 
     def top_joueurs_marqueurs(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
         """Joueurs ayant marqué le plus grand nombre total de points."""
-        match_ids = self._filtered_match_ids(filters)
-
-        # Si pas de filtres personnalisés complexes, requêter d'abord JoueurSaisonStatsDB
-        if match_ids is None and not (filters.genre or filters.categorie or filters.niveau_min or filters.niveau_max or filters.departement or filters.date_from or filters.date_to):
+        has_custom_match_filters = any([
+            filters.date_from, filters.date_to, filters.departement,
+            filters.ligue, filters.club_id,
+        ])
+        if not has_custom_match_filters and not (filters.genre or filters.categorie or filters.niveau_min or filters.niveau_max or filters.niveau or filters.niveau_echelon):
             from pyvolley.database.repositories import JoueurSaisonStatsRepository
             repo = JoueurSaisonStatsRepository(self.session)
             scorers = repo.get_top_scorers(saison_id=filters.saison_id, limit=limit)
@@ -435,9 +584,7 @@ class StatsAmusantesService:
             .where(MatchDB.match_joue == True)
             .where(JoueurMatchStatsDB.points_gagnes > 0)
         )
-        if match_ids is not None:
-            stmt = stmt.where(MatchDB.id.in_(match_ids))
-
+        stmt = self._base_match_filter(stmt, filters)
         stmt = (
             stmt.group_by(JoueurDB.id, JoueurDB.nom, JoueurDB.prenom)
             .order_by(desc("total_points"))
@@ -458,9 +605,11 @@ class StatsAmusantesService:
 
     def top_joueurs_serveurs(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
         """Joueurs ayant effectué le plus grand nombre de services."""
-        match_ids = self._filtered_match_ids(filters)
-
-        if match_ids is None and not (filters.genre or filters.categorie or filters.niveau_min or filters.niveau_max or filters.departement or filters.date_from or filters.date_to):
+        has_custom_match_filters = any([
+            filters.date_from, filters.date_to, filters.departement,
+            filters.ligue, filters.club_id,
+        ])
+        if not has_custom_match_filters and not (filters.genre or filters.categorie or filters.niveau_min or filters.niveau_max or filters.niveau or filters.niveau_echelon):
             from pyvolley.database.repositories import JoueurSaisonStatsRepository
             repo = JoueurSaisonStatsRepository(self.session)
             servers = repo.get_top_servers(saison_id=filters.saison_id, limit=limit)
@@ -493,9 +642,7 @@ class StatsAmusantesService:
             .where(MatchDB.match_joue == True)
             .where(JoueurMatchStatsDB.services > 0)
         )
-        if match_ids is not None:
-            stmt = stmt.where(MatchDB.id.in_(match_ids))
-
+        stmt = self._base_match_filter(stmt, filters)
         stmt = (
             stmt.group_by(JoueurDB.id, JoueurDB.nom, JoueurDB.prenom)
             .order_by(desc("total_services"))
@@ -514,24 +661,15 @@ class StatsAmusantesService:
             for r in rows
         ]
 
-
     def meilleure_serie_victoires(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
-        """Meilleure série de victoires consécutives (actuelle et record) par joueur.
-
-        Optimisé : charge toutes les données en une seule requête, puis traite en Python.
-        Se limite aux 50 joueurs les plus actifs pour la performance.
-        """
-        match_ids = self._filtered_match_ids(filters)
-
-        # Récupérer les joueurs les plus actifs (top 50)
+        """Meilleure série de victoires consécutives (actuelle et record) par joueur."""
         stmt_top = (
             select(JoueurDB.id, JoueurDB.nom, JoueurDB.prenom)
             .join(ParticipationMatchDB, ParticipationMatchDB.joueur_id == JoueurDB.id)
             .join(MatchDB, ParticipationMatchDB.match_id == MatchDB.id)
             .where(MatchDB.match_joue == True)
         )
-        if match_ids is not None:
-            stmt_top = stmt_top.where(MatchDB.id.in_(match_ids))
+        stmt_top = self._base_match_filter(stmt_top, filters)
         stmt_top = (
             stmt_top.group_by(JoueurDB.id, JoueurDB.nom, JoueurDB.prenom)
             .order_by(desc(func.count(ParticipationMatchDB.id)))
@@ -545,7 +683,6 @@ class StatsAmusantesService:
         top_joueur_ids = [j.id for j in top_joueurs]
         joueur_info = {j.id: (j.nom, j.prenom) for j in top_joueurs}
 
-        # Charger TOUS les matchs de ces joueurs en une seule requête
         stmt = (
             select(
                 ParticipationMatchDB.joueur_id,
@@ -560,14 +697,12 @@ class StatsAmusantesService:
             .join(MatchDB, ParticipationMatchDB.match_id == MatchDB.id)
             .where(ParticipationMatchDB.joueur_id.in_(top_joueur_ids))
             .where(MatchDB.match_joue == True)
-            .order_by(ParticipationMatchDB.joueur_id, MatchDB.date_match.asc(), MatchDB.id.asc())
         )
-        if match_ids is not None:
-            stmt = stmt.where(MatchDB.id.in_(match_ids))
+        stmt = self._base_match_filter(stmt, filters)
+        stmt = stmt.order_by(ParticipationMatchDB.joueur_id, MatchDB.date_match.asc(), MatchDB.id.asc())
 
         all_rows = list(self.session.execute(stmt))
 
-        # Regrouper par joueur
         joueur_matchs = defaultdict(list)
         for r in all_rows:
             joueur_matchs[r.joueur_id].append(r)
@@ -600,14 +735,12 @@ class StatsAmusantesService:
                     "matchs_total": len(matchs),
                 })
 
-        # Trier par record puis série actuelle
         results.sort(key=lambda x: (-x["record"], -x["serie_actuelle"]))
         return results[:limit]
 
     def meilleure_serie_victoires_actuelle(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
         """Joueurs avec la meilleure série de victoires EN COURS."""
         all_series = self.meilleure_serie_victoires(filters, limit=50)
-        # Trier par série actuelle
         all_series.sort(key=lambda x: (-x["serie_actuelle"], -x["record"]))
         return [s for s in all_series if s["serie_actuelle"] >= 2][:limit]
 
@@ -615,15 +748,12 @@ class StatsAmusantesService:
 
     def matchs_les_plus_serres(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
         """Matchs avec le plus petit écart total de points entre les deux équipes."""
-        match_ids = self._filtered_match_ids(filters)
-
         eq_a_alias = EquipeDB.__table__.alias("eq_a")
         eq_b_alias = EquipeDB.__table__.alias("eq_b")
 
         total_a = func.sum(SetDB.score_a).label("total_points_a")
         total_b = func.sum(SetDB.score_b).label("total_points_b")
 
-        # Sous-requête pour agréger puis trier par écart en SQL
         sub = (
             select(
                 MatchDB.id.label("match_id"),
@@ -641,9 +771,7 @@ class StatsAmusantesService:
             .where(SetDB.score_a.isnot(None))
             .where(SetDB.score_b.isnot(None))
         )
-        if match_ids is not None:
-            sub = sub.where(MatchDB.id.in_(match_ids))
-
+        sub = self._base_match_filter(sub, filters)
         sub = sub.group_by(
             MatchDB.id, MatchDB.code_match, MatchDB.date_match,
             MatchDB.sets_equipe_a, MatchDB.sets_equipe_b,
@@ -668,14 +796,13 @@ class StatsAmusantesService:
             )
             .outerjoin(eq_a_alias, sub.c.equipe_a_id == eq_a_alias.c.id)
             .outerjoin(eq_b_alias, sub.c.equipe_b_id == eq_b_alias.c.id)
-            .order_by(asc(ecart_expr))
+            .order_by(asc(ecart_expr), desc(sub.c.total_points_a + sub.c.total_points_b))
             .limit(limit)
         )
 
         rows = list(self.session.execute(stmt))
-        results = []
-        for r in rows:
-            results.append({
+        return [
+            {
                 "match_id": r.match_id,
                 "code_match": r.code_match,
                 "date": r.date_match,
@@ -685,14 +812,12 @@ class StatsAmusantesService:
                 "total_a": int(r.total_points_a),
                 "total_b": int(r.total_points_b),
                 "ecart": r.ecart,
-            })
-
-        return results
+            }
+            for r in rows
+        ]
 
     def sets_les_plus_serres(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
-        """Sets avec le plus petit écart de points."""
-        match_ids = self._filtered_match_ids(filters)
-
+        """Sets de légende / prolongations (les sets les plus hauts en points)."""
         eq_a_alias = EquipeDB.__table__.alias("eq_a_set")
         eq_b_alias = EquipeDB.__table__.alias("eq_b_set")
 
@@ -723,16 +848,12 @@ class StatsAmusantesService:
             .where(or_(SetDB.score_a >= 25, SetDB.score_b >= 25,
                        and_(SetDB.numero == 5, or_(SetDB.score_a >= 15, SetDB.score_b >= 15))))
         )
-        if match_ids is not None:
-            stmt = stmt.where(MatchDB.id.in_(match_ids))
-
-        # Sort and limit in SQL
-        stmt = stmt.order_by(asc(ecart_expr), desc(total_expr)).limit(limit)
+        stmt = self._base_match_filter(stmt, filters)
+        stmt = stmt.order_by(desc(total_expr), asc(ecart_expr)).limit(limit)
 
         rows = list(self.session.execute(stmt))
-        results = []
-        for r in rows:
-            results.append({
+        return [
+            {
                 "set_id": r.id,
                 "numero": r.numero,
                 "score_a": r.score_a,
@@ -745,18 +866,15 @@ class StatsAmusantesService:
                 "date": r.date_match,
                 "equipe_a": r.equipe_a_nom or "?",
                 "equipe_b": r.equipe_b_nom or "?",
-            })
-
-        return results
+            }
+            for r in rows
+        ]
 
     def plus_gros_ecart_set(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
         """Sets avec le plus gros écart de points (domination)."""
-        match_ids = self._filtered_match_ids(filters)
-
         eq_a_alias = EquipeDB.__table__.alias("eq_a_dom")
         eq_b_alias = EquipeDB.__table__.alias("eq_b_dom")
 
-        # Utiliser une expression SQL pour l'écart et trier/limiter en SQL
         ecart_expr = func.abs(SetDB.score_a - SetDB.score_b)
 
         stmt = (
@@ -779,9 +897,7 @@ class StatsAmusantesService:
             .where(SetDB.score_b.isnot(None))
             .where(MatchDB.match_joue == True)
         )
-        if match_ids is not None:
-            stmt = stmt.where(MatchDB.id.in_(match_ids))
-
+        stmt = self._base_match_filter(stmt, filters)
         stmt = stmt.order_by(desc(ecart_expr)).limit(limit)
 
         rows = list(self.session.execute(stmt))
@@ -808,14 +924,10 @@ class StatsAmusantesService:
         return results
 
     def comebacks(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
-        """Matchs avec les plus grands comebacks (equipe qui remonte le plus de sets de retard)."""
-        match_ids = self._filtered_match_ids(filters)
-
+        """Matchs avec les plus grands comebacks (remontées de sets de retard, ex: 0-2 vers 3-2)."""
         eq_a_alias = EquipeDB.__table__.alias("eq_a_cb")
         eq_b_alias = EquipeDB.__table__.alias("eq_b_cb")
 
-        # Ne charger que les matchs en 5 sets (seuls candidats pour un vrai comeback 0-2 → 3-2)
-        # ou en 4 sets avec score 3-1 (comeback potentiel 0-1 → 3-1)
         stmt = (
             select(
                 MatchDB.id,
@@ -830,20 +942,14 @@ class StatsAmusantesService:
             .outerjoin(eq_b_alias, MatchDB.equipe_b_id == eq_b_alias.c.id)
             .where(MatchDB.match_joue == True)
             .where(MatchDB.has_details == True)
-            # Seulement matchs en 5 sets (les vrais comebacks 0-2 → 3-2)
-            .where(
-                (MatchDB.sets_equipe_a + MatchDB.sets_equipe_b) == 5
-            )
+            .where((MatchDB.sets_equipe_a + MatchDB.sets_equipe_b) == 5)
         )
-        if match_ids is not None:
-            stmt = stmt.where(MatchDB.id.in_(match_ids))
-
+        stmt = self._base_match_filter(stmt, filters)
         match_rows = list(self.session.execute(stmt))
 
         if not match_rows:
             return []
 
-        # Charger les sets de ces matchs en une seule requête
         match_id_list = [r.id for r in match_rows]
         sets_stmt = (
             select(SetDB.match_id, SetDB.numero, SetDB.score_a, SetDB.score_b)
@@ -852,7 +958,6 @@ class StatsAmusantesService:
         )
         all_sets = list(self.session.execute(sets_stmt))
 
-        # Regrouper les sets par match
         match_sets = defaultdict(list)
         for s in all_sets:
             match_sets[s.match_id].append(s)
@@ -914,14 +1019,12 @@ class StatsAmusantesService:
 
     def matchs_les_plus_longs(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
         """Matchs les plus longs (par durée totale ou nombre de sets)."""
-        match_ids = self._filtered_match_ids(filters)
-
         eq_a_alias = EquipeDB.__table__.alias("eq_a_long")
         eq_b_alias = EquipeDB.__table__.alias("eq_b_long")
 
         stmt = (
             select(
-                MatchDB.id,
+                MatchDB.id.label("match_id"),
                 MatchDB.code_match,
                 MatchDB.date_match,
                 MatchDB.duree_totale,
@@ -938,17 +1041,12 @@ class StatsAmusantesService:
             .outerjoin(eq_b_alias, MatchDB.equipe_b_id == eq_b_alias.c.id)
             .where(MatchDB.match_joue == True)
         )
-        if match_ids is not None:
-            stmt = stmt.where(MatchDB.id.in_(match_ids))
-
+        stmt = self._base_match_filter(stmt, filters)
         stmt = stmt.group_by(
             MatchDB.id, MatchDB.code_match, MatchDB.date_match,
             MatchDB.duree_totale, MatchDB.sets_equipe_a, MatchDB.sets_equipe_b,
             eq_a_alias.c.nom, eq_b_alias.c.nom,
         )
-
-        # Sort by total points descending as proxy for longest matches, limit to top 100
-        # (duree_totale is a string, so we sort by total_points in SQL, then re-sort in Python)
         stmt = stmt.order_by(desc(func.sum(func.coalesce(SetDB.score_a, 0) + func.coalesce(SetDB.score_b, 0)))).limit(100)
 
         rows = list(self.session.execute(stmt))
@@ -968,7 +1066,7 @@ class StatsAmusantesService:
                 duree = int(r.duree_sets_total)
 
             results.append({
-                "match_id": r.id,
+                "match_id": r.match_id,
                 "code_match": r.code_match,
                 "date": r.date_match,
                 "equipe_a": r.equipe_a_nom or "?",
@@ -984,8 +1082,6 @@ class StatsAmusantesService:
 
     def matchs_les_plus_de_points(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
         """Matchs avec le plus grand nombre total de points."""
-        match_ids = self._filtered_match_ids(filters)
-
         eq_a_alias = EquipeDB.__table__.alias("eq_a_pts")
         eq_b_alias = EquipeDB.__table__.alias("eq_b_pts")
 
@@ -1007,9 +1103,7 @@ class StatsAmusantesService:
             .where(MatchDB.match_joue == True)
             .where(SetDB.score_a.isnot(None))
         )
-        if match_ids is not None:
-            stmt = stmt.where(MatchDB.id.in_(match_ids))
-
+        stmt = self._base_match_filter(stmt, filters)
         stmt = stmt.group_by(
             MatchDB.id, MatchDB.code_match, MatchDB.date_match,
             MatchDB.sets_equipe_a, MatchDB.sets_equipe_b,
@@ -1017,9 +1111,8 @@ class StatsAmusantesService:
         ).order_by(desc("total_points")).limit(limit)
 
         rows = list(self.session.execute(stmt))
-        results = []
-        for r in rows:
-            results.append({
+        return [
+            {
                 "match_id": r.id,
                 "code_match": r.code_match,
                 "date": r.date_match,
@@ -1028,17 +1121,14 @@ class StatsAmusantesService:
                 "score_sets": f"{r.sets_equipe_a}-{r.sets_equipe_b}",
                 "total_points": int(r.total_points) if r.total_points else 0,
                 "nb_sets": r.nb_sets,
-            })
-        return results
+            }
+            for r in rows
+        ]
 
-    # ─── Statistiques équipes ─────────────────────────
+    # ─── Statistiques équipes & clubs ─────────────────
 
     def top_equipes_victoires(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
         """Équipes avec le meilleur taux de victoire (min 5 matchs)."""
-        match_ids = self._filtered_match_ids(filters)
-
-        # Construire un CTE ou une requête avec CASE
-        # Pour l'équipe A
         stmt_a = (
             select(
                 MatchDB.equipe_a_id.label("equipe_id"),
@@ -1048,11 +1138,8 @@ class StatsAmusantesService:
             .where(MatchDB.match_joue == True)
             .where(MatchDB.equipe_a_id.isnot(None))
         )
-        if match_ids is not None:
-            stmt_a = stmt_a.where(MatchDB.id.in_(match_ids))
-        stmt_a = stmt_a.group_by(MatchDB.equipe_a_id)
+        stmt_a = self._base_match_filter(stmt_a, filters).group_by(MatchDB.equipe_a_id)
 
-        # Pour l'équipe B
         stmt_b = (
             select(
                 MatchDB.equipe_b_id.label("equipe_id"),
@@ -1062,14 +1149,11 @@ class StatsAmusantesService:
             .where(MatchDB.match_joue == True)
             .where(MatchDB.equipe_b_id.isnot(None))
         )
-        if match_ids is not None:
-            stmt_b = stmt_b.where(MatchDB.id.in_(match_ids))
-        stmt_b = stmt_b.group_by(MatchDB.equipe_b_id)
+        stmt_b = self._base_match_filter(stmt_b, filters).group_by(MatchDB.equipe_b_id)
 
         rows_a = list(self.session.execute(stmt_a))
         rows_b = list(self.session.execute(stmt_b))
 
-        # Fusionner
         equipe_stats: Dict[int, Dict] = {}
         for r in rows_a:
             eid = r.equipe_id
@@ -1084,8 +1168,6 @@ class StatsAmusantesService:
             equipe_stats[eid]["matchs"] += r.matchs
             equipe_stats[eid]["victoires"] += int(r.victoires or 0)
 
-        results = []
-        # Batch-load equipe info for all qualifying IDs
         qualifying_ids = [
             eid
             for eid, st in equipe_stats.items()
@@ -1100,6 +1182,7 @@ class StatsAmusantesService:
         else:
             equipe_info = {}
 
+        results = []
         for eid, st in equipe_stats.items():
             if st["matchs"] < _MIN_MATCHES_FOR_TEAM_WINRATE:
                 continue
@@ -1121,12 +1204,168 @@ class StatsAmusantesService:
         results.sort(key=lambda x: (-x["taux"], -x["victoires"]))
         return results[:limit]
 
+    def top_equipes_clean_sheets(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
+        """Équipes avec le plus de victoires nettes 3-0."""
+        stmt_a = (
+            select(
+                MatchDB.equipe_a_id.label("equipe_id"),
+                func.count(MatchDB.id).label("clean_sheets"),
+            )
+            .where(MatchDB.match_joue == True)
+            .where(MatchDB.sets_equipe_a == 3)
+            .where(MatchDB.sets_equipe_b == 0)
+            .where(MatchDB.equipe_a_id.isnot(None))
+        )
+        stmt_a = self._base_match_filter(stmt_a, filters).group_by(MatchDB.equipe_a_id)
+
+        stmt_b = (
+            select(
+                MatchDB.equipe_b_id.label("equipe_id"),
+                func.count(MatchDB.id).label("clean_sheets"),
+            )
+            .where(MatchDB.match_joue == True)
+            .where(MatchDB.sets_equipe_b == 3)
+            .where(MatchDB.sets_equipe_a == 0)
+            .where(MatchDB.equipe_b_id.isnot(None))
+        )
+        stmt_b = self._base_match_filter(stmt_b, filters).group_by(MatchDB.equipe_b_id)
+
+        counts = defaultdict(int)
+        for r in self.session.execute(stmt_a):
+            counts[r.equipe_id] += r.clean_sheets
+        for r in self.session.execute(stmt_b):
+            counts[r.equipe_id] += r.clean_sheets
+
+        if not counts:
+            return []
+
+        sorted_ids = sorted(counts.keys(), key=lambda eid: -counts[eid])[:limit]
+        equipes = {
+            e.id: e
+            for e in self.session.scalars(select(EquipeDB).where(EquipeDB.id.in_(sorted_ids)))
+        }
+        return [
+            {
+                "id": eid,
+                "nom": equipes[eid].nom if eid in equipes else f"Équipe #{eid}",
+                "niveau": equipes[eid].niveau if eid in equipes else None,
+                "genre": equipes[eid].genre if eid in equipes else None,
+                "valeur": counts[eid],
+            }
+            for eid in sorted_ids
+            if counts[eid] > 0
+        ]
+
+    def top_equipes_tie_breaks(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
+        """Équipes avec le plus de victoires 3-2 en 5 sets (Rois du Tie-Break)."""
+        stmt_a = (
+            select(
+                MatchDB.equipe_a_id.label("equipe_id"),
+                func.count(MatchDB.id).label("tie_breaks"),
+            )
+            .where(MatchDB.match_joue == True)
+            .where(MatchDB.sets_equipe_a == 3)
+            .where(MatchDB.sets_equipe_b == 2)
+            .where(MatchDB.equipe_a_id.isnot(None))
+        )
+        stmt_a = self._base_match_filter(stmt_a, filters).group_by(MatchDB.equipe_a_id)
+
+        stmt_b = (
+            select(
+                MatchDB.equipe_b_id.label("equipe_id"),
+                func.count(MatchDB.id).label("tie_breaks"),
+            )
+            .where(MatchDB.match_joue == True)
+            .where(MatchDB.sets_equipe_b == 3)
+            .where(MatchDB.sets_equipe_a == 2)
+            .where(MatchDB.equipe_b_id.isnot(None))
+        )
+        stmt_b = self._base_match_filter(stmt_b, filters).group_by(MatchDB.equipe_b_id)
+
+        counts = defaultdict(int)
+        for r in self.session.execute(stmt_a):
+            counts[r.equipe_id] += r.tie_breaks
+        for r in self.session.execute(stmt_b):
+            counts[r.equipe_id] += r.tie_breaks
+
+        if not counts:
+            return []
+
+        sorted_ids = sorted(counts.keys(), key=lambda eid: -counts[eid])[:limit]
+        equipes = {
+            e.id: e
+            for e in self.session.scalars(select(EquipeDB).where(EquipeDB.id.in_(sorted_ids)))
+        }
+        return [
+            {
+                "id": eid,
+                "nom": equipes[eid].nom if eid in equipes else f"Équipe #{eid}",
+                "niveau": equipes[eid].niveau if eid in equipes else None,
+                "genre": equipes[eid].genre if eid in equipes else None,
+                "valeur": counts[eid],
+            }
+            for eid in sorted_ids
+            if counts[eid] > 0
+        ]
+
+    def top_clubs_victoires(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
+        """Clubs les plus victorieux (total de victoires cumulées toutes équipes confondues)."""
+        stmt_a = (
+            select(
+                EquipeDB.club_id.label("club_id"),
+                func.count(MatchDB.id).label("victoires"),
+            )
+            .select_from(MatchDB)
+            .join(EquipeDB, MatchDB.equipe_a_id == EquipeDB.id)
+            .where(MatchDB.match_joue == True)
+            .where(MatchDB.sets_equipe_a > MatchDB.sets_equipe_b)
+            .where(EquipeDB.club_id.isnot(None))
+        )
+        stmt_a = self._base_match_filter(stmt_a, filters).group_by(EquipeDB.club_id)
+
+        stmt_b = (
+            select(
+                EquipeDB.club_id.label("club_id"),
+                func.count(MatchDB.id).label("victoires"),
+            )
+            .select_from(MatchDB)
+            .join(EquipeDB, MatchDB.equipe_b_id == EquipeDB.id)
+            .where(MatchDB.match_joue == True)
+            .where(MatchDB.sets_equipe_b > MatchDB.sets_equipe_a)
+            .where(EquipeDB.club_id.isnot(None))
+        )
+        stmt_b = self._base_match_filter(stmt_b, filters).group_by(EquipeDB.club_id)
+
+        club_wins = defaultdict(int)
+        for r in self.session.execute(stmt_a):
+            club_wins[r.club_id] += r.victoires
+        for r in self.session.execute(stmt_b):
+            club_wins[r.club_id] += r.victoires
+
+        if not club_wins:
+            return []
+
+        sorted_cids = sorted(club_wins.keys(), key=lambda cid: -club_wins[cid])[:limit]
+        clubs = {
+            c.id: c
+            for c in self.session.scalars(select(ClubDB).where(ClubDB.id.in_(sorted_cids)))
+        }
+        return [
+            {
+                "id": cid,
+                "nom": clubs[cid].nom if cid in clubs else f"Club #{cid}",
+                "ville": clubs[cid].ville if cid in clubs else "",
+                "departement": clubs[cid].departement if cid in clubs else "",
+                "valeur": club_wins[cid],
+            }
+            for cid in sorted_cids
+            if club_wins[cid] > 0
+        ]
+
     # ─── Statistiques arbitres ────────────────────────
 
     def top_arbitres(self, filters: StatsFilters, limit: int = 10) -> List[Dict]:
         """Arbitres les plus actifs."""
-        match_ids = self._filtered_match_ids(filters)
-
         stmt = (
             select(
                 ArbitreDB.id,
@@ -1139,9 +1378,7 @@ class StatsAmusantesService:
             .join(MatchDB, ArbitreMatchDB.match_id == MatchDB.id)
             .where(MatchDB.match_joue == True)
         )
-        if match_ids is not None:
-            stmt = stmt.where(MatchDB.id.in_(match_ids))
-
+        stmt = self._base_match_filter(stmt, filters)
         stmt = (
             stmt.group_by(ArbitreDB.id, ArbitreDB.nom, ArbitreDB.prenom, ArbitreDB.ligue)
             .order_by(desc("nb_matchs"))
@@ -1160,11 +1397,7 @@ class StatsAmusantesService:
 
     @staticmethod
     def _make_json_safe(obj: Any) -> Any:
-        """Convertit récursivement les objets non-sérialisables en types JSON natifs.
-
-        En particulier, ``datetime.date`` et ``datetime.datetime`` sont convertis
-        en chaîne ISO 8601 (``"YYYY-MM-DD"`` / ``"YYYY-MM-DDTHH:MM:SS"``).
-        """
+        """Convertit récursivement les objets non-sérialisables en types JSON natifs."""
         if isinstance(obj, dict):
             return {k: StatsAmusantesService._make_json_safe(v) for k, v in obj.items()}
         if isinstance(obj, list):
@@ -1174,12 +1407,7 @@ class StatsAmusantesService:
         return obj
 
     def get_all_stats(self, filters: StatsFilters) -> Dict[str, Any]:
-        """Calcule toutes les statistiques amusantes avec les filtres donnés.
-
-        Les valeurs retournées sont garanties JSON-sérialisables (les dates
-        sont converties en chaînes ISO 8601).
-        """
-        # Calculer les séries une seule fois et réutiliser
+        """Calcule toutes les statistiques du palmarès avec les filtres donnés."""
         series_record = self.meilleure_serie_victoires(filters)
         series_actuelles = sorted(
             [s for s in series_record if s["serie_actuelle"] >= 2],
@@ -1187,26 +1415,37 @@ class StatsAmusantesService:
         )[:10]
 
         result = {
+            # Joueurs
             "top_matchs": self.top_joueurs_matchs(filters),
             "top_victoires": self.top_joueurs_victoires(filters),
-            "top_defaites": self.top_joueurs_defaites(filters),
-            "top_capitaines": self.top_joueurs_capitaine(filters),
-            "top_liberos": self.top_joueurs_libero(filters),
-            "top_fideles": self.top_joueurs_fideles(filters),
+            "top_ratio_victoires": self.top_joueurs_ratio_victoires(filters),
+            "record_points_match": self.record_points_match(filters),
             "top_marqueurs": self.top_joueurs_marqueurs(filters),
             "top_serveurs": self.top_joueurs_serveurs(filters),
             "series_record": series_record,
             "series_actuelles": series_actuelles,
+            "top_capitaines": self.top_joueurs_capitaine(filters),
+            "top_liberos": self.top_joueurs_libero(filters),
+            "top_fideles": self.top_joueurs_fideles(filters),
+            "top_defaites": self.top_joueurs_defaites(filters),  # Rétrocompatibilité
+
+            # Équipes & Clubs
+            "top_equipes": self.top_equipes_victoires(filters),
+            "clean_sheets": self.top_equipes_clean_sheets(filters),
+            "tie_breaks": self.top_equipes_tie_breaks(filters),
+            "top_clubs": self.top_clubs_victoires(filters),
+
+            # Matchs & Légendes
             "matchs_serres": self.matchs_les_plus_serres(filters),
             "sets_serres": self.sets_les_plus_serres(filters),
             "sets_domination": self.plus_gros_ecart_set(filters),
             "comebacks": self.comebacks(filters),
             "matchs_longs": self.matchs_les_plus_longs(filters),
             "matchs_points": self.matchs_les_plus_de_points(filters),
-            "top_equipes": self.top_equipes_victoires(filters),
+
+            # Arbitres
             "top_arbitres": self.top_arbitres(filters),
         }
-        # Garantir la sérialisabilité JSON (dates → ISO strings)
         return self._make_json_safe(result)
 
     # ─── Données pour les filtres ────────────────────
@@ -1216,11 +1455,30 @@ class StatsAmusantesService:
         saisons = list(self.session.execute(
             select(SaisonDB.id, SaisonDB.code).order_by(SaisonDB.code.desc())
         ))
-        genres = list(self.session.scalars(
+        raw_genres = list(self.session.scalars(
             select(distinct(CompetitionDB.genre))
             .where(CompetitionDB.genre.isnot(None))
             .order_by(CompetitionDB.genre)
         ))
+        genres = []
+        for g in raw_genres:
+            if not g:
+                continue
+            g_upper = g.upper()
+            if g_upper in ("MASCULIN", "M"):
+                genres.append({"code": "MASCULIN", "label": "Masculin (♂)"})
+            elif g_upper in ("FEMININ", "F"):
+                genres.append({"code": "FEMININ", "label": "Féminin (♀)"})
+            else:
+                genres.append({"code": g, "label": g.title()})
+        # Dédupliquer les codes
+        unique_genres = []
+        seen = set()
+        for g in genres:
+            if g["code"] not in seen:
+                seen.add(g["code"])
+                unique_genres.append(g)
+
         categories = list(self.session.scalars(
             select(distinct(CompetitionDB.categorie))
             .where(CompetitionDB.categorie.isnot(None))
@@ -1231,17 +1489,43 @@ class StatsAmusantesService:
             .where(ClubDB.departement.isnot(None))
             .order_by(ClubDB.departement)
         ))
+        ligues = list(self.session.scalars(
+            select(distinct(ClubDB.ligue))
+            .where(ClubDB.ligue.isnot(None))
+            .order_by(ClubDB.ligue)
+        ))
         niveaux_db = list(self.session.scalars(
             select(distinct(CompetitionDB.niveau))
             .where(CompetitionDB.niveau.isnot(None))
             .order_by(CompetitionDB.niveau)
         ))
 
+        clubs_rows = list(self.session.execute(
+            select(ClubDB.id, ClubDB.nom)
+            .order_by(ClubDB.nom)
+            .limit(200)
+        ))
+        clubs = [{"id": r.id, "nom": r.nom} for r in clubs_rows]
+
+        competitions_rows = list(self.session.execute(
+            select(CompetitionDB.id, CompetitionDB.nom, CompetitionDB.code_competition)
+            .order_by(CompetitionDB.nom)
+            .limit(100)
+        ))
+        competitions = [
+            {"id": r.id, "nom": r.nom, "code": r.code_competition}
+            for r in competitions_rows
+        ]
+
         return {
             "saisons": [{"id": s.id, "code": s.code} for s in saisons],
-            "genres": genres,
+            "genres": unique_genres,
+            "raw_genres": [g["code"] for g in unique_genres],
             "categories": categories,
-            "departements": departements,
+            "departements": sorted([d for d in departements if d]),
+            "ligues": [l for l in ligues if l],
+            "clubs": clubs,
+            "competitions": competitions,
             "niveaux": niveaux_db,
             "niveaux_ordre": _NIVEAUX_LABELS,
         }
@@ -1252,7 +1536,7 @@ class StatsAmusantesService:
     def build_filter_key(filters: StatsFilters) -> str:
         """Construit la clé canonique de cache pour une combinaison de filtres."""
         import json
-        return json.dumps({
+        payload = {
             "saison_id": filters.saison_id,
             "saison_ids": sorted(filters.saison_ids or []),
             "date_from": filters.date_from.isoformat() if filters.date_from else None,
@@ -1262,13 +1546,23 @@ class StatsAmusantesService:
             "niveau_min": filters.niveau_min,
             "niveau_max": filters.niveau_max,
             "departement": filters.departement,
-        }, sort_keys=True)
+        }
+        # Inclure les nouveaux filtres optionnels s'ils sont renseignés
+        if getattr(filters, "ligue", None):
+            payload["ligue"] = filters.ligue
+        if getattr(filters, "club_id", None):
+            payload["club_id"] = filters.club_id
+        if getattr(filters, "competition_id", None):
+            payload["competition_id"] = filters.competition_id
+        if getattr(filters, "niveau", None):
+            payload["niveau"] = filters.niveau
+        if getattr(filters, "niveau_echelon", None):
+            payload["niveau_echelon"] = filters.niveau_echelon
+
+        return json.dumps(payload, sort_keys=True)
 
     def compute_and_store(self, filters: StatsFilters) -> Dict[str, Any]:
-        """Calcule toutes les statistiques pour les filtres donnés et les stocke en base.
-
-        Retourne le dictionnaire de statistiques (identique à ``get_all_stats``).
-        """
+        """Calcule toutes les statistiques pour les filtres donnés et les stocke en base."""
         from pyvolley.database.repositories import StatsCacheRepository
 
         stats_data = self.get_all_stats(filters)
@@ -1288,8 +1582,8 @@ class StatsAmusantesService:
     def get_cached_or_compute(self, filters: StatsFilters) -> tuple[Dict[str, Any], bool]:
         """Retourne les statistiques depuis le cache si disponible, sinon les calcule à la volée.
 
-        Retourne ``(stats_data, from_cache)`` où ``from_cache`` indique si les données
-        viennent du cache base de données.
+        Implémente un Read-Through Cache : lors d'un calcul à la volée, le résultat
+        est automatiquement persisté en base de données.
         """
         from pyvolley.database.repositories import StatsCacheRepository
 
@@ -1306,4 +1600,19 @@ class StatsAmusantesService:
             if entry is not None:
                 return entry.stats_data, True
 
-        return self.get_all_stats(filters), False
+        # Calcul à la volée
+        stats_data = self.get_all_stats(filters)
+
+        # Sauvegarde automatique (Read-Through Cache)
+        try:
+            repo.upsert(
+                filter_key=filter_key,
+                stats_data=stats_data,
+                match_count=current_match_count,
+                last_match_update=last_match_update,
+            )
+            self.session.commit()
+        except Exception:
+            self.session.rollback()
+
+        return stats_data, False

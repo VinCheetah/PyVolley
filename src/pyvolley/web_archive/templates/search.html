@@ -1,0 +1,390 @@
+{% extends "base.html" %}
+{% block title %}Recherche{% if query %}: {{ query }}{% endif %} - PyVolley{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+
+    <!-- Search Header -->
+    <div>
+        <h1 class="text-2xl font-bold mb-4">
+            <i data-lucide="search" class="w-6 h-6 inline-block mr-2 text-accent-blue"></i>
+            Recherche
+        </h1>
+        <form action="/search" method="get" class="space-y-4" id="searchForm">
+            <!-- Search input -->
+            <div class="relative max-w-2xl">
+                <i data-lucide="search" class="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-muted"></i>
+                <input type="text" name="q" value="{{ query }}"
+                       placeholder="Nom, prénom, club, équipe..."
+                       class="search-input text-lg py-3 pl-12" autofocus>
+            </div>
+
+            <!-- Filters -->
+            <div x-data="{ showFilters: {{ 'true' if (genre or niveau or ligue or (season_ids and season_ids|length > 0) or date_from or date_to) else 'false' }} }" class="max-w-2xl">
+                <button type="button" @click="showFilters = !showFilters"
+                        class="flex items-center gap-2 text-sm font-medium transition text-secondary">
+                    <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
+                    Filtres avancés
+                    <i data-lucide="chevron-down" class="w-3 h-3 transition-transform"
+                       :class="showFilters && 'rotate-180'"></i>
+                    {% if genre or niveau or ligue or (season_ids and season_ids|length > 0) or date_from or date_to %}
+                    <span class="badge badge-blue text-xs">Actifs</span>
+                    {% endif %}
+                </button>
+
+                <div x-show="showFilters" x-cloak x-transition
+                     class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-3 p-4 rounded-xl bg-card border">
+                    <!-- Genre -->
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Genre</label>
+                        <select name="genre" class="filter-select">
+                            <option value="">Tous</option>
+                            {% for g in genres %}
+                            <option value="{{ g }}" {% if genre == g %}selected{% endif %}>{{ g }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Niveau -->
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Niveau</label>
+                        <select name="niveau" class="filter-select">
+                            <option value="">Tous</option>
+                            {% for n in niveaux %}
+                            <option value="{{ n }}" {% if niveau == n %}selected{% endif %}>{{ n }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Saisons -->
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Saisons</label>
+                        <select name="saison_ids" class="filter-select" multiple size="4">
+                            {% for s in saisons %}
+                            <option value="{{ s.id }}" {% if season_ids and s.id in season_ids %}selected{% endif %}>{{ s.code }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Ligue (pour arbitres) -->
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Ligue (arbitres)</label>
+                        <select name="ligue" class="filter-select">
+                            <option value="">Toutes</option>
+                            {% for l in ligues %}
+                            <option value="{{ l }}" {% if ligue == l %}selected{% endif %}>{{ l }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Du</label>
+                        <input type="date" name="after_date" value="{{ date_from }}" class="filter-select filter-date-input" lang="fr" title="Format : AAAA-MM-JJ">
+                    </div>
+
+                    <div>
+                        <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Au</label>
+                        <input type="date" name="before_date" value="{{ date_to }}" class="filter-select filter-date-input" lang="fr" title="Format : AAAA-MM-JJ">
+                        <span class="filter-date-hint">Format : AAAA-MM-JJ</span>
+                    </div>
+
+                    <div class="sm:col-span-2 lg:col-span-4 flex gap-2 pt-2">
+                        <button type="submit" class="pagination-btn btn-primary">
+                            <i data-lucide="search" class="w-4 h-4 mr-1"></i> Rechercher
+                        </button>
+                        {% if genre or niveau or ligue or (season_ids and season_ids|length > 0) or date_from or date_to %}
+                        <a href="/search{% if query %}?q={{ query }}{% endif %}" class="pagination-btn">
+                            <i data-lucide="x" class="w-4 h-4 mr-1"></i> Réinitialiser filtres
+                        </a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    {% if query %}
+    <!-- Active filters display -->
+    {% if genre or niveau or ligue or (season_ids and season_ids|length > 0) or date_from or date_to %}
+    <div class="flex flex-wrap gap-2 items-center">
+        {% set niveau_filter_badge = resolve_niveau_badge(niveau) %}
+        <span class="text-xs font-semibold uppercase text-muted">Filtres :</span>
+        {% if genre %}
+        <span class="badge badge-blue">Genre : {{ genre }}</span>
+        {% endif %}
+        {% if niveau_filter_badge %}
+        <span class="badge {{ niveau_filter_badge.css_class }}">Niveau : {{ niveau_filter_badge.label }}</span>
+        {% endif %}
+        {% if season_ids and season_ids|length > 0 %}
+        {% for s in saisons if s.id in season_ids %}
+        <span class="badge badge-purple">Saison : {{ s.code }}</span>
+        {% endfor %}
+        {% endif %}
+        {% if ligue %}
+        <span class="badge badge-gold">Ligue : {{ ligue }}</span>
+        {% endif %}
+        {% if date_from %}
+        <span class="badge badge-blue">Du : {{ date_from|format_date }}</span>
+        {% endif %}
+        {% if date_to %}
+        <span class="badge badge-blue">Au : {{ date_to|format_date }}</span>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Results summary -->
+    <div class="flex items-center gap-2 text-secondary">
+        <span class="font-medium">
+            {{ joueurs|length + clubs|length + equipes|length + arbitres|length + entraineurs|length }} résultat(s)
+        </span>
+        <span>pour « <span class="text-white font-medium">{{ query }}</span> »</span>
+    </div>
+
+    <!-- Results by category -->
+    <div x-data="{ tab: '{% if joueurs %}joueurs{% elif clubs %}clubs{% elif equipes %}equipes{% elif entraineurs %}entraineurs{% elif arbitres %}arbitres{% else %}joueurs{% endif %}' }" class="space-y-4">
+        <!-- Tabs -->
+        <div class="flex gap-2 flex-wrap">
+            <button @click="tab = 'joueurs'"
+                    :class="tab === 'joueurs' ? 'badge-blue' : ''"
+                    class="badge cursor-pointer transition">
+                <i data-lucide="user" class="w-3 h-3"></i>
+                Joueurs ({{ joueurs|length }})
+            </button>
+            <button @click="tab = 'clubs'"
+                    :class="tab === 'clubs' ? 'badge-green' : ''"
+                    class="badge cursor-pointer transition">
+                <i data-lucide="building" class="w-3 h-3"></i>
+                Clubs ({{ clubs|length }})
+            </button>
+            <button @click="tab = 'equipes'"
+                    :class="tab === 'equipes' ? 'badge-purple' : ''"
+                    class="badge cursor-pointer transition">
+                <i data-lucide="users" class="w-3 h-3"></i>
+                Équipes ({{ equipes|length }})
+            </button>
+            <button @click="tab = 'entraineurs'"
+                    :class="tab === 'entraineurs' ? 'badge-green' : ''"
+                    class="badge cursor-pointer transition">
+                <i data-lucide="clipboard-list" class="w-3 h-3"></i>
+                Entraîneurs ({{ entraineurs|length }})
+            </button>
+            <button @click="tab = 'arbitres'"
+                    :class="tab === 'arbitres' ? 'badge-gold' : ''"
+                    class="badge cursor-pointer transition">
+                <i data-lucide="shield" class="w-3 h-3"></i>
+                Arbitres ({{ arbitres|length }})
+            </button>
+        </div>
+
+        <!-- Joueurs -->
+        <div x-show="tab === 'joueurs'" class="card overflow-hidden">
+            {% if joueurs %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Nom</th>
+                        <th>Prénom</th>
+                        <th>Licence</th>
+                        <th class="text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for j in joueurs %}
+                    <tr>
+                        <td class="font-semibold">{{ j.nom }}</td>
+                        <td>{{ j.prenom }}</td>
+                        <td class="text-muted">{{ j.licence }}</td>
+                        <td class="text-center">
+                            <a href="{{ path_for_entity('joueur', j.id) }}" class="badge badge-blue">Voir profil</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="p-8 text-center text-muted">Aucun joueur trouvé</p>
+            {% endif %}
+        </div>
+
+        <!-- Clubs -->
+        <div x-show="tab === 'clubs'" x-cloak class="card overflow-hidden">
+            {% if clubs %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Nom du club</th>
+                        <th>Ville</th>
+                        <th>Département</th>
+                        <th>Code FFVB</th>
+                        <th class="text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in clubs %}
+                    <tr>
+                        <td class="font-semibold">{{ c.nom }}</td>
+                        <td>
+                            {% if c.ville %}
+                            <span class="badge badge-blue">{{ c.ville }}</span>
+                            {% else %}
+                            <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if c.departement %}
+                            <span class="badge badge-purple">{{ c.departement }}</span>
+                            {% else %}
+                            <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="font-mono text-xs text-muted">{{ c.code_ffvb or '—' }}</span>
+                        </td>
+                        <td class="text-center">
+                            <a href="{{ path_for_entity('club', c.id) }}" class="badge badge-green">Voir club</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="p-8 text-center text-muted">Aucun club trouvé</p>
+            {% endif %}
+        </div>
+
+        <!-- Equipes -->
+        <div x-show="tab === 'equipes'" x-cloak class="card overflow-hidden">
+            {% if equipes %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Nom</th>
+                        <th>Genre</th>
+                        <th>Catégorie</th>
+                        <th>Niveau</th>
+                        <th>Saison</th>
+                        <th class="text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for e in equipes %}
+                    {% set niveau_badge = resolve_niveau_badge(
+                        e.niveau or (e.competition.niveau if e.competition else None),
+                        e.competition.nom if e.competition else e.nom,
+                        e.categorie or (e.competition.categorie if e.competition else None),
+                        e.division or (e.competition.division if e.competition else None)
+                    ) %}
+                    <tr>
+                        <td class="font-semibold">{{ e.nom }}</td>
+                        <td>
+                            {% if e.genre %}
+                            <span class="badge {% if e.genre == 'MASCULIN' %}badge-blue{% elif e.genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %}">
+                                {{ e.genre }}
+                            </span>
+                            {% else %}<span class="text-muted">—</span>{% endif %}
+                        </td>
+                        <td class="text-secondary">{{ e.categorie or '—' }}</td>
+                        <td>
+                            {% if niveau_badge %}
+                            <span class="badge {{ niveau_badge.css_class }}">{{ niveau_badge.label }}</span>
+                            {% else %}
+                            <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if e.saison %}
+                            <span class="badge badge-purple">{{ e.saison.code }}</span>
+                            {% else %}<span class="text-muted">—</span>{% endif %}
+                        </td>
+                        <td class="text-center">
+                            <a href="{{ path_for_entity('equipe', e.id) }}" class="badge badge-purple">Voir équipe</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="p-8 text-center text-muted">Aucune équipe trouvée</p>
+            {% endif %}
+        </div>
+
+        <!-- Arbitres -->
+        <div x-show="tab === 'arbitres'" x-cloak class="card overflow-hidden">
+            {% if arbitres %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Nom</th>
+                        <th>Prénom</th>
+                        <th>Ligue</th>
+                        <th class="text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for a in arbitres %}
+                    <tr>
+                        <td class="font-semibold">{{ a.nom }}</td>
+                        <td>{{ a.prenom or '-' }}</td>
+                        <td class="text-muted">{{ a.ligue or '-' }}</td>
+                        <td class="text-center">
+                            <a href="{{ path_for_entity('arbitre', a.id) }}" class="badge badge-gold">Voir profil</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="p-8 text-center text-muted">Aucun arbitre trouvé</p>
+            {% endif %}
+        </div>
+
+        <!-- Entraîneurs -->
+        <div x-show="tab === 'entraineurs'" x-cloak class="card overflow-hidden">
+            {% if entraineurs %}
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Nom</th>
+                        <th>Prénom</th>
+                        <th>Licence</th>
+                        <th class="text-center">Matchs</th>
+                        <th class="text-center">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for e in entraineurs %}
+                    <tr>
+                        <td class="font-semibold">{{ e.nom }}</td>
+                        <td>{{ e.prenom or '-' }}</td>
+                        <td class="text-muted">{{ e.licence or '-' }}</td>
+                        <td class="text-center">
+                            <span class="badge badge-green">{{ e.matchs_count }}</span>
+                        </td>
+                        <td class="text-center">
+                            <a href="/entraineurs/{{ e.id }}" class="badge badge-green">Voir profil</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="p-8 text-center text-muted">Aucun entraîneur trouvé</p>
+            {% endif %}
+        </div>
+    </div>
+
+    {% else %}
+    <!-- No query -->
+    <div class="text-center py-16">
+        <div class="text-6xl mb-4">🔍</div>
+        <p class="text-lg text-secondary">
+            Tapez un nom, prénom ou terme de recherche
+        </p>
+        <p class="text-sm mt-2 text-muted">
+            Utilisez les filtres avancés pour affiner par genre, niveau ou saison
+        </p>
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}

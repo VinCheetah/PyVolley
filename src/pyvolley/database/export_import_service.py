@@ -39,11 +39,11 @@ from pyvolley.database.models import (
 )
 
 from pyvolley.shared.niveau import classify_level
+from pyvolley.core.geo_data import department_from_club_code
 
 logger = logging.getLogger(__name__)
 
 
-_POSTAL_CITY_RE = re.compile(r"^\s*(\d{5})\s+(.+?)\s*$")
 _TEAM_SUFFIX_RE = re.compile(
     r"\s+(?:M|F|MASCULIN(?:E)?|FEMININ(?:E)?|LOISIR|SENIOR(?:E)?|U\d{1,2}|\d+)$",
     re.IGNORECASE,
@@ -57,26 +57,47 @@ def _split_postal_city(raw_value: Optional[str]) -> tuple[Optional[str], Optiona
     if not cleaned:
         return None, None
 
-    match = _POSTAL_CITY_RE.match(cleaned)
-    if not match:
-        return None, cleaned
+    # 1. 5 chiffres en tête : "75001 PARIS"
+    m = re.match(r"^\s*(\d{5})\s+(.+?)\s*$", cleaned)
+    if m:
+        return m.group(1), m.group(2).strip() or None
 
-    postal_code = match.group(1)
-    city = match.group(2).strip() or None
-    return postal_code, city
+    # 2. 4 chiffres en tête (zéro tronqué dans exports FFVB/Excel) : "0621 MANDELIEU", "6279 LEFOREST", "5900 LILLE"
+    m = re.match(r"^\s*(\d{4})\s+(.+?)\s*$", cleaned)
+    if m:
+        digits = m.group(1)
+        city = m.group(2).strip() or None
+        normalized_cp = digits + "0"
+        return normalized_cp, city
+
+    # 3. Code postal en fin de chaîne : "MONS 30340", "PARIS 75015"
+    m = re.match(r"^\s*(.+?)\s+(\d{5})\s*$", cleaned)
+    if m:
+        return m.group(2), m.group(1).strip() or None
+
+    # 4. Code DROM à 3 chiffres : "976 KANI-KÉLI"
+    m = re.match(r"^\s*(97\d)\s+(.+?)\s*$", cleaned)
+    if m:
+        return m.group(1), m.group(2).strip() or None
+
+    return None, cleaned
 
 
 def _department_from_postal(postal_code: Optional[str]) -> Optional[str]:
-    if not postal_code or len(postal_code) != 5 or not postal_code.isdigit():
+    if not postal_code:
         return None
-
-    if postal_code.startswith(("97", "98")):
-        return postal_code[:3]
-
-    if postal_code.startswith("20"):
-        return "2A" if postal_code[2] in {"0", "1"} else "2B"
-
-    return postal_code[:2]
+    code = postal_code.strip()
+    if code.startswith(("97", "98")) and len(code) >= 3:
+        return code[:3]
+    if code.startswith("20") and len(code) >= 3:
+        return "2A" if code[2] in {"0", "1"} else "2B"
+    if code.startswith("2A") or code.startswith("02A"):
+        return "2A"
+    if code.startswith("2B") or code.startswith("02B"):
+        return "2B"
+    if len(code) >= 2 and code[:2].isdigit():
+        return code[:2]
+    return None
 
 
 def _infer_nom_court_from_teams(team_names: list[str], fallback_name: str) -> Optional[str]:
@@ -840,17 +861,19 @@ class ExportImportService:
                     club.nom_court = nom
                 return club
 
-            # Créer le club avec le code FFVB
+            # Créer le club avec le code FFVB (seule source autorisée pour créer un club)
+            dept = department_from_club_code(code_ffvb)
             club = ClubDB(
                 nom=nom or f"Club {code_ffvb}",
                 code_ffvb=code_ffvb,
+                departement=dept,
             )
             self.session.add(club)
             self.session.flush()
             self._club_cache[code_ffvb] = club
             return club
 
-        # 2. Fallback : matching par nom normalisé
+        # 2. Fallback : matching par nom normalisé UNIQUEMENT sur les clubs existants
         if nom:
             normalized = normalize_club_name(nom)
             if normalized in self._club_name_cache:
@@ -880,17 +903,9 @@ class ExportImportService:
                 self._club_name_cache[normalized] = c
                 return c
 
-            # Créer le club sans code FFVB
-            club = ClubDB(nom=nom)
-            self.session.add(club)
-            self.session.flush()
-            # Ajouter l'alias
-            alias_db = ClubAliasDB(alias=normalized, club_id=club.id)
-            self.session.add(alias_db)
-            self.session.flush()
-            self._club_name_cache[normalized] = club
-            self._all_clubs_normalized_cache[normalized] = club
-            return club
+            # RÈGLE MÉTIER : Ne JAMAIS créer de club sans code FFVB valide.
+            # Si aucun club existant ne correspond, on ne crée pas de club fantôme.
+            return None
 
         return None
 
@@ -1060,19 +1075,41 @@ class ExportImportService:
                 stats["skipped"] += 1
                 continue
 
+            dept = department_from_club_code(club_info.code_ffvb)
+
             # Trouver ou créer le club
             club = self.session.execute(
                 select(ClubDB).where(ClubDB.code_ffvb == club_info.code_ffvb)
             ).scalar_one_or_none()
 
             if not club:
-                club = ClubDB(
-                    nom=club_info.nom,
-                    code_ffvb=club_info.code_ffvb,
-                )
-                self.session.add(club)
-                self.session.flush()
-                stats["created"] += 1
+                # Réconciliation : vérifier si un club existait sans code FFVB
+                normalized = normalize_club_name(club_info.nom)
+                existing_stub = self.session.execute(
+                    select(ClubDB).where(ClubDB.code_ffvb.is_(None), ClubDB.nom == club_info.nom)
+                ).scalars().first()
+                if not existing_stub:
+                    alias = self.session.execute(
+                        select(ClubAliasDB).where(ClubAliasDB.alias == normalized)
+                    ).scalar_one_or_none()
+                    if alias and not alias.club.code_ffvb:
+                        existing_stub = alias.club
+
+                if existing_stub:
+                    club = existing_stub
+                    club.code_ffvb = club_info.code_ffvb
+                    if not club.departement and dept:
+                        club.departement = dept
+                    stats["enriched"] += 1
+                else:
+                    club = ClubDB(
+                        nom=club_info.nom,
+                        code_ffvb=club_info.code_ffvb,
+                        departement=dept,
+                    )
+                    self.session.add(club)
+                    self.session.flush()
+                    stats["created"] += 1
             else:
                 if not force_reenrich and self._has_adressier_data(club):
                     stats["skipped"] += 1
@@ -1081,6 +1118,8 @@ class ExportImportService:
 
             # Mettre à jour les champs
             club.nom = club_info.nom
+            if not club.departement and dept:
+                club.departement = dept
             if not club.nom_court:
                 inferred_nom_court = _infer_nom_court_from_teams(
                     [equipe.nom for equipe in club.equipes if equipe.nom],
@@ -1107,9 +1146,12 @@ class ExportImportService:
                 postal_code, city_name = _split_postal_city(club_info.correspondant_ville)
                 if city_name:
                     club.ville = city_name
-                departement = _department_from_postal(postal_code)
-                if departement:
-                    club.departement = departement
+                if not club.departement:
+                    departement = _department_from_postal(postal_code)
+                    if departement:
+                        club.departement = departement
+            if not club.departement and club.code_ffvb:
+                club.departement = department_from_club_code(club.code_ffvb)
             if club_info.correspondant_telephone:
                 club.correspondant_telephone = club_info.correspondant_telephone
             if club_info.correspondant_portable:

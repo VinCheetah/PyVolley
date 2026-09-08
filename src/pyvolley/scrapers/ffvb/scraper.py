@@ -256,9 +256,10 @@ class FFVBScraper(BaseScraper):
         self,
         match: MatchInfo,
         output_dir: Path,
+        overwrite: bool = False,
     ) -> ScrapeResult:
         """Telecharge le PDF d'un match."""
-        return _dl.download_match_pdf(self._ctx, match, output_dir)
+        return _dl.download_match_pdf(self._ctx, match, output_dir, overwrite=overwrite)
 
     def search_by_code(
         self,

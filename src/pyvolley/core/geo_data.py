@@ -464,6 +464,38 @@ def extract_dept_from_postal_code(postal_code: str) -> str | None:
     return code[:2]
 
 
+def department_from_club_code(code_ffvb: str | None) -> str | None:
+    """Extrait le code département officiel depuis le code club FFVB (7 caractères).
+    
+    Exemples:
+        "0015372" -> "01" (Ain)
+        "0622126" -> "62" (Pas-de-Calais)
+        "02A5803" -> "2A" (Corse-du-Sud)
+        "2010001" -> "2A" (Corse-du-Sud)
+        "2020001" -> "2B" (Haute-Corse)
+        "9744926" -> "974" (La Réunion)
+        "9765959" -> "976" (Mayotte)
+    """
+    if not code_ffvb:
+        return None
+    code = code_ffvb.strip().upper()
+    if len(code) < 3:
+        return None
+
+    prefix = code[:3]
+    if prefix in ("02A", "201"):
+        return "2A"
+    if prefix in ("02B", "202"):
+        return "2B"
+    if prefix.startswith(("97", "98")):
+        return prefix[:3]
+    if prefix.startswith("0") and len(prefix) >= 3 and prefix[1:3].isdigit():
+        return prefix[1:3]
+    if prefix[:2].isdigit():
+        return prefix[:2]
+    return None
+
+
 def extract_dept_from_address_or_city(ville: str | None = None, adresse: str | None = None) -> str | None:
     """Extrait intelligemment le code département d'une ville ou adresse.
     

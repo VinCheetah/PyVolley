@@ -252,23 +252,28 @@ def find_pdf_for_match(
     3. Recherche par (saison, code_match) dans l'index (si fourni)
     4. Fallback legacy sans saison
     """
-    code = match_db.code_match
+    code = getattr(match_db, "code_match", None)
+    if not code:
+        return None
 
     if saison_code is None:
-        saison_obj = getattr(match_db, "saison", None)
-        saison_code = getattr(saison_obj, "code", None)
+        saison_code = getattr(match_db, "saison_code", None)
+        if saison_code is None:
+            saison_obj = getattr(match_db, "saison", None)
+            saison_code = getattr(saison_obj, "code", None)
 
     # 1. Chemin stocké en DB
-    if match_db.source_pdf:
-        p = Path(match_db.source_pdf)
+    source_pdf = getattr(match_db, "source_pdf", None)
+    if source_pdf:
+        p = Path(source_pdf)
         if p.exists():
             return p
 
     # 2. Chemin structuré attendu (nouveau format)
     if saison_code:
         comp = getattr(match_db, "competition", None)
-        entite = getattr(getattr(comp, "entite", None), "code", None)
-        poule = getattr(getattr(match_db, "poule", None), "code", None)
+        entite = getattr(match_db, "entite_code", None) or getattr(getattr(comp, "entite", None), "code", None)
+        poule = getattr(match_db, "poule_code", None) or getattr(getattr(match_db, "poule", None), "code", None)
         journee = getattr(match_db, "journee", None)
         match_id = getattr(match_db, "id", None)
         expected = build_pdf_storage_path(
@@ -394,3 +399,23 @@ def format_entities_display(entities: list[str], max_show: int = 5) -> str:
     if len(entities) > max_show:
         display += f"... (+{len(entities) - max_show})"
     return display
+
+
+def configure_parser_plausibility(
+    parser,
+    *,
+    enabled: bool,
+    policy: str,
+    approval,
+) -> None:
+    """Configure la plausibilité d'un parser si l'API est disponible."""
+    configure = getattr(parser, "configure_plausibility", None)
+    if callable(configure):
+        configure(
+            enabled=enabled,
+            policy=policy,
+            approval=approval,
+        )
+
+
+_configure_parser_plausibility = configure_parser_plausibility

@@ -1,0 +1,70 @@
+{# ═══════════════════════════════════════════════════════════════
+   Joueur Detail — Tous les Matchs Tab
+   Complete list of matches for the player with full metadata
+   ═══════════════════════════════════════════════════════════════ #}
+
+<div x-show="activeTab === 'matchs'" class="space-y-6" x-cloak>
+    <div class="card overflow-hidden">
+        <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
+            <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Liste complète des matchs ({{ match_rows|length }})</h2>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Saison</th>
+                        <th>Compétition</th>
+                        <th>Équipe</th>
+                        <th>Adversaire</th>
+                        <th>Niveau</th>
+                        <th>Lieu</th>
+                        <th class="text-center">Score</th>
+                        <th class="text-center">Résultat</th>
+                        <th class="text-right">Détails</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in match_rows %}
+                    <tr>
+                        <td>{{ row.date|format_date if row.date else '—' }}</td>
+                        <td>{{ row.saison or '—' }}</td>
+                        <td>
+                            {% if row.competition_id %}
+                            <a href="{{ path_for_entity('competition', row.competition_id) }}" class="badge">{{ row.competition|truncate_name(28) }}</a>
+                            {% elif row.competition %}
+                            <span class="badge">{{ row.competition|truncate_name(28) }}</span>
+                            {% else %}—{% endif %}
+                        </td>
+                        <td>
+                            {% if row.equipe_id %}
+                            <a href="{{ path_for_entity('equipe', row.equipe_id) }}">{{ row.equipe_nom|truncate_name(26) }}</a>
+                            {% else %}
+                            {{ row.equipe_nom|truncate_name(26) }}
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if row.adversaire_id %}
+                            <a href="{{ path_for_entity('equipe', row.adversaire_id) }}">{{ row.adversaire_nom|truncate_name(26) }}</a>
+                            {% else %}
+                            {{ row.adversaire_nom|truncate_name(26) }}
+                            {% endif %}
+                        </td>
+                        <td>{% if row.niveau %}<span class="badge badge-blue text-xs">{{ row.niveau }}</span>{% else %}—{% endif %}</td>
+                        <td>{{ row.domicile_exterieur }}</td>
+                        <td class="text-center">{{ row.score }}</td>
+                        <td class="text-center">
+                            {% if row.victoire is sameas true %}<span class="badge badge-green">V</span>
+                            {% elif row.victoire is sameas false %}<span class="badge badge-red">D</span>
+                            {% else %}<span class="badge">—</span>{% endif %}
+                        </td>
+                        <td class="text-right"><a href="{{ path_for_entity('match', row.match_id) }}" class="badge badge-blue text-xs">Voir</a></td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="10" class="text-center py-8" style="color: var(--text-muted);">Aucun match trouvé pour ce filtre.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>

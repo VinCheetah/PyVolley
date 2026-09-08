@@ -39,6 +39,7 @@ from pyvolley.core.models import (
     Saison,
     Sanction,
     Set,
+    invert_match_sides,
 )
 
 __all__ = [
@@ -47,6 +48,7 @@ __all__ = [
     "Equipe",
     "Club",
     "Match",
+    "invert_match_sides",
     "Set",
     "Arbitre",
     "Sanction",

@@ -192,6 +192,7 @@ class MatchData:
     journee: Optional[str] = None
     date_match: Optional[dt_date] = None
     match_joue: bool = True
+    poule_id: Optional[int] = None
 
 
 def calculer_classement(

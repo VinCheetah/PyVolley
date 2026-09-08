@@ -1,0 +1,795 @@
+{% extends "base.html" %}
+{% from "macros/ui.html" import breadcrumb %}
+{% from "macros/map.html" import map_head, map_card %}
+{% block title %}{{ equipe.nom }} - PyVolley{% endblock %}
+{% block extra_head %}
+{{ map_head() }}
+{% endblock %}
+
+{% block content %}
+{% set roster_role_groups = roster_role_groups|default([], true) %}
+{% set role_detection_coverage = role_detection_coverage|default({'players_with_role_data': 0, 'players_total': 0, 'pct': 0}, true) %}
+<div class="space-y-6">
+
+    {{ breadcrumb([('Accueil', '/'), ('Équipes', '/equipes'), (equipe.nom, '')]) }}
+
+    <!-- Header Card -->
+    <div class="card p-6 md:p-8">
+        <div class="flex flex-col md:flex-row md:items-center gap-6">
+            <div class="w-16 h-16 rounded-2xl flex items-center justify-center flex-shrink-0"
+                 style="background: linear-gradient(135deg, var(--accent-green), var(--accent-blue));">
+                <i data-lucide="shield" class="w-8 h-8 text-white"></i>
+            </div>
+            <div class="flex-1">
+                <h1 class="text-2xl md:text-3xl font-bold text-white mb-1">{{ equipe.nom }}</h1>
+                {% set niveau_badge = resolve_niveau_badge(
+                    equipe.niveau or (equipe.competition.niveau if equipe.competition else None),
+                    equipe.competition.nom if equipe.competition else equipe.nom,
+                    equipe.categorie or (equipe.competition.categorie if equipe.competition else None),
+                    equipe.division or (equipe.competition.division if equipe.competition else None)
+                ) %}
+                <div class="flex flex-wrap gap-2 mt-2">
+                    {% if equipe.club %}
+                    <a href="{{ path_for_entity('club', equipe.club.id if equipe.club else None) }}" class="badge badge-blue">
+                        <i data-lucide="building-2" class="w-3 h-3 mr-1"></i>
+                        {{ equipe.club.nom|truncate_name(30) }}
+                    </a>
+                    {% endif %}
+                    {% if equipe.saison %}
+                    <span class="badge badge-purple">
+                        <i data-lucide="calendar" class="w-3 h-3 mr-1"></i>
+                        {{ equipe.saison.code }}
+                    </span>
+                    {% endif %}
+                    {% if equipe.genre %}
+                    <span class="badge {% if equipe.genre == 'MASCULIN' %}badge-blue{% elif equipe.genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %}">
+                        <i data-lucide="{% if equipe.genre == 'MASCULIN' %}circle-user{% elif equipe.genre == 'FEMININ' %}circle-user{% else %}users{% endif %}" class="w-3 h-3 mr-1"></i>
+                        {{ equipe.genre }}
+                    </span>
+                    {% endif %}
+                    {% if equipe.categorie %}
+                    <span class="badge badge-gold">
+                        <i data-lucide="trophy" class="w-3 h-3 mr-1"></i>
+                        {{ equipe.categorie }}
+                    </span>
+                    {% endif %}
+                    {% if niveau_badge %}
+                    <span class="badge {{ niveau_badge.css_class }}">
+                        <i data-lucide="bar-chart-3" class="w-3 h-3 mr-1"></i>
+                        {{ niveau_badge.label }}
+                    </span>
+                    {% endif %}
+                    {% if equipe.division %}
+                    <span class="badge">{{ equipe.division }}</span>
+                    {% endif %}
+                    {% if equipe.competition %}
+                    <a href="{{ competition_url_for_equipe(equipe) }}" class="badge hover:opacity-80 transition" title="{{ equipe.competition.nom }}">
+                        <i data-lucide="medal" class="w-3 h-3 mr-1"></i>
+                        {{ equipe.competition.nom|truncate_name(35) }}
+                    </a>
+                    {% endif %}
+                    {% if url_ffvb %}
+                    <a href="{{ url_ffvb }}" target="_blank" rel="noopener noreferrer"
+                       class="badge badge-blue hover:opacity-80 transition" title="Voir sur le site de la FFVB">
+                        <i data-lucide="globe" class="w-3 h-3 mr-1"></i>
+                        FFVB
+                        <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
+                    </a>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats Grid -->
+    <div class="grid grid-cols-2 md:grid-cols-6 gap-4">
+        <div class="stat-card">
+            <div class="stat-value gradient-text-blue">{{ matchs|length }}</div>
+            <div class="stat-label">Matchs</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--accent-green);">{{ victoires }}</div>
+            <div class="stat-label">Victoires</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--accent-red);">{{ defaites }}</div>
+            <div class="stat-label">Défaites</div>
+        </div>
+        <div class="stat-card">
+            {% set total_played = victoires + defaites %}
+            <div class="stat-value gradient-text-gold">
+                {% if total_played > 0 %}{{ ((victoires / total_played) * 100)|round(0)|int }}%{% else %}—{% endif %}
+            </div>
+            <div class="stat-label">Taux de victoire</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--accent-cyan);">{{ sets_gagnes }}</div>
+            <div class="stat-label">Sets gagnés</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--accent-purple);">{{ roster|length }}</div>
+            <div class="stat-label">Joueurs</div>
+        </div>
+    </div>
+
+    <!-- Win rate bar -->
+    {% set total_played = victoires + defaites %}
+    {% if total_played > 0 %}
+    <div class="card p-4">
+        <div class="flex justify-between text-xs mb-1" style="color: var(--text-muted);">
+            <span class="font-semibold" style="color: var(--accent-green);">V: {{ victoires }}</span>
+            <span class="font-semibold" style="color: var(--accent-red);">D: {{ defaites }}</span>
+        </div>
+        <div class="h-3 rounded-full overflow-hidden" style="background: var(--bg-card-hover);">
+            {% set pct = (victoires / total_played * 100)|round(1) %}
+            <div class="h-full rounded-full transition-all duration-500"
+                 style="width: {{ pct }}%; background: linear-gradient(90deg, var(--accent-green), var(--accent-blue));"></div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- ═══════════════ Évolution des Scores ═══════════════ -->
+    {% if score_evolution_json and score_evolution_json != '[]' %}
+    <div class="card p-6">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                <i data-lucide="bar-chart-3" class="w-4 h-4 inline-block mr-1"></i> Évolution des scores
+            </h2>
+        </div>
+        <div style="height: 340px; position: relative;">
+            <canvas id="scoreEvolutionChart"></canvas>
+        </div>
+        <div class="flex flex-wrap gap-3 mt-3 justify-center text-xs" style="color: var(--text-secondary);">
+            <div class="flex items-center gap-1" style="color: var(--accent-green);">
+                <span class="w-3 h-3 rounded-sm inline-block" style="background: rgba(34, 197, 94, 0.65); border: 1px solid #22c55e;"></span>
+                V
+            </div>
+            <div class="flex items-center gap-1" style="color: var(--accent-red);">
+                <span class="w-3 h-3 rounded-sm inline-block" style="background: rgba(239, 68, 68, 0.65); border: 1px solid #ef4444;"></span>
+                D
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Effectif complet -->
+    {% if roster %}
+    <div class="card overflow-hidden">
+        <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+                <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                    <i data-lucide="users" class="w-4 h-4 inline-block mr-1"></i>
+                    Effectif complet ({{ roster|length }} joueurs)
+                </h2>
+                <span class="badge badge-blue">
+                    Rôles détectés: {{ role_detection_coverage.pct|round(0)|int }}%
+                </span>
+            </div>
+        </div>
+
+        <div class="p-4 space-y-5">
+            {% for group in roster_role_groups %}
+            <section class="overflow-hidden rounded-xl" style="border: 1px solid var(--border-color); background: rgba(13, 18, 31, 0.45);">
+                <div class="px-3 py-2 flex flex-wrap items-center justify-between gap-2" style="border-bottom: 1px solid var(--border-color); background: rgba(23, 30, 52, 0.5);">
+                    <div>
+                        <h3 class="text-xs font-semibold uppercase tracking-wider" style="color: var(--accent-cyan);">{{ group.label }}</h3>
+                        <p class="text-xs" style="color: var(--text-secondary);">{{ group.count }} joueur{% if group.count > 1 %}s{% endif %} · {{ group.total_matches }} participations</p>
+                    </div>
+                    <span class="badge">Couverture stats: {{ group.coverage_avg_pct|round(0)|int }}%</span>
+                </div>
+
+                <table class="data-table text-sm">
+                    <thead>
+                        <tr>
+                            <th class="text-center w-12">#</th>
+                            <th>Joueur</th>
+                            <th class="text-center">Présences</th>
+                            <th class="text-center">Rôle principal</th>
+                            <th>Rôles plausibles</th>
+                            <th class="text-center">Capitaine</th>
+                            <th class="text-center">Libéro</th>
+                            <th class="text-right">Profil</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for entry in group.players %}
+                        {% set j = entry.joueur %}
+                        {% set role = entry.role_profile %}
+                        <tr>
+                            <td class="text-center">
+                                {% if entry.numero_maillot %}
+                                <span class="player-number team-a {% if entry.libero_count > 0 %}libero{% endif %}"
+                                      style="width: 28px; height: 28px; font-size: 0.7rem; display: inline-flex;">
+                                    {{ entry.numero_maillot }}
+                                </span>
+                                {% else %}
+                                <span style="color: var(--text-muted);">—</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <a href="{{ path_for_entity('joueur', j.id) }}" class="font-medium hover:text-white transition"
+                                   style="color: var(--text-primary);">
+                                    {{ j.nom }} <span style="color: var(--text-secondary);">{{ j.prenom }}</span>
+                                </a>
+                            </td>
+                            <td class="text-center">
+                                <span class="font-bold" style="color: var(--accent-blue);">{{ entry.matchs_joues }}</span>
+                                <span class="text-xs" style="color: var(--text-muted);">/ {{ matchs|length }}</span>
+                            </td>
+                            <td class="text-center">
+                                {% if role.primary_code %}
+                                <span class="badge badge-blue text-xs">{{ role.primary_label }}</span>
+                                {% if role.is_multi_role %}
+                                <span class="badge badge-gold text-xs">Polyvalent</span>
+                                {% endif %}
+                                {% else %}
+                                <span style="color: var(--text-muted);">—</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if role.plausible_labels %}
+                                <div class="flex flex-wrap gap-1.5">
+                                    {% for role_label in role.plausible_labels %}
+                                    <span class="badge text-xs">{{ role_label }}</span>
+                                    {% endfor %}
+                                </div>
+                                <div class="text-[11px] mt-1" style="color: var(--text-muted);">
+                                    Fiabilité {{ role.confidence_pct|round(1) }}% · Couverture {{ role.coverage_pct|round(0)|int }}%
+                                </div>
+                                {% else %}
+                                <span style="color: var(--text-muted);">—</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if entry.capitaine_count > 0 %}
+                                <span class="badge badge-gold" title="{{ entry.capitaine_count }} fois capitaine">
+                                    C × {{ entry.capitaine_count }}
+                                </span>
+                                {% else %}
+                                <span style="color: var(--text-muted);">—</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-center">
+                                {% if entry.libero_count > 0 %}
+                                <span class="badge badge-green" title="{{ entry.libero_count }} fois libéro">
+                                    L × {{ entry.libero_count }}
+                                </span>
+                                {% else %}
+                                <span style="color: var(--text-muted);">—</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-right">
+                                <a href="{{ path_for_entity('joueur', j.id) }}" class="badge badge-blue text-xs">Voir</a>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </section>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Roster chart -->
+    {% if roster|length > 2 %}
+    <div class="card p-6">
+        <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+            <i data-lucide="bar-chart-3" class="w-4 h-4 inline-block mr-1"></i> Présences par joueur
+        </h2>
+        <div style="height: {{ [roster|length * 30 + 40, 600]|min }}px; max-height: 600px;">
+            <canvas id="rosterChart"></canvas>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Match History -->
+    <div class="card overflow-hidden">
+        <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
+            <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                <i data-lucide="history" class="w-4 h-4 inline-block mr-1"></i>
+                Historique des matchs ({{ matchs|length }})
+            </h2>
+        </div>
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Adversaire</th>
+                    <th class="text-center">Score</th>
+                    <th class="text-center">Résultat</th>
+                    <th class="text-right">Détails</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for m in matchs %}
+                {% set is_team_a = m.equipe_a_id == equipe.id %}
+                {% set opponent = m.equipe_b if is_team_a else m.equipe_a %}
+                {% set sa = m.sets_equipe_a or 0 %}
+                {% set sb = m.sets_equipe_b or 0 %}
+                {% set has_sets = m.sets_equipe_a is not none and m.sets_equipe_b is not none %}
+                {% set won = has_sets and ((is_team_a and sa > sb) or (not is_team_a and sb > sa)) %}
+                <tr>
+                    <td class="text-sm" style="color: var(--text-muted);">
+                        {{ m.date_match|format_date }}
+                    </td>
+                    <td>
+                        {% if opponent %}
+                        <a href="{{ path_for_entity('equipe', opponent.id) }}" class="font-medium hover:text-white transition"
+                           style="color: var(--text-secondary);">
+                            {% if is_team_a %}
+                            <span class="text-xs" style="color: var(--text-muted);">vs</span>
+                            {% else %}
+                            <span class="text-xs" style="color: var(--text-muted);">@</span>
+                            {% endif %}
+                            {{ opponent.nom|truncate_name(25) }}
+                        </a>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% if has_sets %}
+                            {% if is_team_a %}
+                            <span class="set-score {% if sa > sb %}won-a{% else %}won-b{% endif %}">
+                                {{ m.sets_equipe_a }}-{{ m.sets_equipe_b }}
+                            </span>
+                            {% else %}
+                            <span class="set-score {% if sb > sa %}won-a{% else %}won-b{% endif %}">
+                                {{ m.sets_equipe_b }}-{{ m.sets_equipe_a }}
+                            </span>
+                            {% endif %}
+                        {% else %}
+                            <span class="text-xs" style="color: var(--text-muted);">—</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        {% if m.statut == 'joué' %}
+                        <span class="badge {% if won %}badge-green{% else %}badge-red{% endif %}">
+                            {{ 'V' if won else 'D' }}
+                        </span>
+                        {% elif m.statut == 'forfait' %}
+                        <span class="badge badge-red" style="font-size: 0.6rem;">Forfait</span>
+                        {% elif m.statut == 'à_venir' %}
+                        <span class="badge badge-blue" style="font-size: 0.6rem;">À venir</span>
+                        {% else %}
+                        <span class="badge" style="font-size: 0.6rem; color: var(--accent-gold);">Sans rés.</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-right">
+                        <div class="flex items-center justify-end gap-1">
+                            <a href="{{ path_for_entity('match', m.id) }}" class="badge badge-blue text-xs">Voir</a>
+                            {% if m.competition and m.competition.entite and m.saison %}
+                            <a href="https://www.ffvbbeach.org/ffvbapp/resu/ffvolley_fdme.php?saison={{ m.saison.code|replace('-', '/') }}&codent={{ m.competition.entite.code }}&codmatch={{ m.code_match }}"
+                               target="_blank" rel="noopener noreferrer"
+                               class="badge badge-green text-xs hover:opacity-80 transition" title="Feuille de match FFVB">
+                                <i data-lucide="file-text" class="w-3 h-3"></i>
+                            </a>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5" class="text-center py-8" style="color: var(--text-muted);">
+                        Aucun match trouvé
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Carte interactive — Déplacements et matchs de l'équipe -->
+    {{ map_card(
+        equipe_id=equipe.id,
+        title="Carte des déplacements & Salles de la saison",
+        height="420px",
+        show_filter=True,
+        show_search=True,
+        show_legend=True
+    ) }}
+
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+{% if roster|length > 2 %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const ctx = document.getElementById('rosterChart').getContext('2d');
+    const rosterData = [
+        {% for entry in roster[:25] %}
+        {
+            "nom": {{ (entry.joueur.nom ~ ' ' ~ (entry.joueur.prenom or '')[0:1] ~ '.')|tojson }},
+            "matchs_joues": {{ entry.matchs_joues }}
+        }{% if not loop.last %},{% endif %}
+        {% endfor %}
+    ];
+
+    const displayData = rosterData;
+    const labels = displayData.map(e => e.nom);
+    const presences = displayData.map(e => e.matchs_joues);
+    const maxMatchs = {{ matchs|length }};
+
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Présences',
+                data: presences,
+                backgroundColor: presences.map(v =>
+                    v >= maxMatchs * 0.8 ? 'rgba(34, 197, 94, 0.7)' :
+                    v >= maxMatchs * 0.5 ? 'rgba(59, 130, 246, 0.7)' :
+                    'rgba(168, 85, 247, 0.5)'
+                ),
+                borderColor: presences.map(v =>
+                    v >= maxMatchs * 0.8 ? '#22c55e' :
+                    v >= maxMatchs * 0.5 ? '#3b82f6' :
+                    '#a855f7'
+                ),
+                borderWidth: 1,
+                borderRadius: 4,
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: {
+                    beginAtZero: true,
+                    max: maxMatchs,
+                    grid: { color: 'rgba(42, 48, 80, 0.5)' },
+                    ticks: { color: '#5a6178', stepSize: 1 },
+                    title: { display: true, text: 'Matchs joués', color: '#8b92a8' }
+                },
+                y: {
+                    grid: { display: false },
+                    ticks: { color: '#8b92a8', font: { size: 11 } }
+                }
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `${ctx.parsed.x} / ${maxMatchs} matchs`
+                    }
+                }
+            }
+        }
+    });
+});
+</script>
+{% endif %}
+
+{% if score_evolution_json and score_evolution_json != '[]' %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const scoreData = {{ score_evolution_json|safe }};
+    if (!Array.isArray(scoreData) || scoreData.length === 0) return;
+
+    const canvas = document.getElementById('scoreEvolutionChart');
+    if (!canvas) return;
+
+    const sorted = [...scoreData].sort((a, b) => {
+        if ((a.date || '') === (b.date || '')) return (a.match_id || 0) - (b.match_id || 0);
+        return (a.date || '') < (b.date || '') ? -1 : 1;
+    });
+
+    const targets = Array.from(
+        new Set(
+            sorted
+                .map(m => Math.max(Number(m.sets_for || 0), Number(m.sets_against || 0)))
+                .filter(v => Number.isFinite(v) && v > 0)
+        )
+    ).sort((a, b) => a - b);
+
+    if (targets.length === 0) targets.push(2);
+
+    const winLabels = [];
+    const lossLabels = [];
+
+    targets.forEach(target => {
+        for (let opp = 0; opp < target; opp += 1) {
+            winLabels.push(`${target}-${opp}`);
+        }
+    });
+
+    targets.forEach(target => {
+        for (let own = target - 1; own >= 0; own -= 1) {
+            lossLabels.push(`${own}-${target}`);
+        }
+    });
+
+    const winLabelSet = new Set(winLabels);
+    const lossLabelSet = new Set(lossLabels);
+    sorted.forEach(m => {
+        const scoreKey = `${m.sets_for}-${m.sets_against}`;
+        if (m.resultat === 'V' && !winLabelSet.has(scoreKey)) {
+            winLabels.push(scoreKey);
+            winLabelSet.add(scoreKey);
+        }
+        if (m.resultat === 'D' && !lossLabelSet.has(scoreKey)) {
+            lossLabels.push(scoreKey);
+            lossLabelSet.add(scoreKey);
+        }
+    });
+
+    const scoreLabels = [...winLabels, ...lossLabels];
+    const scoreIndexByLabel = {};
+    scoreLabels.forEach((label, idx) => {
+        scoreIndexByLabel[label] = idx;
+    });
+
+    const formattedDates = sorted.map(m => {
+        const d = m.date ? new Date(m.date) : null;
+        if (!d || Number.isNaN(d.getTime())) return m.date || '—';
+        return d.toLocaleDateString('fr-FR', {
+            day: '2-digit',
+            month: '2-digit',
+            year: '2-digit',
+        });
+    });
+
+    const xLabels = formattedDates;
+    const totalBands = scoreLabels.length;
+    const topAnchor = totalBands + 1;
+    const winBandLimit = winLabels.length;
+
+    const bars = new Array(sorted.length).fill(null);
+    const barsMeta = new Array(sorted.length).fill(null);
+
+    sorted.forEach((m, idx) => {
+        const scoreKey = `${m.sets_for}-${m.sets_against}`;
+        const scoreIndex = scoreIndexByLabel[scoreKey];
+        if (scoreIndex === undefined) return;
+
+        const scoreLevel = scoreIndex + 1;
+        const isWin = m.resultat === 'V';
+        const barMeta = {
+            is_win: isWin,
+            score: scoreKey,
+            adversaire: m.adversaire || '?',
+            competition: m.competition || '',
+            resultat: m.resultat || '',
+            date_iso: m.date || '',
+            date_display: formattedDates[idx],
+            match_url: m.match_url || (m.match_id ? `/matchs/${m.match_id}` : null),
+        };
+
+        bars[idx] = isWin ? [0, scoreLevel] : [scoreLevel, topAnchor];
+        barsMeta[idx] = barMeta;
+    });
+
+    const zonePlugin = {
+        id: 'scoreZones',
+        beforeDraw(chart) {
+            const { ctx, chartArea, scales } = chart;
+            if (!chartArea || !scales || !scales.y) return;
+
+            const yScale = scales.y;
+            const topY = yScale.getPixelForValue(topAnchor);
+            const splitY = yScale.getPixelForValue(winBandLimit + 0.5);
+            const bottomY = yScale.getPixelForValue(0);
+            const width = chartArea.right - chartArea.left;
+
+            ctx.save();
+            const winZoneGradient = ctx.createLinearGradient(0, splitY, 0, bottomY);
+            winZoneGradient.addColorStop(0, 'rgba(34, 197, 94, 0.06)');
+            winZoneGradient.addColorStop(1, 'rgba(34, 197, 94, 0.18)');
+            ctx.fillStyle = winZoneGradient;
+            ctx.fillRect(chartArea.left, splitY, width, bottomY - splitY);
+
+            const lossZoneGradient = ctx.createLinearGradient(0, topY, 0, splitY);
+            lossZoneGradient.addColorStop(0, 'rgba(239, 68, 68, 0.18)');
+            lossZoneGradient.addColorStop(1, 'rgba(239, 68, 68, 0.06)');
+            ctx.fillStyle = lossZoneGradient;
+            ctx.fillRect(chartArea.left, topY, width, splitY - topY);
+
+            ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(chartArea.left, splitY);
+            ctx.lineTo(chartArea.right, splitY);
+            ctx.stroke();
+            ctx.restore();
+        }
+    };
+
+    const hoverBandPlugin = {
+        id: 'scoreHoverBand',
+        beforeDatasetsDraw(chart) {
+            const active = chart.tooltip && chart.tooltip.getActiveElements
+                ? chart.tooltip.getActiveElements()
+                : [];
+            if (!active || active.length === 0) return;
+
+            const { ctx, chartArea } = chart;
+            if (!chartArea) return;
+
+            const idx = active[0].index;
+            const meta = chart.getDatasetMeta(0);
+            if (!meta || !meta.data || !meta.data[idx]) return;
+
+            const bar = meta.data[idx];
+            const props = bar.getProps(['x', 'width'], true);
+            const width = Math.max((props.width || 0) + 10, 18);
+
+            ctx.save();
+            ctx.fillStyle = 'rgba(59, 130, 246, 0.12)';
+            ctx.fillRect(
+                props.x - width / 2,
+                chartArea.top,
+                width,
+                chartArea.bottom - chartArea.top
+            );
+            ctx.restore();
+        }
+    };
+
+    const barThickness = Math.max(18, Math.min(44, Math.floor(900 / Math.max(sorted.length, 12))));
+
+    new Chart(canvas, {
+        type: 'bar',
+        data: {
+            labels: xLabels,
+            datasets: [
+                {
+                    label: 'Matchs',
+                    data: bars,
+                    borderSkipped: false,
+                    borderWidth: function(context) {
+                        return barsMeta[context.dataIndex] ? 1.8 : 0;
+                    },
+                    borderColor: function(context) {
+                        const meta = barsMeta[context.dataIndex];
+                        if (!meta) return 'rgba(0, 0, 0, 0)';
+                        return meta.is_win ? '#22c55e' : '#ef4444';
+                    },
+                    backgroundColor: function(context) {
+                        const meta = barsMeta[context.dataIndex];
+                        if (!meta) return 'rgba(0, 0, 0, 0)';
+                        const { chart } = context;
+                        const { ctx, chartArea } = chart;
+                        if (!chartArea) {
+                            return meta.is_win
+                                ? 'rgba(34, 197, 94, 0.78)'
+                                : 'rgba(239, 68, 68, 0.78)';
+                        }
+
+                        const gradient = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top);
+                        if (meta.is_win) {
+                            gradient.addColorStop(0.0, 'rgba(22, 163, 74, 0.52)');
+                            gradient.addColorStop(0.85, 'rgba(74, 222, 128, 0.92)');
+                        } else {
+                            gradient.addColorStop(0.15, 'rgba(248, 113, 113, 0.92)');
+                            gradient.addColorStop(1.0, 'rgba(153, 27, 27, 0.50)');
+                        }
+                        return gradient;
+                    },
+                    hoverBackgroundColor: function(context) {
+                        const meta = barsMeta[context.dataIndex];
+                        if (!meta) return 'rgba(0, 0, 0, 0)';
+                        return meta.is_win
+                            ? 'rgba(74, 222, 128, 0.98)'
+                            : 'rgba(248, 113, 113, 0.98)';
+                    },
+                    borderRadius: function(context) {
+                        const meta = barsMeta[context.dataIndex];
+                        if (!meta) return 0;
+                        if (meta.is_win) {
+                            return {
+                                topLeft: 10,
+                                topRight: 10,
+                                bottomLeft: 1,
+                                bottomRight: 1,
+                            };
+                        }
+                        return {
+                            topLeft: 1,
+                            topRight: 1,
+                            bottomLeft: 10,
+                            bottomRight: 10,
+                        };
+                    },
+                    categoryPercentage: 0.98,
+                    barPercentage: 0.98,
+                    grouped: false,
+                    barThickness: barThickness,
+                    maxBarThickness: 44,
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: {
+                duration: 700,
+                easing: 'easeOutQuart',
+            },
+            interaction: {
+                mode: 'nearest',
+                intersect: true,
+            },
+            scales: {
+                x: {
+                    grid: {
+                        display: false,
+                    },
+                    ticks: {
+                        color: '#8b92a8',
+                        maxRotation: 55,
+                        minRotation: 45,
+                        maxTicksLimit: 14,
+                    },
+                },
+                y: {
+                    min: 0,
+                    max: topAnchor,
+                    grid: { color: 'rgba(42, 48, 80, 0.35)' },
+                    ticks: {
+                        stepSize: 1,
+                        color: '#8b92a8',
+                        font: { size: 11, weight: '600' },
+                        callback: function(value) {
+                            const iv = Number(value);
+                            if (!Number.isInteger(iv) || iv < 1 || iv > totalBands) return '';
+                            return scoreLabels[iv - 1] || '';
+                        },
+                    },
+                },
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    backgroundColor: 'rgba(26, 31, 53, 0.95)',
+                    borderColor: 'rgba(42, 48, 80, 0.8)',
+                    borderWidth: 1,
+                    titleFont: { weight: '700' },
+                    bodyFont: { size: 12 },
+                    callbacks: {
+                        title: function(items) {
+                            if (!items.length) return '';
+                            const item = items[0];
+                            const meta = barsMeta[item.dataIndex];
+                            if (!meta) return '';
+                            const d = meta;
+                            const prefix = d.resultat === 'V' ? 'Victoire' : 'Défaite';
+                            return `${prefix} · ${d.date_display || ''}`;
+                        },
+                        label: function(ctx) {
+                            const meta = barsMeta[ctx.dataIndex];
+                            if (!meta) return '';
+                            const d = meta;
+                            return [
+                                `Score: ${d.score}`,
+                                `Adversaire: ${d.adversaire}`,
+                            ];
+                        },
+                        afterLabel: function(ctx) {
+                            const d = barsMeta[ctx.dataIndex];
+                            return d && d.competition ? `Compétition: ${d.competition}` : '';
+                        },
+                    },
+                },
+            },
+            onClick: function(_event, elements) {
+                if (!elements || elements.length === 0) return;
+                const hit = elements[0];
+                const meta = barsMeta[hit.index];
+                if (meta && meta.match_url) {
+                    window.location.href = meta.match_url;
+                }
+            },
+            onHover: function(event, elements) {
+                const target = event && event.native ? event.native.target : null;
+                if (!target) return;
+                target.style.cursor = elements && elements.length ? 'pointer' : 'default';
+            },
+        },
+        plugins: [zonePlugin, hoverBandPlugin],
+    });
+});
+</script>
+{% endif %}
+{% endblock %}

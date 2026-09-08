@@ -1,0 +1,336 @@
+{% extends "base.html" %}
+{% from "macros/map.html" import map_head, map_card %}
+{% block title %}Matchs - PyVolley{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="/static/css/geo-filter.css">{{ map_head() }}{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+    <!-- ═══ Header ═══ -->
+    <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <h1 class="text-2xl font-bold flex items-center gap-2">
+            <i data-lucide="swords" class="w-6 h-6" style="color: var(--accent-red);"></i>
+            Matchs
+            <span class="badge">{{ total }}</span>
+        </h1>
+        <div class="w-full sm:w-auto">
+            <form method="get" action="/matchs" class="grid grid-cols-1 sm:grid-cols-4 gap-2 items-end">
+                {% if saisons %}
+                <div>
+                    <span class="text-xs" style="color: var(--text-muted);">Saisons</span>
+                    <select name="saison_ids" class="filter-select" multiple size="4">
+                        {% for s in saisons %}
+                        <option value="{{ s.id }}" {% if current_saison_ids and s.id in current_saison_ids %}selected{% endif %}>{{ s.code }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
+                <div>
+                    <span class="text-xs" style="color: var(--text-muted);">Du</span>
+                    <input type="date" name="after_date" value="{{ time_filter.date_from }}" class="filter-select filter-date-input" lang="fr" title="Format : jj/mm/aaaa">
+                </div>
+                <div>
+                    <span class="text-xs" style="color: var(--text-muted);">Au</span>
+                    <input type="date" name="before_date" value="{{ time_filter.date_to }}" class="filter-select filter-date-input" lang="fr" title="Format : jj/mm/aaaa">
+                    <span class="filter-date-hint">Format : jj/mm/aaaa</span>
+                </div>
+                <div class="flex gap-2">
+                    <button type="submit" class="pagination-btn" style="background: var(--accent-blue); color: white; border-color: var(--accent-blue);">Filtrer</button>
+                    <a href="/matchs" class="pagination-btn">Réinitialiser</a>
+                </div>
+                {% if selected_departements and selected_departements|length > 0 %}
+                <input type="hidden" name="departements" value="{{ selected_departements|join(',') }}">
+                {% endif %}
+            </form>
+        </div>
+    </div>
+
+    <!-- ═══ Geographic Filter ═══ -->
+    <div x-data="geoFilter({ selected: {{ selected_departements|tojson }} })">
+
+        <!-- Toggle bar + active badges -->
+        <div class="flex items-center gap-3 flex-wrap">
+            <button @click="open = !open"
+                    class="geo-toggle-btn"
+                    :class="{ 'active': open || hasSelection }">
+                <i data-lucide="map-pin" class="w-4 h-4"></i>
+                <span>Localisation</span>
+                <template x-if="hasSelection">
+                    <span class="geo-count-badge" x-text="selectedDepts.length"></span>
+                </template>
+            </button>
+
+            <!-- Active badges (visible when panel is closed) -->
+            <template x-if="hasSelection && !open">
+                <div class="flex items-center gap-2 flex-wrap">
+                    <template x-for="code in selectedDepts.slice(0, 6)" :key="code">
+                        <span class="geo-selected-badge"
+                              @click="removeDepartment(code); applyFilter();"
+                              :title="getDeptName(code)">
+                            <span x-text="getDeptName(code)"></span>
+                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24"
+                                 fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </span>
+                    </template>
+                    <template x-if="selectedDepts.length > 6">
+                        <span class="text-xs" style="color: var(--text-muted);"
+                              x-text="'+' + (selectedDepts.length - 6) + ' autres'"></span>
+                    </template>
+                    <button @click="resetFilter()"
+                            class="text-xs font-medium transition hover:underline"
+                            style="color: var(--accent-red-light);">
+                        Réinitialiser
+                    </button>
+                </div>
+            </template>
+        </div>
+
+        <!-- Map Panel (collapsible) -->
+        <div x-show="open" x-cloak
+             x-transition:enter="transition ease-out duration-200"
+             x-transition:enter-start="opacity-0 -translate-y-2"
+             x-transition:enter-end="opacity-100 translate-y-0"
+             x-transition:leave="transition ease-in duration-150"
+             x-transition:leave-start="opacity-100 translate-y-0"
+             x-transition:leave-end="opacity-0 -translate-y-2"
+             class="card geo-panel mt-3">
+
+            <!-- Panel header -->
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-sm font-semibold flex items-center gap-2" style="color: var(--text-secondary);">
+                    <i data-lucide="globe" class="w-4 h-4" style="color: var(--accent-blue);"></i>
+                    Filtre géographique
+                </h3>
+                <div class="geo-mode-toggle">
+                    <button @click="mode = 'regions'"
+                            class="geo-mode-btn" :class="{ 'active': mode === 'regions' }">
+                        Champ. Régionaux
+                    </button>
+                    <button @click="mode = 'departments'"
+                            class="geo-mode-btn" :class="{ 'active': mode === 'departments' }">
+                        Champ. Départementaux
+                    </button>
+                </div>
+            </div>
+
+            <!-- Selected items badges (in-panel) — adapts to mode -->
+            <div x-show="hasSelection" class="flex flex-wrap gap-1.5 mb-4">
+                <template x-for="badge in selectionBadges" :key="badge.type + '-' + badge.code">
+                    <span class="geo-selected-badge"
+                          :class="{ 'geo-badge-region': badge.type === 'region' || badge.type === 'region-partial',
+                                    'geo-badge-dept': badge.type === 'dept' }"
+                          @click="removeBadge(badge)"
+                          :title="badge.label">
+                        <span x-show="badge.type === 'region' || badge.type === 'region-partial'"
+                              class="geo-badge-tag region">Rég.</span>
+                        <span x-show="badge.type === 'dept'" class="geo-badge-tag dept">Dép.</span>
+                        <span x-show="badge.type === 'dept'" class="font-mono" x-text="badge.code"></span>
+                        <span x-text="badge.label"></span>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24"
+                             fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </span>
+                </template>
+            </div>
+
+            <!-- Map container -->
+            <div x-ref="mapContainer" class="france-map-container">
+
+                <!-- Loading spinner -->
+                <div x-show="!loaded && !error" class="flex items-center justify-center py-16">
+                    <div class="geo-spinner"></div>
+                </div>
+
+                <!-- Error fallback: region list -->
+                <div x-show="error" class="w-full">
+                    <p class="text-xs mb-3" style="color: var(--text-muted);">
+                        <i data-lucide="alert-triangle" class="w-3 h-3 inline"></i>
+                        Carte indisponible — sélection par liste
+                    </p>
+                    <div class="geo-fallback-grid">
+                        <template x-for="region in regionEntries" :key="region.code">
+                            <button @click="toggleRegion(region.code); updateStyles();"
+                                    class="geo-region-btn"
+                                    :class="{
+                                        'selected': isRegionFullySelected(region.code),
+                                        'partial': isRegionPartiallySelected(region.code)
+                                    }">
+                                <span x-text="region.name"></span>
+                            </button>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- SVG Map -->
+                <svg x-ref="mapSvg" x-show="loaded"
+                     :viewBox="'0 0 ' + svgWidth + ' ' + svgHeight"
+                     :width="svgWidth"
+                     :height="svgHeight"
+                     preserveAspectRatio="xMidYMid meet"
+                     class="france-map-svg"
+                     role="img" aria-label="Carte de France"
+                     xmlns="http://www.w3.org/2000/svg">
+                </svg>
+
+                <!-- Tooltip -->
+                <div x-show="hoveredArea" x-cloak
+                     class="geo-tooltip"
+                     :style="'left:' + tooltipX + 'px; top:' + tooltipY + 'px;'"
+                     x-text="hoveredName">
+                </div>
+            </div>
+
+            <!-- Footer: summary + actions -->
+            <div class="flex items-center justify-between mt-4 pt-4"
+                 style="border-top: 1px solid var(--border-color);">
+                <div class="text-xs" style="color: var(--text-muted);">
+                    <span x-show="hasSelection" x-text="selectionLabel"></span>
+                    <span x-show="!hasSelection">Cliquez sur la carte pour sélectionner</span>
+                </div>
+                <div class="flex gap-2">
+                    <button x-show="hasSelection"
+                            @click="clearAll()"
+                            class="geo-action-btn secondary">
+                        Réinitialiser
+                    </button>
+                    <button @click="applyFilter()"
+                            class="geo-action-btn primary"
+                            :disabled="!hasSelection">
+                        Appliquer
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ Data Table ═══ -->
+    <div class="card overflow-hidden">
+        {% if matchs %}
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Code</th>
+                    <th>Équipe A</th>
+                    <th class="text-center">Score</th>
+                    <th>Équipe B</th>
+                    <th>Genre / Cat.</th>
+                    <th class="text-center"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for match in matchs %}
+                <tr>
+                    <td class="whitespace-nowrap" style="color: var(--text-muted);">{{ match.date_match|format_date }}</td>
+                    <td><span class="badge">{{ match.code_match }}</span></td>
+                    <td>
+                        {% if match.equipe_a %}
+                        <a href="{{ path_for_entity('equipe', match.equipe_a.id) }}">{{ match.equipe_a.nom|truncate_name(22) }}</a>
+                        {% else %}-{% endif %}
+                    </td>
+                    <td class="text-center font-bold text-lg whitespace-nowrap">
+                        {% if match.statut == 'forfait' %}
+                        <span class="badge badge-red" style="font-size: 0.65rem;">Forfait</span>
+                        {% elif match.statut == 'joué' %}
+                        <div class="flex items-center justify-center gap-2 whitespace-nowrap">
+                            <span class="score-team-a">{{ match.sets_equipe_a }}</span>
+                            <span style="color: var(--text-muted);">-</span>
+                            <span class="score-team-b">{{ match.sets_equipe_b }}</span>
+                            {% if match.score_conflict %}
+                            <span class="badge badge-red" title="{{ match.score_display or 'Écart de score' }}" style="font-size: 0.55rem; line-height: 1;">≠</span>
+                            {% endif %}
+                        </div>
+                        {% elif match.statut == 'à_venir' %}
+                        <span class="badge badge-blue" style="font-size: 0.6rem;">À venir</span>
+                        {% else %}
+                        <span class="badge" style="font-size: 0.6rem; color: var(--accent-gold);">Sans résultat</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if match.equipe_b %}
+                        <a href="{{ path_for_entity('equipe', match.equipe_b.id) }}">{{ match.equipe_b.nom|truncate_name(22) }}</a>
+                        {% else %}-{% endif %}
+                    </td>
+                    <td>
+                        {% if match.competition %}
+                        <a href="{{ path_for_entity('competition', match.competition.id) }}" class="block text-xs mb-1 hover:text-white transition" style="color: var(--text-secondary);">
+                            {{ match.competition.nom|truncate_name(34) }}
+                        </a>
+                        <a href="{{ path_for_entity('competition', match.competition.id) }}" class="flex flex-wrap gap-1 hover:opacity-80 transition">
+                        {% set comp_genre = match.genre or (match.competition.genre if match.competition else None) %}
+                        {% if comp_genre %}
+                        <span class="badge {% if comp_genre == 'MASCULIN' %}badge-blue{% elif comp_genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %}" style="font-size: 0.55rem;">
+                            {% if comp_genre == 'MASCULIN' %}♂{% elif comp_genre == 'FEMININ' %}♀{% else %}⚥{% endif %}
+                        </span>
+                        {% endif %}
+                        {% set comp_cat = match.categorie or (match.competition.categorie if match.competition else None) %}
+                        {% if not comp_cat and match.competition %}
+                            {% set comp_cat = 'SENIOR' %}
+                        {% endif %}
+                        {% if comp_cat %}
+                        <span class="badge badge-gold" style="font-size: 0.55rem;">{{ comp_cat }}</span>
+                        {% endif %}
+                        </a>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        <div class="flex items-center justify-center gap-1">
+                            <a href="{{ path_for_entity('match', match.id) }}" class="badge badge-blue">
+                                {% if match.has_details %}Détails{% else %}Voir{% endif %}
+                            </a>
+                            {% if match.competition and match.competition.entite and match.saison %}
+                            <a href="https://www.ffvbbeach.org/ffvbapp/resu/ffvolley_fdme.php?saison={{ match.saison.code|replace('-', '/') }}&codent={{ match.competition.entite.code }}&codmatch={{ match.code_match }}"
+                               target="_blank" rel="noopener noreferrer"
+                               class="badge badge-green hover:opacity-80 transition" title="Feuille de match FFVB">
+                                <i data-lucide="file-text" class="w-3 h-3"></i>
+                            </a>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="p-12 text-center" style="color: var(--text-muted);">Aucun match trouvé</p>
+        {% endif %}
+    </div>
+
+    <!-- ═══ Pagination ═══ -->
+    {% if has_prev or has_next %}
+    <div class="flex justify-center gap-2">
+          <a href="{{ page_prev_url if page_prev_url else '#' }}"
+              class="pagination-btn {% if not has_prev %}disabled{% endif %}">
+            <i data-lucide="chevron-left" class="w-4 h-4"></i>
+        </a>
+        <span class="pagination-btn active">{{ page }}</span>
+          <a href="{{ page_next_url if page_next_url else '#' }}"
+              class="pagination-btn {% if not has_next %}disabled{% endif %}">
+            <i data-lucide="chevron-right" class="w-4 h-4"></i>
+        </a>
+    </div>
+    {% endif %}
+
+    <!-- Carte interactive — Localisation des matchs -->
+    {{ map_card(
+        entity_type="match",
+        saison_id=current_saison_ids[0] if (current_saison_ids and current_saison_ids|length == 1) else None,
+        departements=selected_departements,
+        title="Carte des matchs",
+        height="450px",
+        show_filter=True,
+        show_search=True,
+        show_legend=True
+    ) }}
+
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="/static/js/france-map.js"></script>
+{% endblock %}

@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% from "macros/ui.html" import pagination %}
+{% block title %}Compétitions - PyVolley{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+    <!-- Header -->
+    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div>
+            <h1 class="text-2xl font-bold">
+                <i data-lucide="trophy" class="w-6 h-6 inline-block mr-2 text-accent-gold"></i>
+                Compétitions
+            </h1>
+            <p class="text-muted">{{ total }} compétitions enregistrées</p>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <form action="/competitions" method="get" class="flex flex-wrap gap-3">
+        <select name="saison_id" onchange="this.form.submit()"
+                class="filter-select min-w-0">
+            <option value="">Saison : Toutes</option>
+            {% for s in saisons %}
+            <option value="{{ s.id }}" {% if current_saison_id == s.id %}selected{% endif %}>
+                {{ s.code }}
+            </option>
+            {% endfor %}
+        </select>
+
+        <select name="genre" class="filter-select" onchange="this.form.submit()">
+            <option value="">Genre : Tous</option>
+            {% for g in genres %}
+            <option value="{{ g }}" {% if genre == g %}selected{% endif %}>{{ g }}</option>
+            {% endfor %}
+        </select>
+
+        <select name="categorie" class="filter-select" onchange="this.form.submit()">
+            <option value="">Catégorie : Toutes</option>
+            {% for c in categories %}
+            <option value="{{ c }}" {% if categorie == c %}selected{% endif %}>{{ c }}</option>
+            {% endfor %}
+        </select>
+
+        {% if genre or categorie or current_saison_id %}
+        <a href="/competitions" class="pagination-btn">
+            <i data-lucide="x" class="w-4 h-4"></i> Réinitialiser
+        </a>
+        {% endif %}
+    </form>
+
+    <!-- Active filters -->
+    {% if genre or categorie or current_saison_id %}
+    <div class="flex flex-wrap gap-2 items-center">
+        <span class="text-xs font-semibold uppercase text-muted">Filtres :</span>
+        {% if genre %}
+        <span class="badge {% if genre == 'MASCULIN' %}badge-blue{% elif genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %}">{{ genre }}</span>
+        {% endif %}
+        {% if categorie %}
+        <span class="badge badge-gold">{{ categorie }}</span>
+        {% endif %}
+        {% if current_saison_id %}
+        {% for s in saisons %}{% if s.id == current_saison_id %}
+        <span class="badge badge-purple">{{ s.code }}</span>
+        {% endif %}{% endfor %}
+        {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {% for c in competitions %}
+        <a href="{{ path_for_entity('competition', c.id) }}" class="card card-interactive p-5 block">
+            <div class="flex items-start gap-3">
+                <div class="icon-highlight-box bg-tint-gold">
+                    {% if c.genre == 'MASCULIN' %}
+                    <i data-lucide="trophy" class="w-5 h-5 text-accent-blue"></i>
+                    {% elif c.genre == 'FEMININ' %}
+                    <i data-lucide="trophy" class="w-5 h-5 text-accent-red-light"></i>
+                    {% else %}
+                    <i data-lucide="trophy" class="w-5 h-5 text-accent-gold"></i>
+                    {% endif %}
+                </div>
+                <div class="flex-1 min-w-0">
+                    <h3 class="font-semibold text-white text-sm leading-tight mb-2">
+                        {{ c.nom }}
+                    </h3>
+                    {% set niveau_badge = resolve_niveau_badge(c.niveau, c.nom, c.categorie, c.division) %}
+                    <div class="flex flex-wrap gap-1">
+                        {% if c.saison %}
+                        <span class="badge badge-purple text-xs">{{ c.saison.code }}</span>
+                        {% endif %}
+                        {% if c.genre %}
+                        <span class="badge {% if c.genre == 'MASCULIN' %}badge-blue{% elif c.genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %} text-xs">
+                            {% if c.genre == 'MASCULIN' %}♂{% elif c.genre == 'FEMININ' %}♀{% else %}⚥{% endif %} {{ c.genre }}
+                        </span>
+                        {% endif %}
+                        {% if c.categorie %}
+                        <span class="badge badge-gold text-xs">{{ c.categorie }}</span>
+                        {% endif %}
+                        {% if niveau_badge %}
+                        <span class="badge {{ niveau_badge.css_class }} text-xs">{{ niveau_badge.label }}</span>
+                        {% endif %}
+                        {% if c.division %}
+                        <span class="badge text-xs">Div. {{ c.division }}</span>
+                        {% endif %}
+                    </div>
+                    {% if c.code_competition %}
+                    <div class="mt-2">
+                        <span class="font-mono text-xs text-muted">{{ c.code_competition }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </a>
+        {% else %}
+        <div class="col-span-full text-center py-12 text-muted">
+            Aucune compétition trouvée
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Pagination -->
+    {{ pagination(page, has_prev, has_next, '/competitions', guard=true) }}
+
+</div>
+{% endblock %}

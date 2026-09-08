@@ -127,3 +127,87 @@ def club_names_match(name_a: str, name_b: str) -> bool:
             return True
 
     return False
+
+
+def detect_team_inversion(
+    nom_a_db: Optional[str],
+    nom_b_db: Optional[str],
+    nom_a_pdf: Optional[str],
+    nom_b_pdf: Optional[str],
+    *,
+    score_export: Optional[str] = None,
+    parsed_sets_a: Optional[int] = None,
+    parsed_sets_b: Optional[int] = None,
+) -> bool:
+    """Détermine si l'équipe A et l'équipe B du PDF sont inversées par rapport à la base.
+
+    Sur la feuille de match officielle (PDF), l'attribution de l'équipe A et de l'équipe B
+    dépend du tirage au sort (toss) ou de la table de marque. Elle ne correspond pas
+    systématiquement à l'ordre Domicile (A) / Extérieur (B) du calendrier / export CSV.
+
+    Stratégie hiérarchique :
+    1. Égalité exacte des noms (prioritaire pour distinguer 'RHONE 1' et 'RHONE 3' d'un même club).
+    2. Matching intelligent des clubs (suffixes VB, abréviations, etc.).
+    3. Distance Levenshtein sur les noms normalisés.
+    4. Cohérence de score export vs PDF (si score asymétrique disponible).
+
+    Returns:
+        True si les équipes du PDF sont inversées (A du PDF = B en base et vice-versa).
+        False sinon.
+    """
+    from typing import Optional
+
+    if not (nom_a_db or nom_b_db) or not (nom_a_pdf or nom_b_pdf):
+        return False
+
+    na_db = (nom_a_db or "").strip().upper()
+    nb_db = (nom_b_db or "").strip().upper()
+    na_pdf = (nom_a_pdf or "").strip().upper()
+    nb_pdf = (nom_b_pdf or "").strip().upper()
+
+    # 1. Égalité exacte (gère les équipes d'un même club ex: "CLUB 1" vs "CLUB 2")
+    exact_straight = (1 if na_pdf and na_pdf == na_db else 0) + (1 if nb_pdf and nb_pdf == nb_db else 0)
+    exact_inverted = (1 if na_pdf and na_pdf == nb_db else 0) + (1 if nb_pdf and nb_pdf == na_db else 0)
+    if exact_straight > exact_inverted:
+        return False
+    if exact_inverted > exact_straight:
+        return True
+
+    # 2. Matching intelligent des clubs (club_names_match)
+    match_straight = (
+        (1 if na_db and na_pdf and club_names_match(na_pdf, na_db) else 0)
+        + (1 if nb_db and nb_pdf and club_names_match(nb_pdf, nb_db) else 0)
+    )
+    match_inverted = (
+        (1 if nb_db and na_pdf and club_names_match(na_pdf, nb_db) else 0)
+        + (1 if na_db and nb_pdf and club_names_match(nb_pdf, na_db) else 0)
+    )
+    if match_straight > match_inverted:
+        return False
+    if match_inverted > match_straight:
+        return True
+
+    # 3. Distance d'édition sur les noms normalisés
+    norm_a_db = normalize_club_name(na_db)
+    norm_b_db = normalize_club_name(nb_db)
+    norm_a_pdf = normalize_club_name(na_pdf)
+    norm_b_pdf = normalize_club_name(nb_pdf)
+    dist_straight = levenshtein(norm_a_pdf, norm_a_db) + levenshtein(norm_b_pdf, norm_b_db)
+    dist_inverted = levenshtein(norm_a_pdf, norm_b_db) + levenshtein(norm_b_pdf, norm_a_db)
+    if dist_inverted < dist_straight and (dist_straight - dist_inverted) >= 3:
+        return True
+    if dist_straight < dist_inverted and (dist_inverted - dist_straight) >= 3:
+        return False
+
+    # 4. Cohérence de score export vs PDF en cas d'ambiguïté résiduelle
+    if score_export and "/" in score_export and parsed_sets_a is not None and parsed_sets_b is not None:
+        parts = score_export.split("/")
+        if len(parts) == 2 and parts[0].strip().isdigit() and parts[1].strip().isdigit():
+            exp_a, exp_b = int(parts[0].strip()), int(parts[1].strip())
+            if exp_a != exp_b:
+                if parsed_sets_a == exp_b and parsed_sets_b == exp_a:
+                    return True
+                if parsed_sets_a == exp_a and parsed_sets_b == exp_b:
+                    return False
+
+    return False

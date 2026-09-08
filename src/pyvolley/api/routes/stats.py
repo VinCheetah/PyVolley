@@ -64,7 +64,12 @@ async def get_palmares(
     categorie: Optional[str] = None,
     niveau_min: Optional[str] = None,
     niveau_max: Optional[str] = None,
+    niveau: Optional[str] = None,
+    niveau_echelon: Optional[str] = None,
     departement: Optional[str] = None,
+    ligue: Optional[str] = None,
+    club_id: Optional[int] = None,
+    competition_id: Optional[int] = None,
     match_repo: MatchRepository = Depends(get_match_repo),
 ):
     """Palmarès et records complets."""
@@ -77,7 +82,12 @@ async def get_palmares(
         categorie=categorie,
         niveau_min=niveau_min,
         niveau_max=niveau_max,
+        niveau=niveau,
+        niveau_echelon=niveau_echelon,
         departement=departement,
+        ligue=ligue,
+        club_id=club_id,
+        competition_id=competition_id,
     )
     data, from_cache = service.get_cached_or_compute(filters)
     return {

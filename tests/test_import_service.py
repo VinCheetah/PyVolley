@@ -81,14 +81,33 @@ class TestBasicImport:
         assert comp is not None
         assert comp.saison_id is not None
 
-    def test_import_creates_clubs(self, test_session, full_match):
-        """L'import crée les clubs correspondant aux équipes."""
+    def test_import_does_not_create_clubs_without_scraper(
+        self, test_session, full_match
+    ):
+        """Le parser/import de match ne crée pas de clubs sans code FFVB (seul le scraper crée les clubs)."""
         service = MatchImportService(test_session)
         service.import_match(full_match)
         test_session.flush()
 
         clubs = test_session.scalars(select(ClubDB)).all()
-        assert len(clubs) >= 2
+        # Le parser ne doit pas créer de clubs de toute pièce
+        assert len(clubs) == 0
+
+    def test_import_links_to_existing_clubs(self, test_session, full_match):
+        """Si les clubs existent déjà (créés par le scraper), l'import rattache les équipes."""
+        club_a = ClubDB(nom="AS Volley Paris", code_ffvb="0750001", departement="75")
+        club_b = ClubDB(nom="BC Volley Lyon", code_ffvb="0690002", departement="69")
+        test_session.add_all([club_a, club_b])
+        test_session.flush()
+
+        service = MatchImportService(test_session)
+        service.import_match(full_match)
+        test_session.flush()
+
+        equipes = test_session.scalars(select(EquipeDB)).all()
+        club_ids = {e.club_id for e in equipes}
+        assert club_a.id in club_ids
+        assert club_b.id in club_ids
 
     def test_import_creates_equipes(self, test_session, full_match):
         """L'import crée les deux équipes."""

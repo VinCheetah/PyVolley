@@ -1,0 +1,72 @@
+{# ═══════════════════════════════════════════════════════════════
+   Match Detail — Joueurs Tab
+   Team rosters for Equipe A and Equipe B with player numbers, liberos & captain badges
+   ═══════════════════════════════════════════════════════════════ #}
+
+{% if participants_a or participants_b %}
+<div x-show="activeTab === 'joueurs'" x-cloak class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- Equipe A -->
+    <div class="card p-6">
+        <h3 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--team-a-light);">
+            {{ match.equipe_a.nom if match.equipe_a else 'Équipe A' }}
+        </h3>
+        {% if officiels_a %}
+        <div class="mb-4 space-y-1">
+            {% for o in officiels_a %}
+            <div class="text-xs flex items-center gap-2" style="color: var(--text-muted);">
+                <span class="badge" style="font-size: 0.6rem;">{{ o.role }}</span>
+                {{ o.nom }}{% if o.prenom %} {{ o.prenom }}{% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        <div class="space-y-1">
+            {% for p in participants_a %}
+            <a href="{{ path_for_entity('joueur', p.joueur.id) }}" class="player-row no-underline">
+                <span class="player-number team-a {% if p.est_libero %}libero{% endif %}">
+                    {{ p.numero_maillot or '?' }}
+                </span>
+                <span class="flex-1">
+                    <span class="font-semibold text-white">{{ p.joueur.nom }}</span>
+                    <span style="color: var(--text-secondary);">{{ p.joueur.prenom }}</span>
+                </span>
+                {% if p.est_capitaine %}<span class="badge badge-gold" style="font-size: 0.55rem;">CAP</span>{% endif %}
+                {% if p.est_libero %}<span class="badge badge-gold" style="font-size: 0.55rem;">LIB</span>{% endif %}
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Equipe B -->
+    <div class="card p-6">
+        <h3 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--team-b-light);">
+            {{ match.equipe_b.nom if match.equipe_b else 'Équipe B' }}
+        </h3>
+        {% if officiels_b %}
+        <div class="mb-4 space-y-1">
+            {% for o in officiels_b %}
+            <div class="text-xs flex items-center gap-2" style="color: var(--text-muted);">
+                <span class="badge" style="font-size: 0.6rem;">{{ o.role }}</span>
+                {{ o.nom }}{% if o.prenom %} {{ o.prenom }}{% endif %}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        <div class="space-y-1">
+            {% for p in participants_b %}
+            <a href="{{ path_for_entity('joueur', p.joueur.id) }}" class="player-row no-underline">
+                <span class="player-number team-b {% if p.est_libero %}libero{% endif %}">
+                    {{ p.numero_maillot or '?' }}
+                </span>
+                <span class="flex-1">
+                    <span class="font-semibold text-white">{{ p.joueur.nom }}</span>
+                    <span style="color: var(--text-secondary);">{{ p.joueur.prenom }}</span>
+                </span>
+                {% if p.est_capitaine %}<span class="badge badge-gold" style="font-size: 0.55rem;">CAP</span>{% endif %}
+                {% if p.est_libero %}<span class="badge badge-gold" style="font-size: 0.55rem;">LIB</span>{% endif %}
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}

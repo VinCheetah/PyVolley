@@ -23,6 +23,7 @@ Format de l'export (vérifié empiriquement 2026-03-06) :
 from __future__ import annotations
 
 import csv
+import html
 import io
 import logging
 import re
@@ -170,12 +171,28 @@ class ExportMatchInfo:
     @property
     def sets_equipe_a(self) -> int:
         """Nombre de sets gagnés par l'équipe A."""
-        return sum(1 for sa, sb in self.sets if sa > sb)
+        if self.sets:
+            return sum(1 for sa, sb in self.sets if sa > sb)
+        if self.score_sets and "/" in self.score_sets:
+            parts = self.score_sets.split("/")
+            try:
+                return int(parts[0])
+            except ValueError:
+                return 0
+        return 0
 
     @property
     def sets_equipe_b(self) -> int:
         """Nombre de sets gagnés par l'équipe B."""
-        return sum(1 for sa, sb in self.sets if sb > sa)
+        if self.sets:
+            return sum(1 for sa, sb in self.sets if sb > sa)
+        if self.score_sets and "/" in self.score_sets:
+            parts = self.score_sets.split("/")
+            try:
+                return int(parts[1])
+            except ValueError:
+                return 0
+        return 0
 
 
 def _extract_poule_code(code_match: str) -> str:
@@ -225,7 +242,8 @@ def normalize_poule_code(poule_code: str) -> tuple[str, Optional[str]]:
     La détection se fait par heuristique :
     - Code de 4+ caractères
     - Dernière lettre = A ou R
-    - L'avant-dernière lettre N'EST PAS M ou F (sinon c'est genre + poule_lettre)
+    - 'R' est toujours Retour
+    - 'A' est Aller si avant-dernière lettre n'est pas M/F ou si code départemental (DSFA)
 
     Returns:
         Tuple (code_base, phase) où phase est "ALLER", "RETOUR" ou None.
@@ -237,30 +255,34 @@ def normalize_poule_code(poule_code: str) -> tuple[str, Optional[str]]:
     last = upper[-1]
     before_last = upper[-2]
 
-    # Si le dernier caractère est A ou R et l'avant-dernier N'EST PAS
-    # M ou F (qui indiquerait genre + lettre de poule), c'est une phase
-    if last in ('A', 'R') and before_last not in ('M', 'F'):
-        # Vérifier qu'il ne s'agit pas d'un code comme SN1A (compétition à poule unique)
-        # Heuristique : le code de base doit avoir >= 3 caractères
-        base = upper[:-1]
-        if len(base) >= 3:
-            phase = "ALLER" if last == 'A' else "RETOUR"
-            return base, phase
+    base = upper[:-1]
+    if len(base) >= 3:
+        # 'R' n'est jamais une lettre de poule au volleyball (toujours Phase Retour)
+        if last == 'R':
+            return base, "RETOUR"
+
+        # 'A' pour Phase Aller :
+        # - soit l'avant-dernière lettre n'est pas M/F (ex: division jeune CMXA -> CMX)
+        # - soit le code commence par un préfixe départemental connu (DSFA -> DSF)
+        if last == 'A':
+            if before_last not in ('M', 'F') or upper.startswith(("DS", "DF", "DM", "D1", "D2", "D3")):
+                return base, "ALLER"
 
     return poule_code, None
 
 
+
 def is_empty_match(equipe_a_nom: Optional[str], equipe_b_nom: Optional[str],
                    code_match: str) -> bool:
-    """Détermine si un match est un placeholder vide (xxxxx).
+    """Détermine si un match est un placeholder vide (xxxxx, exempt, etc.).
 
-    Ces entrées représentent une absence de match et ne doivent pas
-    être importées ni affichées.
+    Ces entrées représentent une absence de match (exemption, match non joué)
+    et ne doivent pas être importées ni affichées.
 
     Returns:
         True si le match est un placeholder vide.
     """
-    placeholder = {"xxxxx", "xxxxx ", " xxxxx", "xxxx", "xxx"}
+    placeholder = {"xxxxx", "xxxxx ", " xxxxx", "xxxx", "xxx", "exempt", ".", "-", "aucun", "aucune"}
 
     if equipe_a_nom and equipe_a_nom.strip().lower() in placeholder:
         return True
@@ -465,6 +487,10 @@ def parse_export_csv(
     if not content.strip():
         logger.warning("Export vide pour %s (saison %s)", entite_code, saison)
         return []
+
+    # Unescape HTML entities (ex: &#039; for apostrophe) to prevent semicolons
+    # from breaking the CSV delimiter ';'
+    content = html.unescape(content)
 
     # Parse CSV (séparé par points-virgules)
     reader = csv.reader(io.StringIO(content), delimiter=";")

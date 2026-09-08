@@ -1,0 +1,208 @@
+{#
+  PyVolley — Interactive Map Macros (Modern Sports Edition)
+
+  Reusable Jinja2 macros for embedding interactive Leaflet maps.
+
+  Usage:
+    {% from "macros/map.html" import map_card, map_head %}
+
+    {% block extra_head %}
+      {{ map_head() }}
+    {% endblock %}
+
+    {% block content %}
+      {{ map_card(entity_type="club", club_id=club.id, title="Localisation") }}
+    {% endblock %}
+#}
+
+
+{# ── CDN dependencies (include once in extra_head block) ──── #}
+{% macro map_head() %}
+<!-- Leaflet CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin="anonymous">
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin="anonymous"></script>
+<!-- MarkerCluster CSS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+<!-- MarkerCluster JS -->
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<!-- PyVolley Map CSS & JS -->
+<link rel="stylesheet" href="/static/css/interactive-map.css">
+<script src="/static/js/interactive-map.js"></script>
+{% endmacro %}
+
+
+{# ── Map Card (full-featured sports card with controls & search) ── #}
+{% macro map_card(
+    entity_type=None,
+    club_id=None,
+    competition_id=None,
+    equipe_id=None,
+    joueur_id=None,
+    saison_id=None,
+    departement=None,
+    departements=None,
+    title="Carte interactive",
+    height="420px",
+    show_filter=True,
+    show_search=True,
+    show_legend=True
+) %}
+{% set active_depts = departements or departement or '' %}
+{% if active_depts is iterable and active_depts is not string %}
+  {% set active_depts = active_depts|join(',') %}
+{% endif %}
+
+<div class="card overflow-hidden">
+  <div class="p-4 flex items-center justify-between" style="border-bottom: 1px solid var(--border-color);">
+    <h2 class="text-sm font-semibold uppercase tracking-wider flex items-center gap-2" style="color: var(--text-muted);">
+      <i data-lucide="map" class="w-4 h-4" style="color: var(--accent-blue);"></i>
+      {{ title }}
+    </h2>
+    <span class="text-xs" style="color: var(--text-muted);">FFVB Géonavigation</span>
+  </div>
+
+  <div x-data="interactiveMap({
+         entityType:    '{{ entity_type or '' }}',
+         clubId:        {{ club_id or 'null' }},
+         competitionId: {{ competition_id or 'null' }},
+         equipeId:      {{ equipe_id or 'null' }},
+         joueurId:      {{ joueur_id or 'null' }},
+         saisonId:      {{ saison_id or 'null' }},
+         departements:  '{{ active_depts }}',
+         height:        '{{ height }}',
+         showFilter:    {{ 'true' if show_filter else 'false' }},
+         showSearch:    {{ 'true' if show_search else 'false' }},
+         showLegend:    {{ 'true' if show_legend else 'false' }}
+       })">
+
+    {% if show_filter or show_search %}
+    <!-- Modern Map Toolbar -->
+    <div class="pyvolley-map-toolbar">
+      {% if show_search %}
+      <!-- Live in-map search -->
+      <div class="relative flex-1 min-w-[140px] max-w-xs">
+        <input type="text"
+               x-model="searchQuery"
+               @input.debounce.150ms="filterAndRenderMarkers()"
+               placeholder="Rechercher un point..."
+               class="w-full text-xs pr-7">
+        <span x-show="searchQuery" @click="searchQuery = ''; filterAndRenderMarkers()"
+              class="absolute right-2 top-2 text-slate-400 hover:text-white cursor-pointer text-xs">✕</span>
+      </div>
+      {% endif %}
+
+      {% if show_filter %}
+      <!-- Entity filter selector -->
+      <div class="flex items-center gap-1.5">
+        <label class="text-xs hidden sm:inline" style="color: var(--text-muted);">Afficher :</label>
+        <select x-model="filterEntityType" @change="applyFilter()" class="text-xs">
+          <option value="">Tout afficher</option>
+          <option value="club">Clubs</option>
+          <option value="salle">Salles &amp; Gymnases</option>
+          <option value="match">Matchs</option>
+        </select>
+      </div>
+      {% endif %}
+
+      <!-- Recenter Button -->
+      <button type="button" @click="recenter()" class="pyvolley-map-btn" title="Recentrer la carte sur tous les points">
+        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.93 4.93 4.24 4.24"/><path d="m14.83 9.17 4.24-4.24"/><path d="m14.83 14.83 4.24 4.24"/><path d="m9.17 14.83-4.24 4.24"/></svg>
+        <span class="hidden sm:inline">Recentrer</span>
+      </button>
+
+      <!-- Toggle Tile Layer (Dark/Light) -->
+      <button type="button" @click="toggleTileLayer()" class="pyvolley-map-btn" title="Changer le style de carte">
+        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/></svg>
+        <span class="capitalize" x-text="currentTileKey"></span>
+      </button>
+
+      <!-- Counter -->
+      <div class="pyvolley-map-counter">
+        <span class="inline-block w-2 h-2 rounded-full" :class="markerCount > 0 ? 'bg-emerald-400' : 'bg-slate-500'"></span>
+        <span x-text="markerCount + ' lieu' + (markerCount > 1 ? 'x' : '')"></span>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Map container wrapper -->
+    <div class="pyvolley-map-wrapper" x-ref="mapWrapper">
+      <div x-ref="mapContainer" :style="'height:' + height + '; width: 100%;'"></div>
+
+      <!-- Floating Controls: Fullscreen & Recenter -->
+      <div class="pyvolley-floating-controls">
+        <button type="button" @click="toggleFullscreen()" class="pyvolley-ctrl-btn" :title="isFullscreen ? 'Quitter le plein écran' : 'Plein écran'">
+          <template x-if="!isFullscreen">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+          </template>
+          <template x-if="isFullscreen">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+          </template>
+        </button>
+      </div>
+
+      <!-- Floating Legend Pill -->
+      {% if show_legend %}
+      <div class="pyvolley-floating-legend hidden sm:flex" x-show="!loading && !error && markerCount > 0" x-transition.opacity>
+        <div class="pyvolley-legend-item">
+          <span class="pyvolley-legend-dot bg-blue-500"></span>
+          <span>Clubs</span>
+        </div>
+        <div class="pyvolley-legend-item">
+          <span class="pyvolley-legend-dot bg-cyan-500"></span>
+          <span>Salles</span>
+        </div>
+        <div class="pyvolley-legend-item">
+          <span class="pyvolley-legend-dot bg-emerald-500"></span>
+          <span>Victoires</span>
+        </div>
+        <div class="pyvolley-legend-item">
+          <span class="pyvolley-legend-dot bg-amber-500"></span>
+          <span>Matchs</span>
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Scroll Notice (triggered when scrolling without Ctrl) -->
+      <div class="pyvolley-scroll-notice" :class="{ 'is-visible': showWheelNotice }">
+        <span>Utilisez Ctrl + défilement pour zoomer sur la carte</span>
+      </div>
+
+      <!-- Loading overlay -->
+      <div class="pyvolley-map-overlay" x-show="loading" x-transition.opacity>
+        <div class="pyvolley-map-overlay-content">
+          <svg class="animate-spin inline w-4 h-4 text-blue-500" xmlns="http://www.w3.org/2000/svg"
+               fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10"
+                    stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor"
+                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+          </svg>
+          Chargement des localisations…
+        </div>
+      </div>
+
+      <!-- Error overlay -->
+      <div class="pyvolley-map-overlay" x-show="error && !loading" x-transition.opacity>
+        <div class="pyvolley-map-overlay-content" style="color: var(--accent-red, #ef4444);">
+          <i data-lucide="alert-triangle" class="w-4 h-4 inline mr-1"></i>
+          Impossible de charger les données cartographiques.
+        </div>
+      </div>
+
+      <!-- Empty state -->
+      <div class="pyvolley-map-overlay" x-show="!loading && !error && markerCount === 0" x-transition.opacity>
+        <div class="pyvolley-map-overlay-content" style="color: var(--text-muted);">
+          <i data-lucide="map-pin-off" class="w-4 h-4 inline mr-1"></i>
+          Aucune localisation répertoriée pour cette sélection.
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endmacro %}

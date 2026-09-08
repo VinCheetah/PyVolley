@@ -11,5 +11,7 @@ Contient :
 from pyvolley.scrapers.base import BaseScraper
 from pyvolley.scrapers.ffvb import FFVBScraper
 from pyvolley.scrapers.lnv import LNVScraper
+from pyvolley.scrapers.logos import ClubLogoService
 
-__all__ = ["BaseScraper", "FFVBScraper", "LNVScraper"]
+__all__ = ["BaseScraper", "FFVBScraper", "LNVScraper", "ClubLogoService"]
+

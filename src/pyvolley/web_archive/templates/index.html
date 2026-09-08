@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% from "macros/ui.html" import stat_card %}
+{% block title %}PyVolley — Tableau de bord{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+
+    <!-- Hero Section -->
+    <section class="hero-card">
+        <div class="relative z-10 max-w-2xl">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold mb-4 bg-tint-blue border border-accent-blue/30 text-accent-blue-light">
+                <span class="pulse-dot"></span> Données FFVB & Statistiques
+            </div>
+            <h1 class="text-4xl md:text-5xl font-black tracking-tight mb-3">
+                <span class="gradient-text">PyVolley</span>
+            </h1>
+            <p class="text-base md:text-lg text-secondary mb-6 leading-relaxed">
+                Explorez les statistiques, les rejeux de matchs, les performances des joueurs et l'historique des clubs du volleyball français.
+            </p>
+            <form action="/search" method="get" class="relative max-w-xl">
+                <i data-lucide="search" class="w-5 h-5 absolute left-4 top-1/2 -translate-y-1/2 text-muted"></i>
+                <input type="text" name="q"
+                       placeholder="Rechercher un joueur, une équipe, un club, un arbitre..."
+                       class="search-input text-base py-3.5 pl-12 pr-32">
+                <button type="submit"
+                        class="btn-primary absolute right-2 top-1/2 -translate-y-1/2 px-5 py-2 text-sm">
+                    Rechercher
+                </button>
+            </form>
+        </div>
+        <!-- Decorative volleyball -->
+        <div class="absolute right-6 top-1/2 -translate-y-1/2 text-8xl opacity-15 select-none hidden md:block pointer-events-none transform hover:scale-110 transition">
+            🏐
+        </div>
+    </section>
+
+    <!-- Stats Cards -->
+    <section class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 md:gap-4">
+        {{ stat_card(stats.matchs, 'Matchs', href='/matchs') }}
+        {{ stat_card(stats.joueurs, 'Joueurs', href='/joueurs', gradient='linear-gradient(135deg, #22c55e, #06b6d4)') }}
+        {{ stat_card(stats.equipes, 'Équipes', href='/equipes', gradient='linear-gradient(135deg, #a855f7, #3b82f6)') }}
+        {{ stat_card(stats.clubs, 'Clubs', href='/clubs', gradient='linear-gradient(135deg, #f59e0b, #ef4444)') }}
+        {{ stat_card(stats.arbitres, 'Arbitres', href='/arbitres', gradient='linear-gradient(135deg, #06b6d4, #a855f7)') }}
+        {{ stat_card(stats.competitions, 'Compétitions', href='/competitions', gradient='linear-gradient(135deg, #ef4444, #f59e0b)') }}
+    </section>
+
+    <!-- Charts Row -->
+    <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Matchs par saison -->
+        <div class="card p-6">
+            <h3 class="section-title mb-4">
+                <i data-lucide="bar-chart-3" class="w-4 h-4 inline-block mr-1 text-accent-blue"></i>
+                Matchs par saison
+            </h3>
+            <div style="height: 250px;">
+                <canvas id="chartSaison"></canvas>
+            </div>
+        </div>
+
+        <!-- Matchs par mois -->
+        <div class="card p-6">
+            <h3 class="section-title mb-4">
+                <i data-lucide="trending-up" class="w-4 h-4 inline-block mr-1 text-accent-cyan"></i>
+                Activité mensuelle
+            </h3>
+            <div style="height: 250px;">
+                <canvas id="chartMois"></canvas>
+            </div>
+        </div>
+    </section>
+
+    <!-- Quick Navigation -->
+    <section class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <a href="/joueurs" class="card card-interactive p-6 flex items-start gap-4 no-underline group">
+            <div class="icon-highlight-box bg-tint-blue group-hover:scale-110 transition">
+                <i data-lucide="users" class="w-5 h-5 text-accent-blue"></i>
+            </div>
+            <div class="flex-1">
+                <h3 class="font-semibold text-white mb-1 group-hover:text-accent-blue-light transition">Joueurs</h3>
+                <p class="text-sm text-secondary">Rechercher et consulter les fiches joueurs et leurs statistiques détaillées</p>
+            </div>
+            <i data-lucide="arrow-right" class="w-4 h-4 text-muted group-hover:text-accent-blue group-hover:translate-x-1 transition self-center"></i>
+        </a>
+        <a href="/matchs" class="card card-interactive p-6 flex items-start gap-4 no-underline group">
+            <div class="icon-highlight-box bg-tint-red group-hover:scale-110 transition">
+                <i data-lucide="swords" class="w-5 h-5 text-accent-red"></i>
+            </div>
+            <div class="flex-1">
+                <h3 class="font-semibold text-white mb-1 group-hover:text-accent-red-light transition">Matchs</h3>
+                <p class="text-sm text-secondary">Feuilles de match détaillées avec analyse de momentum et simulation</p>
+            </div>
+            <i data-lucide="arrow-right" class="w-4 h-4 text-muted group-hover:text-accent-red group-hover:translate-x-1 transition self-center"></i>
+        </a>
+        <a href="/statistiques" class="card card-interactive p-6 flex items-start gap-4 no-underline group">
+            <div class="icon-highlight-box bg-tint-gold group-hover:scale-110 transition">
+                <i data-lucide="bar-chart" class="w-5 h-5 text-accent-gold"></i>
+            </div>
+            <div class="flex-1">
+                <h3 class="font-semibold text-white mb-1 group-hover:text-accent-gold transition">Statistiques</h3>
+                <p class="text-sm text-secondary">Graphiques globaux, tendances d'activité et records du volleyball</p>
+            </div>
+            <i data-lucide="arrow-right" class="w-4 h-4 text-muted group-hover:text-accent-gold group-hover:translate-x-1 transition self-center"></i>
+        </a>
+    </section>
+
+    <!-- Derniers matchs -->
+    {% if derniers_matchs %}
+    <section class="card overflow-hidden">
+        <div class="px-6 py-4 flex items-center justify-between border-b">
+            <h2 class="font-semibold flex items-center gap-2">
+                <i data-lucide="clock" class="w-4 h-4 text-accent-blue"></i>
+                Derniers matchs
+            </h2>
+            <a href="/matchs" class="text-sm text-accent-blue transition">Voir tous →</a>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Équipe A</th>
+                        <th class="text-center">Score</th>
+                        <th>Équipe B</th>
+                        <th>Lieu</th>
+                        <th class="text-center">Détails</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for match in derniers_matchs %}
+                    <tr>
+                        <td class="whitespace-nowrap text-secondary">
+                            {{ match.date_match|format_date }}
+                        </td>
+                        <td>
+                            {% if match.equipe_a %}
+                            <a href="{{ path_for_entity('equipe', match.equipe_a.id) }}" class="font-medium">
+                                {{ match.equipe_a.nom|truncate_name(25) }}
+                            </a>
+                            {% else %}-{% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% if match.score_sets %}
+                            <span class="font-bold text-lg">
+                                <span class="score-team-a">{{ match.sets_equipe_a }}</span>
+                                <span class="text-muted">-</span>
+                                <span class="score-team-b">{{ match.sets_equipe_b }}</span>
+                            </span>
+                            {% else %}<span class="text-muted">—</span>{% endif %}
+                        </td>
+                        <td>
+                            {% if match.equipe_b %}
+                            <a href="{{ path_for_entity('equipe', match.equipe_b.id) }}" class="font-medium">
+                                {{ match.equipe_b.nom|truncate_name(25) }}
+                            </a>
+                            {% else %}-{% endif %}
+                        </td>
+                        <td class="text-secondary">{{ match.lieu|truncate_name(20) }}</td>
+                        <td class="text-center">
+                            <a href="{{ path_for_entity('match', match.id) }}" class="badge badge-blue">
+                                {% if match.has_details %}Détails{% else %}Voir{% endif %}
+                            </a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    {% endif %}
+
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const C = PyVolleyCharts;
+
+    // Matchs par saison
+    const saisonData = {{ matchs_par_saison | tojson }};
+    if (saisonData.length > 0) {
+        C.create('chartSaison', 'bar', {
+            data: {
+                labels: saisonData.map(d => d.saison),
+                datasets: [{
+                    data: saisonData.map(d => d.count),
+                    backgroundColor: 'rgba(59, 130, 246, 0.6)',
+                    borderColor: C.colors.blue,
+                    borderWidth: 1,
+                    borderRadius: 6,
+                }],
+            },
+        });
+    }
+
+    // Matchs par mois
+    const moisData = {{ matchs_par_mois | tojson }};
+    if (moisData.length > 0) {
+        const moisNoms = ['', 'Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
+        C.create('chartMois', 'line', {
+            data: {
+                labels: moisData.map(d => `${moisNoms[d.month]} ${d.year}`),
+                datasets: [{
+                    data: moisData.map(d => d.count),
+                    borderColor: C.colors.cyan,
+                    backgroundColor: 'rgba(6, 182, 212, 0.1)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 3,
+                    pointBackgroundColor: C.colors.cyan,
+                }],
+            },
+        });
+    }
+});
+</script>
+{% endblock %}

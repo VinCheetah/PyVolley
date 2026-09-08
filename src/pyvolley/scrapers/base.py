@@ -11,7 +11,7 @@ Classes clés :
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Iterator
+from typing import Any, Optional, Iterator
 
 from pyvolley.shared.pdf_storage import build_pdf_filename
 
@@ -76,7 +76,7 @@ class BaseScraper(ABC):
         """URL de base du site."""
 
     @abstractmethod
-    def get_entities(self) -> list[dict]:
+    def get_entities(self) -> list[Any]:
         """Récupère la liste des entités (ligues, comités, nationales)."""
 
     @abstractmethod

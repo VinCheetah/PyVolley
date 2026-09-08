@@ -405,6 +405,150 @@ class Match(MatchBase):
     def score_conflict(self) -> bool:
         return self.score_resolution.conflict
 
+    def invert_sides(self) -> "Match":
+        """Retourne une copie du match avec les équipes A et B inversées."""
+        return invert_match_sides(self)
+
+
+def invert_match_sides(match: Match) -> Match:
+    """Inverse complètement les côtés A et B d'un match (équipes, scores, sets, sanctions).
+
+    Utile lorsqu'une feuille de match PDF a assigné l'équipe visiteuse comme Équipe A
+    et l'équipe receveuse comme Équipe B (selon le toss / table de marque), afin de
+    réaligner le match sur l'ordre officiel du calendrier / base de données.
+    """
+    def _swap_score_str(score_str: Optional[str]) -> Optional[str]:
+        if not score_str:
+            return score_str
+        for sep in ("/", "-"):
+            if sep in score_str:
+                parts = score_str.split(sep, 1)
+                return f"{parts[1].strip()}{sep}{parts[0].strip()}"
+        return score_str
+
+    # 1. Inverser les sets
+    inverted_sets = []
+    for s in match.sets:
+        inv_eq_a = None
+        if s.equipe_b:
+            inv_timeouts_a = [
+                TimeOut(score_a=to.score_b, score_b=to.score_a)
+                for to in s.equipe_b.timeouts
+            ]
+            inv_changements_a = [
+                Changement(
+                    joueur_entrant=chg.joueur_entrant,
+                    joueur_sortant=chg.joueur_sortant,
+                    position=chg.position,
+                    score_a=chg.score_b,
+                    score_b=chg.score_a,
+                )
+                for chg in s.equipe_b.changements
+            ]
+            inv_eq_a = SetTeamData(
+                formation=s.equipe_b.formation,
+                timeouts=inv_timeouts_a,
+                changements=inv_changements_a,
+                services=dict(s.equipe_b.services) if s.equipe_b.services else {},
+            )
+
+        inv_eq_b = None
+        if s.equipe_a:
+            inv_timeouts_b = [
+                TimeOut(score_a=to.score_b, score_b=to.score_a)
+                for to in s.equipe_a.timeouts
+            ]
+            inv_changements_b = [
+                Changement(
+                    joueur_entrant=chg.joueur_entrant,
+                    joueur_sortant=chg.joueur_sortant,
+                    position=chg.position,
+                    score_a=chg.score_b,
+                    score_b=chg.score_a,
+                )
+                for chg in s.equipe_a.changements
+            ]
+            inv_eq_b = SetTeamData(
+                formation=s.equipe_a.formation,
+                timeouts=inv_timeouts_b,
+                changements=inv_changements_b,
+                services=dict(s.equipe_a.services) if s.equipe_a.services else {},
+            )
+
+        srv = s.service_initial
+        if srv == "A":
+            srv = "B"
+        elif srv == "B":
+            srv = "A"
+
+        inv_set = Set(
+            id=s.id,
+            numero=s.numero,
+            score_a=s.score_b,
+            score_b=s.score_a,
+            debut=s.debut,
+            fin=s.fin,
+            duree_minutes=s.duree_minutes,
+            service_initial=srv,
+            equipe_a=inv_eq_a,
+            equipe_b=inv_eq_b,
+        )
+        inverted_sets.append(inv_set)
+
+    # 2. Inverser les sanctions
+    inverted_sanctions = []
+    for sanc in match.sanctions:
+        s_eq = sanc.equipe
+        if s_eq == "A":
+            s_eq = "B"
+        elif s_eq == "B":
+            s_eq = "A"
+        inverted_sanctions.append(
+            Sanction(
+                id=sanc.id,
+                type=sanc.type,
+                set_numero=sanc.set_numero,
+                equipe=s_eq,
+                joueur_numero=sanc.joueur_numero,
+                joueur_id=sanc.joueur_id,
+                score_a=sanc.score_b,
+                score_b=sanc.score_a,
+            )
+        )
+
+    # 3. Inverser les scores texte
+    inv_score_final = _swap_score_str(match.score_final)
+    if not inv_score_final and (match.sets_a or match.sets_b):
+        inv_score_final = f"{match.sets_b}/{match.sets_a}"
+
+    inv_score_pdf = _swap_score_str(match.score_pdf)
+    inv_score_export = _swap_score_str(match.score_export)
+
+    # 4. Inverser vainqueur_id si relié à une équipe
+    new_vainqueur_id = match.vainqueur_id
+    if match.vainqueur_id:
+        if match.vainqueur_id == match.equipe_a_id:
+            new_vainqueur_id = match.equipe_b_id
+        elif match.vainqueur_id == match.equipe_b_id:
+            new_vainqueur_id = match.equipe_a_id
+
+    return match.model_copy(
+        update={
+            "equipe_a": match.equipe_b,
+            "equipe_b": match.equipe_a,
+            "equipe_a_id": match.equipe_b_id,
+            "equipe_b_id": match.equipe_a_id,
+            "sets_a": match.sets_b,
+            "sets_b": match.sets_a,
+            "score_final": inv_score_final,
+            "score_pdf": inv_score_pdf,
+            "score_export": inv_score_export,
+            "vainqueur_id": new_vainqueur_id,
+            "sets": inverted_sets,
+            "sanctions": inverted_sanctions,
+        }
+    )
+
 
 # ============== Saison ==============
 

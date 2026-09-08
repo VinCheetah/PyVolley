@@ -1,0 +1,403 @@
+{# ═══════════════════════════════════════════════════════════════
+   Match Detail — Statistiques Tab
+   Match intelligence hub: team face-to-face, team positional breakdown, player stats & coach decisions analysis
+   ═══════════════════════════════════════════════════════════════ #}
+
+{% if match.has_details %}
+<div x-show="activeTab === 'statistiques'" x-cloak class="space-y-6"
+     x-data="matchStatsHub(window.PYVOLLEY_MATCH_STATS_DASHBOARD)">
+
+    <div class="stats-hero p-5 md:p-6">
+        <div>
+            <p class="stats-kicker">Match Intelligence</p>
+            <h3 class="stats-title">Statistiques équipes & joueurs</h3>
+            <p class="stats-subtitle">Face-to-face ciblé, side-out, first side-out, conversion de break, rotation P1..P6 et focus joueur.</p>
+        </div>
+        <div class="stats-hero-tabs">
+            <button @click="section='teams'; queueTeamCharts()" class="tab-btn" :class="section === 'teams' ? 'tab-active' : ''">
+                <i data-lucide="shield" class="w-4 h-4"></i> Équipes
+            </button>
+            <button @click="section='players'; queuePlayerCharts()" class="tab-btn" :class="section === 'players' ? 'tab-active' : ''">
+                <i data-lucide="users" class="w-4 h-4"></i> Joueurs
+            </button>
+        </div>
+    </div>
+
+    <div x-show="section === 'teams'" x-cloak class="space-y-5">
+        <div class="flex flex-wrap gap-2">
+            <button class="tab-btn" :class="teamPage === 'face' ? 'tab-active' : ''" @click="teamPage='face'">Face-to-face</button>
+            <button class="tab-btn" :class="teamPage === 'A' ? 'tab-active' : ''" @click="teamPage='A'; queueTeamCharts()" style="border-color: rgba(59,130,246,0.4); color: var(--team-a-light);">{{ match.equipe_a.nom if match.equipe_a else 'Équipe A' }}</button>
+            <button class="tab-btn" :class="teamPage === 'B' ? 'tab-active' : ''" @click="teamPage='B'; queueTeamCharts()" style="border-color: rgba(239,68,68,0.4); color: var(--team-b-light);">{{ match.equipe_b.nom if match.equipe_b else 'Équipe B' }}</button>
+        </div>
+
+        <div x-show="teamPage === 'face'" class="card p-4 space-y-4">
+            <div>
+                <h4 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                    <i data-lucide="split" class="w-4 h-4 inline-block mr-1"></i> Duel statistique
+                </h4>
+                <p class="text-xs mt-1" style="color: var(--text-secondary);">
+                    Lecture instantanée: plus la barre est longue, plus l'avantage est marqué sur l'indicateur.
+                </p>
+            </div>
+
+            <div class="stats-team-highlights">
+                <div class="stats-team-chip">
+                    <span x-text="teamName('A')"></span>
+                    <strong x-text="teamSnapshot('A')"></strong>
+                </div>
+                <div class="stats-team-chip">
+                    <span x-text="teamName('B')"></span>
+                    <strong x-text="teamSnapshot('B')"></strong>
+                </div>
+            </div>
+
+            <div class="stats-duel-list">
+                <template x-for="row in faceRows()" :key="row.label">
+                    <div class="stats-duel-row">
+                        <div class="stats-duel-top">
+                            <div class="stats-duel-value stats-duel-value-a"
+                                 :class="{ 'stats-duel-value-winner': isFaceWinner(row, 'a'), 'stats-duel-value-loser': isFaceLoser(row, 'a') }">
+                                <span x-text="formatFaceValue(row, 'a')"></span>
+                                <span class="stats-duel-crown" x-show="isFaceWinner(row, 'a')">▲</span>
+                            </div>
+                            <div class="stats-duel-title" x-text="row.label"></div>
+                            <div class="stats-duel-value stats-duel-value-b"
+                                 :class="{ 'stats-duel-value-winner': isFaceWinner(row, 'b'), 'stats-duel-value-loser': isFaceLoser(row, 'b') }">
+                                <span x-text="formatFaceValue(row, 'b')"></span>
+                                <span class="stats-duel-crown" x-show="isFaceWinner(row, 'b')">▲</span>
+                            </div>
+                        </div>
+
+                        <div class="stats-duel-track">
+                            <div class="stats-duel-track-half left">
+                                <div class="stats-duel-bar stats-duel-bar-a"
+                                     :class="{ 'winner': isFaceWinner(row, 'a'), 'loser': isFaceLoser(row, 'a') }"
+                                     :style="`width: ${normalizedFacePct(row, 'a')}%`"></div>
+                            </div>
+                            <div class="stats-duel-track-half right">
+                                <div class="stats-duel-bar stats-duel-bar-b"
+                                     :class="{ 'winner': isFaceWinner(row, 'b'), 'loser': isFaceLoser(row, 'b') }"
+                                     :style="`width: ${normalizedFacePct(row, 'b')}%`"></div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+
+                <div x-show="faceRows().length === 0" class="text-center py-6" style="color: var(--text-muted);">
+                    Aucune donnée comparative disponible.
+                </div>
+            </div>
+        </div>
+
+        <div x-show="teamPage === 'A' || teamPage === 'B'" class="space-y-5">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <template x-for="card in currentTeamCards()" :key="card.label">
+                    <div class="card p-4 stats-metric-card" :class="`tone-${card.tone}`">
+                        <div class="text-xs uppercase tracking-wider" style="color: var(--text-muted);" x-text="card.label"></div>
+                        <div class="text-xl font-black mt-1" :style="card.color" x-text="card.value"></div>
+                        <div class="text-xs mt-1" style="color: var(--text-secondary);" x-text="card.hint"></div>
+                        <div class="stats-mini-meter">
+                            <span :class="`tone-${card.tone}`" :style="`width: ${card.meter}%`"></span>
+                        </div>
+                    </div>
+                </template>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                <div class="card p-5">
+                    <h5 class="text-xs uppercase tracking-wider mb-3 text-muted">Impact par rotation (P1..P6)</h5>
+                    <div class="chart-wrap"><canvas id="team-position-chart"></canvas></div>
+                </div>
+                <div class="card p-5">
+                    <h5 class="text-xs uppercase tracking-wider mb-3 text-muted">Comparaison avec les matchs précédents</h5>
+                    <div class="chart-wrap"><canvas id="team-history-chart"></canvas></div>
+                </div>
+            </div>
+
+            <div class="card overflow-hidden">
+                <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
+                    <h5 class="text-xs uppercase tracking-wider" style="color: var(--text-muted);">Analyse positionnelle détaillée</h5>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="data-table text-sm">
+                        <thead>
+                            <tr>
+                                <th>Position</th>
+                                <th class="text-center">Apparitions</th>
+                                <th class="text-center">Points joués</th>
+                                <th class="text-center">Efficacité</th>
+                                <th class="text-center">Tours service</th>
+                                <th class="text-center">N° dominant</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="pos in currentTeamPositions()" :key="pos.position">
+                                <tr>
+                                    <td class="font-semibold" x-text="pos.position"></td>
+                                    <td class="text-center" x-text="pos.apparitions"></td>
+                                    <td class="text-center" x-text="pos.points_joues"></td>
+                                    <td class="text-center" style="color: var(--accent-green);" x-text="`${pos.efficacite_pct}%`"></td>
+                                    <td class="text-center" x-text="pos.service_turns"></td>
+                                    <td class="text-center font-mono" x-text="pos.joueur_dominant || '—'"></td>
+                                </tr>
+                            </template>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card p-5">
+                <h5 class="text-xs uppercase tracking-wider mb-3" style="color: var(--text-muted);">Niveaux particuliers des joueurs présents</h5>
+                <div class="overflow-x-auto">
+                    <table class="data-table text-sm">
+                        <thead>
+                            <tr>
+                                <th>Joueur</th>
+                                <th class="text-center">Niveaux saison</th>
+                                <th class="text-center">Meilleur niveau</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <template x-for="player in currentTeamLevelRows()" :key="`level-player-${player.joueur_id}`">
+                                <tr>
+                                    <td class="font-medium whitespace-nowrap">
+                                        <span x-text="player.display_name"></span>
+                                        <span class="font-mono" style="color: var(--text-muted);" x-text="`#${player.numero || '?'}`"></span>
+                                    </td>
+                                    <td class="text-center">
+                                        <div class="flex flex-wrap gap-1 justify-center" x-show="(player.season_levels || []).length > 0">
+                                            <template x-for="level in (player.season_levels || [])" :key="`${player.joueur_id}-${level}`">
+                                                <span class="badge badge-cyan" x-text="level"></span>
+                                            </template>
+                                        </div>
+                                        <span x-show="(player.season_levels || []).length === 0" style="color: var(--text-muted);">-</span>
+                                    </td>
+                                    <td class="text-center">
+                                        <span class="badge badge-gold" x-show="player.best_level_label" x-text="player.best_level_label"></span>
+                                        <span x-show="!player.best_level_label" style="color: var(--text-muted);">-</span>
+                                    </td>
+                                </tr>
+                            </template>
+                            <tr x-show="currentTeamLevelRows().length === 0">
+                                <td colspan="3" class="text-center py-6" style="color: var(--text-muted);">Aucun niveau particulier à afficher.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div x-show="section === 'teams'" x-cloak class="card p-6" id="coach-decisions-card">
+        {% set coach = coach_analysis or {} %}
+        {% set coach_decisions = coach.get('decisions', []) %}
+        {% set coach_has_data = (coach_decisions|length) > 0 %}
+        <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
+            <div>
+                <h3 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                    <i data-lucide="clipboard-list" class="w-4 h-4 inline-block mr-1"></i> Analyse des décisions coach
+                </h3>
+            </div>
+            <div class="coach-decision-kpis">
+                <span class="coach-kpi-chip">Décisions: <strong id="coach-decisions-total">{{ coach.get('total_decisions', 0) }}</strong></span>
+                <span class="coach-kpi-chip">Changements: <strong id="coach-decisions-subs">{{ coach.get('total_substitutions', 0) }}</strong></span>
+                <span class="coach-kpi-chip">Temps morts: <strong id="coach-decisions-timeouts">{{ coach.get('total_timeouts', 0) }}</strong></span>
+                <span class="coach-kpi-chip">Impact moyen: <strong id="coach-decisions-average">{{ '%+.1f'|format(coach.get('average_impact_score', 0.0)) }}</strong></span>
+            </div>
+        </div>
+
+        <div id="coach-decisions-empty" class="text-sm py-6 text-center" style="color: var(--text-muted);{% if coach_has_data %} display: none;{% endif %}">
+            Aucune décision exploitable pour l'analyse avant/après.
+        </div>
+
+        <div id="coach-decisions-content" class="space-y-5" style="{% if coach_has_data %}display: block;{% else %}display: none;{% endif %}">
+            <div class="coach-team-summary-grid">
+                <div class="coach-team-summary coach-team-a">
+                    <div class="coach-team-title">Équipe A</div>
+                    <div class="coach-team-body" id="coach-team-a-summary">
+                        {% set bucket_a = coach.get('by_team', {}).get('A', {}) %}
+                        {{ bucket_a.get('count', 0) }} décision(s) · +{{ bucket_a.get('positive', 0) }} / -{{ bucket_a.get('negative', 0) }} · Impact moyen {{ '%+.1f'|format(bucket_a.get('average_impact_score', 0.0)) }}
+                    </div>
+                </div>
+                <div class="coach-team-summary coach-team-b">
+                    <div class="coach-team-title">Équipe B</div>
+                    <div class="coach-team-body" id="coach-team-b-summary">
+                        {% set bucket_b = coach.get('by_team', {}).get('B', {}) %}
+                        {{ bucket_b.get('count', 0) }} décision(s) · +{{ bucket_b.get('positive', 0) }} / -{{ bucket_b.get('negative', 0) }} · Impact moyen {{ '%+.1f'|format(bucket_b.get('average_impact_score', 0.0)) }}
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                <div class="card p-4">
+                    <h4 class="text-xs uppercase tracking-wider mb-3 text-muted">Score d'impact par décision</h4>
+                    <div class="chart-wrap"><canvas id="coach-impact-chart"></canvas></div>
+                </div>
+                <div class="card p-4">
+                    <h4 class="text-xs uppercase tracking-wider mb-3 text-muted">Tendance avant/après (win rate)</h4>
+                    <div class="chart-wrap"><canvas id="coach-trend-chart"></canvas></div>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="data-table text-sm">
+                    <thead>
+                        <tr>
+                            <th>Décision</th>
+                            <th class="text-center">Set</th>
+                            <th class="text-center">Score</th>
+                            <th class="text-center">Avant</th>
+                            <th class="text-center">Après</th>
+                            <th class="text-center">Variation</th>
+                            <th class="text-center">Impact</th>
+                            <th class="text-center">Confiance</th>
+                        </tr>
+                    </thead>
+                    <tbody id="coach-decisions-body">
+                        {% for decision in coach_decisions %}
+                        {% set decision_is_sub = decision.get('type') == 'sub' %}
+                        {% set trend_delta = decision.get('trend_delta', {}).get('win_rate_pct', 0.0) %}
+                        {% set impact_score = decision.get('impact_score', 0.0) %}
+                        <tr>
+                            <td>
+                                <div class="coach-decision-id">{{ decision.get('id', '') }}</div>
+                                <div class="coach-decision-type {% if decision_is_sub %}sub{% else %}timeout{% endif %}">
+                                    {% if decision_is_sub %}Changement{% else %}Temps mort{% endif %} · {{ decision.get('team_name', decision.get('team', '')) }}
+                                </div>
+                                <div class="text-xs mt-1" style="color: var(--text-secondary);">
+                                    {% if decision_is_sub %}
+                                    ↑ {{ decision.get('entrant', '?') }} / ↓ {{ decision.get('sortant', '?') }}
+                                    {% else %}
+                                    Temps mort
+                                    {% endif %}
+                                </div>
+                            </td>
+                            <td class="text-center">{{ decision.get('set_numero', '') }}</td>
+                            <td class="text-center font-mono">{{ decision.get('score_a', 0) }}-{{ decision.get('score_b', 0) }}</td>
+                            <td class="text-center">{{ '%.1f'|format(decision.get('trend_before', {}).get('win_rate_pct', 0.0)) }}%</td>
+                            <td class="text-center">{{ '%.1f'|format(decision.get('trend_after', {}).get('win_rate_pct', 0.0)) }}%</td>
+                            <td class="text-center {% if trend_delta >= 0 %}coach-impact-positive{% else %}coach-impact-negative{% endif %}">{{ '%+.1f'|format(trend_delta) }} pts</td>
+                            <td class="text-center coach-impact-cell {% if impact_score >= 12 %}coach-impact-positive{% elif impact_score <= -12 %}coach-impact-negative{% else %}coach-impact-neutral{% endif %}">{{ '%+.1f'|format(impact_score) }}</td>
+                            <td class="text-center">{{ '%.1f'|format(decision.get('confidence_pct', 0.0)) }}%</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <div x-show="section === 'players'" x-cloak class="space-y-5">
+        <div class="flex flex-wrap gap-2">
+            <button class="tab-btn" :class="playerPage === 'global' ? 'tab-active' : ''" @click="playerPage='global'">Vue globale</button>
+            <button class="tab-btn" :class="playerPage === 'detail' ? 'tab-active' : ''" @click="playerPage='detail'; queuePlayerCharts()">Fiche joueur</button>
+        </div>
+
+        <div x-show="playerPage === 'global'" class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <template x-for="side in ['A', 'B']" :key="side">
+                <div class="card overflow-hidden">
+                    <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
+                        <h4 class="text-sm font-semibold uppercase tracking-wider"
+                            :style="side === 'A' ? 'color: var(--team-a-light);' : 'color: var(--team-b-light);'"
+                            x-text="teamName(side)"></h4>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="data-table text-sm">
+                            <thead>
+                                <tr>
+                                    <th>Joueur</th>
+                                    <th class="text-center">Pts joués</th>
+                                    <th class="text-center">Eff.</th>
+                                    <th class="text-center">Pts side-out</th>
+                                    <th class="text-center">Break %</th>
+                                    <th class="text-center">Serv.</th>
+                                    <th class="text-center">Série</th>
+                                    <th class="text-right">Détail</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <template x-for="player in playersBySide(side)" :key="player.joueur_id">
+                                    <tr>
+                                        <td class="font-medium whitespace-nowrap">
+                                            <span x-text="`${player.prenom ? player.prenom[0] + '. ' : ''}${player.nom}`"></span>
+                                            <span class="font-mono" style="color: var(--text-muted);" x-text="`#${player.numero || '?'}`"></span>
+                                        </td>
+                                        <td class="text-center" x-text="player.points_joues"></td>
+                                        <td class="text-center" style="color: var(--accent-green);" x-text="`${player.efficacite_pct}%`"></td>
+                                        <td class="text-center" style="color: var(--accent-blue);" x-text="player.points_gagnes_sideout"></td>
+                                        <td class="text-center" style="color: var(--accent-purple);" x-text="`${player.break_point_ratio_pct}%`"></td>
+                                        <td class="text-center" x-text="player.services"></td>
+                                        <td class="text-center" style="color: var(--accent-gold);" x-text="player.max_serie"></td>
+                                        <td class="text-right">
+                                            <button class="badge badge-cyan" @click="selectPlayer(player.joueur_id)">Analyser</button>
+                                        </td>
+                                    </tr>
+                                </template>
+                                <tr x-show="playersBySide(side).length === 0">
+                                    <td colspan="8" class="text-center py-6" style="color: var(--text-muted);">Aucune statistique joueur disponible pour cette équipe.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </template>
+        </div>
+
+        <div x-show="playerPage === 'detail'" class="space-y-5">
+            <template x-if="selectedPlayer()">
+                <div class="space-y-5">
+                    <div class="card p-5">
+                        <div class="flex items-center justify-between flex-wrap gap-3 mb-3">
+                            <h4 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--accent-cyan);">
+                                <span x-text="selectedPlayer().prenom"></span> <span x-text="selectedPlayer().nom"></span>
+                                <span class="font-mono" style="color: var(--text-muted);" x-text="`#${selectedPlayer().numero || '?'}`"></span>
+                            </h4>
+                            <button class="pagination-btn" @click="clearPlayer()">Fermer</button>
+                        </div>
+                        <div class="grid grid-cols-2 md:grid-cols-7 gap-3 text-center">
+                            <div class="card p-3"><div class="text-xs" style="color: var(--text-muted);">Pts joués</div><div class="text-lg font-black" style="color: var(--accent-cyan);" x-text="selectedPlayer().points_joues"></div></div>
+                            <div class="card p-3"><div class="text-xs" style="color: var(--text-muted);">Efficacité</div><div class="text-lg font-black" style="color: var(--accent-green);" x-text="`${selectedPlayer().efficacite_pct}%`"></div></div>
+                            <div class="card p-3"><div class="text-xs" style="color: var(--text-muted);">Pts side-out</div><div class="text-lg font-black" style="color: var(--accent-blue);" x-text="selectedPlayer().points_gagnes_sideout"></div></div>
+                            <div class="card p-3"><div class="text-xs" style="color: var(--text-muted);">Break ratio</div><div class="text-lg font-black" style="color: var(--accent-purple);" x-text="`${selectedPlayer().break_point_ratio_pct}%`"></div></div>
+                            <div class="card p-3"><div class="text-xs" style="color: var(--text-muted);">Services</div><div class="text-lg font-black" x-text="selectedPlayer().services"></div></div>
+                            <div class="card p-3"><div class="text-xs" style="color: var(--text-muted);">Max série</div><div class="text-lg font-black" style="color: var(--accent-gold);" x-text="selectedPlayer().max_serie"></div></div>
+                            <div class="card p-3"><div class="text-xs" style="color: var(--text-muted);">Temps estimé</div><div class="text-lg font-black" x-text="`${selectedPlayer().temps_jeu} min`"></div></div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                        <div class="card p-5">
+                            <h5 class="text-xs uppercase tracking-wider mb-3 text-muted">Évolution des performances</h5>
+                            <div class="chart-wrap"><canvas id="player-history-chart"></canvas></div>
+                        </div>
+                        <div class="card p-5">
+                            <h5 class="text-xs uppercase tracking-wider mb-3 text-muted">Services par set</h5>
+                            <div class="chart-wrap"><canvas id="player-set-chart"></canvas></div>
+                        </div>
+                    </div>
+
+                    <div class="card p-5">
+                        <h5 class="text-xs uppercase tracking-wider mb-3" style="color: var(--text-muted);">Présence par set</h5>
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                            <template x-for="p in (selectedPlayer().presence_par_set || [])" :key="p.set_numero">
+                                <div class="card p-3">
+                                    <div class="text-xs uppercase" style="color: var(--text-muted);" x-text="`Set ${p.set_numero}`"></div>
+                                    <div class="flex flex-wrap gap-1 mt-2 text-xs">
+                                        <span class="badge badge-green" x-show="p.titulaire">Titulaire</span>
+                                        <span class="badge badge-blue" x-show="p.entre_en_jeu && !p.titulaire">Entré</span>
+                                        <span class="badge badge-red" x-show="p.sorti">Sorti</span>
+                                    </div>
+                                    <div class="text-xs mt-2" style="color: var(--text-secondary);" x-show="p.position_depart" x-text="`Position départ: P${p.position_depart}`"></div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+            </template>
+            <template x-if="!selectedPlayer()">
+                <div class="card p-8 text-center" style="color: var(--text-muted);">Sélectionne un joueur depuis la vue globale pour afficher son analyse détaillée.</div>
+            </template>
+        </div>
+    </div>
+</div>
+{% endif %}

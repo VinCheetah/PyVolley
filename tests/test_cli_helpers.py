@@ -495,3 +495,123 @@ def test_compute_player_stats_skips_when_no_expected_players(monkeypatch, test_s
 
     assert result.exit_code == 0, result.stdout
     assert compute_calls == []
+
+
+def test_find_pdf_for_match_supports_projection_row(tmp_path):
+    """Vérifie que find_pdf_for_match supporte un namedtuple/Row de projection."""
+    from collections import namedtuple
+
+    pdf_base = tmp_path / "pdfs"
+    pdf_base.mkdir(parents=True)
+    target_pdf = pdf_base / "2024-2025" / "EMA001.pdf"
+    target_pdf.parent.mkdir(parents=True, exist_ok=True)
+    target_pdf.write_bytes(b"%PDF-1.4\n")
+
+    RowProjection = namedtuple("RowProjection", [
+        "id", "code_match", "source_pdf", "journee", "saison_code", "entite_code", "poule_code"
+    ])
+
+    # 1. Avec source_pdf renseigné
+    row_with_source = RowProjection(
+        id=10,
+        code_match="EMA001",
+        source_pdf=str(target_pdf),
+        journee="1",
+        saison_code="2024-2025",
+        entite_code="LIRA",
+        poule_code="EMA",
+    )
+    assert find_pdf_for_match(row_with_source, pdf_base) == target_pdf
+
+    # 2. Sans source_pdf mais avec chemin attendu saison/code_match
+    row_without_source = RowProjection(
+        id=11,
+        code_match="EMA001",
+        source_pdf=None,
+        journee="1",
+        saison_code="2024-2025",
+        entite_code=None,
+        poule_code=None,
+    )
+    assert find_pdf_for_match(row_without_source, pdf_base) == target_pdf
+
+
+def test_import_scrape_consolidates_club_enrichment_at_end(monkeypatch):
+    """Vérifie que l'actualisation des clubs est agrégée à la fin et utilise la saison la plus récente."""
+    cli_main = importlib.import_module("pyvolley.cli.main")
+    from pyvolley.scrapers.ffvb.export_scraper import ExportMatchInfo
+
+    class DummyScraper:
+        def __init__(self):
+            self.client = object()
+            self.base_url = "https://example.com"
+
+        def scrape_entity(self, entity, saison):
+            # 2 poules pour ABCCS en 2023/2024, 2 poules en 2024/2025
+            if entity == "ABCCS":
+                if saison == "2023/2024":
+                    return [
+                        ExportMatchInfo(
+                            code_match="M01", entite_code="ABCCS",
+                            poule_code="P1", poule_code_ffvb="P1",
+                            saison="2023/2024", match_joue=True
+                        )
+                    ]
+                else:
+                    return [
+                        ExportMatchInfo(
+                            code_match="M02", entite_code="ABCCS",
+                            poule_code="P2", poule_code_ffvb="P2",
+                            saison="2024/2025", match_joue=True
+                        )
+                    ]
+            return []
+
+    adressier_calls = []
+
+    def fake_fetch_adressier(client, base_url, entite, saison, poules):
+        adressier_calls.append({
+            "entite": entite,
+            "saison": saison,
+            "poules": poules,
+        })
+        return []
+
+    class DummyImportService:
+        def __init__(self, session):
+            pass
+
+        def import_matches(self, export_data, entite, saison):
+            return {"imported": len(export_data)}
+
+        def enrich_clubs(self, clubs, entite, saison, base_url, force_reenrich=False):
+            return {"enriched": len(clubs)}
+
+    @contextmanager
+    def fake_db_session():
+        class FakeSession:
+            def commit(self):
+                pass
+        yield FakeSession()
+
+    monkeypatch.setattr("pyvolley.database.connection.DatabaseSession", fake_db_session)
+    monkeypatch.setattr("pyvolley.scrapers.ffvb.adressier_scraper.fetch_adressier", fake_fetch_adressier)
+    monkeypatch.setattr("pyvolley.database.export_import_service.ExportImportService", DummyImportService)
+
+    scraper = DummyScraper()
+    cli_main._import_scrape(
+        scraper,
+        entities=["ABCCS"],
+        saisons=["2023/2024", "2024/2025"],
+        enrich_clubs=True,
+    )
+
+    # Doit avoir appelé l'adressier UNE SEULE FOIS pour ABCCS
+    assert len(adressier_calls) == 1
+    call = adressier_calls[0]
+    assert call["entite"] == "ABCCS"
+    # Doit avoir choisi la saison la plus récente
+    assert call["saison"] == "2024/2025"
+    # Doit avoir regroupé toutes les poules rencontrées
+    assert set(call["poules"]) == {"P1", "P2"}
+

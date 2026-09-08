@@ -995,6 +995,7 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
                 saison_id: Optional[int] = None,
                 genre: Optional[str] = None,
                 categorie: Optional[str] = None,
+                q: Optional[str] = None,
                 exclude_code_only: bool = False) -> List[CompetitionDB]:
         stmt = (
             select(CompetitionDB)
@@ -1006,6 +1007,14 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
             stmt = stmt.where(CompetitionDB.genre == genre)
         if categorie:
             stmt = stmt.where(CompetitionDB.categorie == categorie)
+        if q:
+            clean_q = f"%{q.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    CompetitionDB.nom.ilike(clean_q),
+                    CompetitionDB.code_competition.ilike(clean_q),
+                )
+            )
         if exclude_code_only:
             stmt = stmt.where(CompetitionDB.nom != CompetitionDB.code_competition)
         stmt = stmt.order_by(CompetitionDB.genre, CompetitionDB.categorie, CompetitionDB.nom)
@@ -1047,6 +1056,7 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
         saison_id: Optional[int] = None,
         genre: Optional[str] = None,
         categorie: Optional[str] = None,
+        q: Optional[str] = None,
         exclude_code_only: bool = False,
     ) -> int:
         stmt = select(func.count(distinct(CompetitionDB.id))).select_from(CompetitionDB)
@@ -1056,6 +1066,14 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
             stmt = stmt.where(CompetitionDB.genre == genre)
         if categorie:
             stmt = stmt.where(CompetitionDB.categorie == categorie)
+        if q:
+            clean_q = f"%{q.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    CompetitionDB.nom.ilike(clean_q),
+                    CompetitionDB.code_competition.ilike(clean_q),
+                )
+            )
         if exclude_code_only:
             stmt = stmt.where(CompetitionDB.nom != CompetitionDB.code_competition)
         return self.session.scalar(stmt) or 0
@@ -1117,6 +1135,7 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
                 journee=m.journee,
                 date_match=m.date_match,
                 match_joue=m.match_joue,
+                poule_id=m.poule_id,
             ))
 
         return result
@@ -1182,6 +1201,16 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
         organisateur = comp.entite.nom if comp.entite else None
         result = []
 
+        # Vérifier si des poules ont besoin d'être calculées
+        needs_fetch = any(not poule.classement_cache for poule in comp.poules)
+        matchs_by_poule: dict[int, list[MatchData]] = {}
+
+        if needs_fetch:
+            all_matchs_data = self.get_matchs_for_classement(competition_id)
+            for m in all_matchs_data:
+                if m.poule_id is not None:
+                    matchs_by_poule.setdefault(m.poule_id, []).append(m)
+
         for poule in sorted(comp.poules, key=lambda p: p.code):
             # Raccourci O(1) depuis le cache poule
             if poule.classement_cache:
@@ -1192,9 +1221,7 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
                 except Exception:
                     pass
 
-            matchs_data = self.get_matchs_for_classement(
-                competition_id, poule_id=poule.id
-            )
+            matchs_data = matchs_by_poule.get(poule.id, [])
             if not matchs_data:
                 continue
             classement = calculer_classement_complet(

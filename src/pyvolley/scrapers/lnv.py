@@ -106,7 +106,7 @@ class LNVScraper:
         """
         if saison is None:
             saison = self._scraper._get_current_saison()
-        return self._scraper.get_poules_for_entity(PRO_ENTITY_CODE, saison)
+        return self._scraper.discover_poules(PRO_ENTITY_CODE, saison)
 
     def get_matches(
         self,
@@ -126,9 +126,15 @@ class LNVScraper:
         if saison is None:
             saison = self._scraper._get_current_saison()
 
-        yield from self._scraper.get_matches_for_poule(
-            PRO_ENTITY_CODE, competition_code, saison
-        )
+        for m in self._scraper.scrape_entity(PRO_ENTITY_CODE, saison, poule=competition_code):
+            yield MatchInfo(
+                code=m.code_match,
+                entite_code=m.entite_code,
+                saison=m.saison,
+                poule_code=m.poule_code,
+                journee=m.journee,
+                pdf_url=m.feuille_match_url,
+            )
 
     def get_all_pro_matches(
         self,
@@ -146,24 +152,27 @@ class LNVScraper:
         if saison is None:
             saison = self._scraper._get_current_saison()
 
-        for comp in PRO_COMPETITIONS:
-            try:
-                yield from self._scraper.get_matches_for_poule(
-                    PRO_ENTITY_CODE, comp.code, saison
+        try:
+            for m in self._scraper.scrape_entity(PRO_ENTITY_CODE, saison):
+                yield MatchInfo(
+                    code=m.code_match,
+                    entite_code=m.entite_code,
+                    saison=m.saison,
+                    poule_code=m.poule_code,
+                    journee=m.journee,
+                    pdf_url=m.feuille_match_url,
                 )
-            except Exception as e:
-                logger.warning(
-                    "Erreur lors de la récupération des matchs %s (%s) saison %s : %s",
-                    comp.nom, comp.code, saison, e,
-                )
+        except Exception as e:
+            logger.warning("Erreur lors de la récupération des matchs pro saison %s : %s", saison, e)
 
     def download_match(
         self,
         match: MatchInfo,
         output_dir: Path,
+        overwrite: bool = False,
     ) -> ScrapeResult:
         """Télécharge le PDF d'un match pro."""
-        return self._scraper.download_match_pdf(match, output_dir)
+        return self._scraper.download_match_pdf(match, output_dir, overwrite=overwrite)
 
     def count_matches(
         self,
@@ -178,14 +187,16 @@ class LNVScraper:
         if saison is None:
             saison = self._scraper._get_current_saison()
 
-        counts: dict[str, int] = {}
-        for comp in PRO_COMPETITIONS:
-            try:
-                matches = list(self._scraper.get_matches_for_poule(
-                    PRO_ENTITY_CODE, comp.code, saison
-                ))
-                counts[comp.code] = len(matches)
-            except Exception as e:
-                logger.warning("Erreur comptage %s: %s", comp.code, e)
-                counts[comp.code] = -1  # -1 = erreur
+        counts: dict[str, int] = {comp.code: 0 for comp in PRO_COMPETITIONS}
+        try:
+            for m in self._scraper.scrape_entity(PRO_ENTITY_CODE, saison):
+                if m.poule_code in counts:
+                    counts[m.poule_code] += 1
+                else:
+                    counts[m.poule_code] = 1
+        except Exception as e:
+            logger.warning("Erreur comptage global pro saison %s: %s", saison, e)
+            for comp in PRO_COMPETITIONS:
+                counts[comp.code] = -1
         return counts
+
