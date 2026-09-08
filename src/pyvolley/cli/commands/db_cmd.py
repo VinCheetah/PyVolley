@@ -18,6 +18,7 @@ db_app = typer.Typer(help="🗄️ Gestion de la base de données")
 db_app.add_typer(explore_app, name="explore")
 
 
+@db_app.command("init")
 def init_database():
     """🔧 Initialise la base de données."""
     from pyvolley.database.connection import init_db
@@ -25,6 +26,29 @@ def init_database():
     console.print("[blue]Initialisation de la base de données...[/blue]")
     init_db()
     console.print(f"[green]✓ Base créée : {settings.database_url}[/green]")
+
+
+@db_app.command("stats")
+def db_stats():
+    """📊 Statistiques de contenu de la base (matchs, joueurs, équipes, clubs)."""
+    from pyvolley.database.connection import get_db, init_db
+    from pyvolley.database.repositories import (
+        JoueurRepository, ClubRepository, EquipeRepository, MatchRepository,
+    )
+
+    init_db()
+
+    with get_db() as session:
+        table = Table(title="📊 Statistiques PyVolley")
+        table.add_column("Entité", style="cyan")
+        table.add_column("Nombre", justify="right", style="green")
+
+        table.add_row("Matchs", str(MatchRepository(session).count()))
+        table.add_row("Joueurs", str(JoueurRepository(session).count()))
+        table.add_row("Équipes", str(EquipeRepository(session).count()))
+        table.add_row("Clubs", str(ClubRepository(session).count()))
+
+        console.print(table)
 
 
 @db_app.command("status")

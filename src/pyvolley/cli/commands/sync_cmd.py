@@ -10,8 +10,13 @@ from rich.table import Table
 from pyvolley.cli.helpers import make_progress
 
 console = Console()
+sync_app = typer.Typer(
+    help="🔄 Synchronisation des données externes (logos, etc.)",
+    no_args_is_help=True,
+)
 
 
+@sync_app.command("logos")
 def sync_logos(
     limit: int = typer.Option(0, "--limit", "-n", help="Nombre max de clubs (0 = tous)."),
     min_score: float = typer.Option(

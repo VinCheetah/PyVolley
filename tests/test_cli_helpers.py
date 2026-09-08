@@ -315,7 +315,7 @@ def test_compute_player_stats_filters_on_entity(monkeypatch, test_session):
     monkeypatch.setattr(cli_main, "make_progress", lambda _console: DummyProgress())
 
     runner = CliRunner()
-    result = runner.invoke(cli_main.app, ["compute-player-stats", "--entity", "ABCCS"])
+    result = runner.invoke(cli_main.app, ["compute", "players", "--entity", "ABCCS"])
 
     assert result.exit_code == 0, result.stdout
     assert len(called_match_ids) == 1
@@ -414,7 +414,7 @@ def test_compute_player_stats_skips_up_to_date_without_force(monkeypatch, test_s
     monkeypatch.setattr(cli_main, "make_progress", lambda _console: DummyProgress())
 
     runner = CliRunner()
-    result = runner.invoke(cli_main.app, ["compute-player-stats", "--entity", "ABCCS"])
+    result = runner.invoke(cli_main.app, ["compute", "players", "--entity", "ABCCS"])
 
     assert result.exit_code == 0, result.stdout
     assert compute_calls == []
@@ -491,7 +491,7 @@ def test_compute_player_stats_skips_when_no_expected_players(monkeypatch, test_s
     monkeypatch.setattr(cli_main, "make_progress", lambda _console: DummyProgress())
 
     runner = CliRunner()
-    result = runner.invoke(cli_main.app, ["compute-player-stats", "--entity", "ABCCS"])
+    result = runner.invoke(cli_main.app, ["compute", "players", "--entity", "ABCCS"])
 
     assert result.exit_code == 0, result.stdout
     assert compute_calls == []
