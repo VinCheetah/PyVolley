@@ -72,6 +72,9 @@ def _model_map():
         MatchDB, SetDB, FormationDB, ChangementDB, TimeoutDB,
         ArbitreDB, ArbitreMatchDB, SanctionDB,
         ParticipationMatchDB,
+        ClubStatsDB, GeoStatsDB, JoueurLicenceHistoryDB,
+        JoueurSaisonStatsDB, JoueurCarriereStatsDB, EquipeSaisonStatsDB,
+        JoueurMatchStatsDB, StatsCacheDB,
     )
     return {
         "saisons": SaisonDB,
@@ -92,6 +95,14 @@ def _model_map():
         "sanctions": SanctionDB,
         "participations_match": ParticipationMatchDB,
         "officiels_match": OfficielMatchDB,
+        "stats_club": ClubStatsDB,
+        "stats_geographiques": GeoStatsDB,
+        "joueur_licence_history": JoueurLicenceHistoryDB,
+        "stats_joueur_saison": JoueurSaisonStatsDB,
+        "stats_joueur_carriere": JoueurCarriereStatsDB,
+        "stats_equipe_saison": EquipeSaisonStatsDB,
+        "joueur_match_stats": JoueurMatchStatsDB,
+        "stats_cache": StatsCacheDB,
     }
 
 
@@ -115,6 +126,19 @@ def _table_aliases():
         "sanction": "sanctions",
         "participation": "participations_match",
         "officiel": "officiels_match",
+        "stats_club": "stats_club",
+        "club_stats": "stats_club",
+        "stats_geo": "stats_geographiques",
+        "geo": "stats_geographiques",
+        "geo_stats": "stats_geographiques",
+        "licence": "joueur_licence_history",
+        "licences": "joueur_licence_history",
+        "joueur_saison": "stats_joueur_saison",
+        "joueur_carriere": "stats_joueur_carriere",
+        "equipe_saison": "stats_equipe_saison",
+        "jms": "joueur_match_stats",
+        "joueur_match": "joueur_match_stats",
+        "stats_cache": "stats_cache",
     }
 
 

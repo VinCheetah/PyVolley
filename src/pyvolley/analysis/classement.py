@@ -41,6 +41,8 @@ class LigneClassement(BaseModel):
     defaites_0_3: int = 0
     defaites_1_3: int = 0
     defaites_2_3: int = 0
+    forfaits: int = 0
+    penalites: int = 0
     sets_gagnes: int = 0
     sets_perdus: int = 0
     points_marques: int = 0
@@ -120,6 +122,8 @@ class _EquipeStats:
     defaites_0_3: int = 0
     defaites_1_3: int = 0
     defaites_2_3: int = 0
+    forfaits: int = 0
+    penalites: int = 0
     sets_gagnes: int = 0
     sets_perdus: int = 0
     points_marques: int = 0
@@ -141,6 +145,8 @@ class _EquipeStats:
             defaites_0_3=self.defaites_0_3,
             defaites_1_3=self.defaites_1_3,
             defaites_2_3=self.defaites_2_3,
+            forfaits=self.forfaits,
+            penalites=self.penalites,
             sets_gagnes=self.sets_gagnes,
             sets_perdus=self.sets_perdus,
             points_marques=self.points_marques,
@@ -162,6 +168,8 @@ class _EquipeStats:
             defaites_0_3=self.defaites_0_3,
             defaites_1_3=self.defaites_1_3,
             defaites_2_3=self.defaites_2_3,
+            forfaits=self.forfaits,
+            penalites=self.penalites,
             sets_gagnes=self.sets_gagnes,
             sets_perdus=self.sets_perdus,
             points_marques=self.points_marques,
@@ -193,6 +201,26 @@ class MatchData:
     date_match: Optional[dt_date] = None
     match_joue: bool = True
     poule_id: Optional[int] = None
+    forfait: bool = False
+    type_forfait: Optional[str] = None  # "equipe_a", "equipe_b", "double", ou None
+
+    @property
+    def is_double_forfait(self) -> bool:
+        if self.type_forfait == "double":
+            return True
+        return bool(self.forfait and self.sets_a == 0 and self.sets_b == 0)
+
+    @property
+    def is_forfait_a(self) -> bool:
+        if self.type_forfait == "equipe_a":
+            return True
+        return bool(self.forfait and not self.is_double_forfait and self.sets_b > self.sets_a)
+
+    @property
+    def is_forfait_b(self) -> bool:
+        if self.type_forfait == "equipe_b":
+            return True
+        return bool(self.forfait and not self.is_double_forfait and self.sets_a > self.sets_b)
 
 
 def calculer_classement(
@@ -238,8 +266,8 @@ def calculer_classement_complet(
     Returns:
         ClassementComplet avec classement actuel et évolution.
     """
-    matchs_joues = [m for m in matchs if m.match_joue and (m.sets_a > 0 or m.sets_b > 0)]
-    matchs_non_joues = [m for m in matchs if not m.match_joue or (m.sets_a == 0 and m.sets_b == 0)]
+    matchs_joues = [m for m in matchs if m.match_joue and (m.sets_a > 0 or m.sets_b > 0 or m.forfait)]
+    matchs_non_joues = [m for m in matchs if not (m.match_joue and (m.sets_a > 0 or m.sets_b > 0 or m.forfait))]
 
     # Classement actuel
     classement_actuel = calculer_classement(matchs_joues)
@@ -292,7 +320,7 @@ def calculer_classement_complet(
 # ═══════════════════════════════════════════════════════════════════
 
 def _accumuler_stats(matchs: list[MatchData]) -> dict[int, _EquipeStats]:
-    """Accumule les statistiques pour chaque équipe."""
+    """Accumule les statistiques pour chaque équipe selon les règles officielles FFVB."""
     stats: dict[int, _EquipeStats] = {}
 
     for m in matchs:
@@ -312,6 +340,97 @@ def _accumuler_stats(matchs: list[MatchData]) -> dict[int, _EquipeStats]:
         sa = stats[m.equipe_a_id]
         sb = stats[m.equipe_b_id]
 
+        # ── CAS 1 : DOUBLE FORFAIT (P - P) ──
+        if m.forfait and m.is_double_forfait:
+            sa.matchs_joues += 1
+            sb.matchs_joues += 1
+
+            # Équipe A : défaite 0-3, -1 pt pénalité
+            sa.defaites += 1
+            sa.defaites_0_3 += 1
+            sa.forfaits += 1
+            sa.penalites += 1
+            sa.sets_perdus += 3
+            sa.points -= 1
+            sa.serie.append("D")
+
+            # Équipe B : défaite 0-3, -1 pt pénalité
+            sb.defaites += 1
+            sb.defaites_0_3 += 1
+            sb.forfaits += 1
+            sb.penalites += 1
+            sb.sets_perdus += 3
+            sb.points -= 1
+            sb.serie.append("D")
+
+            # Points de jeu (FFVB: 0-75 pour chaque équipe)
+            pts_a = m.points_a if m.points_a > 0 else 0
+            pts_b = m.points_b if m.points_b > 0 else 0
+            sa.points_marques += pts_a
+            sa.points_encaisses += (pts_b if pts_b > 0 else 75)
+            sb.points_marques += pts_b
+            sb.points_encaisses += (pts_a if pts_a > 0 else 75)
+            continue
+
+        # ── CAS 2 : FORFAIT ÉQUIPE A ──
+        if m.forfait and m.is_forfait_a:
+            sa.matchs_joues += 1
+            sb.matchs_joues += 1
+
+            # A (forfait) : défaite 0-3, -1 pt pénalité
+            sa.defaites += 1
+            sa.defaites_0_3 += 1
+            sa.forfaits += 1
+            sa.penalites += 1
+            sa.sets_perdus += 3
+            sa.points -= 1
+            sa.serie.append("D")
+
+            # B (vainqueur) : victoire 3-0, +3 pts
+            sb.victoires += 1
+            sb.victoires_3_0 += 1
+            sb.sets_gagnes += 3
+            sb.points += 3
+            sb.serie.append("V")
+
+            pts_a = m.points_a if m.points_a > 0 else 0
+            pts_b = m.points_b if m.points_b > 0 else 75
+            sa.points_marques += pts_a
+            sa.points_encaisses += pts_b
+            sb.points_marques += pts_b
+            sb.points_encaisses += pts_a
+            continue
+
+        # ── CAS 3 : FORFAIT ÉQUIPE B ──
+        if m.forfait and m.is_forfait_b:
+            sa.matchs_joues += 1
+            sb.matchs_joues += 1
+
+            # B (forfait) : défaite 0-3, -1 pt pénalité
+            sb.defaites += 1
+            sb.defaites_0_3 += 1
+            sb.forfaits += 1
+            sb.penalites += 1
+            sb.sets_perdus += 3
+            sb.points -= 1
+            sb.serie.append("D")
+
+            # A (vainqueur) : victoire 3-0, +3 pts
+            sa.victoires += 1
+            sa.victoires_3_0 += 1
+            sa.sets_gagnes += 3
+            sa.points += 3
+            sa.serie.append("V")
+
+            pts_a = m.points_a if m.points_a > 0 else 75
+            pts_b = m.points_b if m.points_b > 0 else 0
+            sa.points_marques += pts_a
+            sa.points_encaisses += pts_b
+            sb.points_marques += pts_b
+            sb.points_encaisses += pts_a
+            continue
+
+        # ── CAS 4 : MATCH NORMAL ──
         sa.matchs_joues += 1
         sb.matchs_joues += 1
 

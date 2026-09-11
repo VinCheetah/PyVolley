@@ -10,13 +10,13 @@ from pyvolley.web.app import create_web_app
 from pyvolley.database.connection import get_db
 from pyvolley.database.models import (
     SaisonDB, CompetitionDB, PouleDB, ClubDB, EquipeDB, JoueurDB,
-    MatchDB, ParticipationMatchDB, JoueurMatchStatsDB,
+    MatchDB, ParticipationMatchDB, JoueurMatchStatsDB, JoueurSaisonStatsDB,
 )
 from pyvolley.database.rollup_service import RollupStatsService
 
 
-@pytest.fixture
-def client(monkeypatch):
+@pytest.fixture(scope="module")
+def client():
     """Crée un client de test avec des données de rollups pré-calculées."""
     app = create_web_app()
     with TestClient(app) as test_client:
@@ -51,11 +51,13 @@ def client(monkeypatch):
                 session.add(j)
                 session.flush()
 
-            # Calculer les rollups
-            service = RollupStatsService(session)
-            service.compute_player_season_stats()
-            service.compute_team_season_stats()
-            service.compute_player_career_stats()
+            # Calculer les rollups uniquement si nécessaire (évite de recalculer toute la base à chaque test)
+            has_stats = session.query(JoueurSaisonStatsDB).first() is not None
+            if not has_stats:
+                service = RollupStatsService(session)
+                service.compute_player_season_stats(saison_id=s1.id)
+                service.compute_team_season_stats(saison_id=s1.id)
+                service.compute_player_career_stats()
 
         yield test_client
 

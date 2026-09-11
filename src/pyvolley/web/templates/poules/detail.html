@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "macros/ui.html" import breadcrumb %}
 {% from "macros/data.html" import classement_table %}
+{% from "macros/cross_table.html" import render_cross_table %}
 {% from "macros/map.html" import map_head, map_card %}
 {% block title %}{{ poule.nom or poule.code }} - {{ competition.nom }} - PyVolley{% endblock %}
 {% block extra_head %}{{ map_head() }}{% endblock %}
@@ -157,6 +158,12 @@
                 <i data-lucide="list-ordered" class="w-4 h-4"></i>
                 <span>Classement</span>
             </button>
+            <button type="button" @click="tab = 'confrontations'"
+                    :class="tab === 'confrontations' ? 'active' : ''"
+                    class="competition-tab-btn">
+                <i data-lucide="layout-grid" class="w-4 h-4"></i>
+                <span>Confrontations</span>
+            </button>
             {% if not is_youth %}
             <button type="button" @click="tab = 'evolution'; initEvolutionCharts()"
                     :class="tab === 'evolution' ? 'active' : ''"
@@ -190,6 +197,11 @@
                 <p class="text-xs">Aucun match joué dans cette poule pour le moment.</p>
             </div>
             {% endif %}
+        </div>
+
+        <!-- TAB: Confrontations (Grille aller-retour) -->
+        <div x-show="tab === 'confrontations'" x-cloak x-transition>
+            {{ render_cross_table(cross_table, "Grille des confrontations — " ~ (poule.nom or poule.code), "cross_table_poule") }}
         </div>
 
         <!-- TAB: Évolution -->

@@ -310,6 +310,40 @@ class TestParseExportCsv:
         assert m.vainqueur == "TEAM A"
         assert m.score_sets == "3/0"
 
+    def test_double_forfait_p_p(self):
+        csv_data = self._make_csv(
+            "ABCCS;01;3FA013;2025-10-05;15:00;0136082;TEAM A;0067689;TEAM B;"
+            " P/P;;;SALLE X;"
+            "0;;;;;0;;;;;;;;;;;;;;;;;;;;;;\n"
+        )
+        matches = parse_export_csv(csv_data, "ABCCS", "2025/2026", BASE_URL)
+
+        assert len(matches) == 1
+        m = matches[0]
+        assert m.forfait is True
+        assert m.type_forfait == "double"
+        assert m.is_double_forfait is True
+        assert m.vainqueur is None
+        assert m.match_joue is True
+        assert m.sets_equipe_a == 0
+        assert m.sets_equipe_b == 0
+
+    def test_double_forfait_dash(self):
+        csv_data = self._make_csv(
+            "ABCCS;01;3FA014;2025-10-05;15:00;0136082;TEAM A;0067689;TEAM B;"
+            " P - P;;;SALLE X;"
+            "0;;;;;0;;;;;;;;;;;;;;;;;;;;;;\n"
+        )
+        matches = parse_export_csv(csv_data, "ABCCS", "2025/2026", BASE_URL)
+
+        assert len(matches) == 1
+        m = matches[0]
+        assert m.forfait is True
+        assert m.type_forfait == "double"
+        assert m.is_double_forfait is True
+        assert m.vainqueur is None
+        assert m.match_joue is True
+
     def test_xxxxx_opponent(self):
         """Les matchs avec adversaire 'xxxxx' sont filtrés (placeholders)."""
         csv_data = self._make_csv(

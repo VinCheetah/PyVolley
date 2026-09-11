@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% from "macros/ui.html" import breadcrumb %}
 {% from "macros/data.html" import classement_table %}
+{% from "macros/cross_table.html" import render_cross_table %}
 {% from "macros/map.html" import map_head, map_card %}
 {% block title %}{{ competition.nom }} - Classement - PyVolley{% endblock %}
 {% block extra_head %}{{ map_head() }}{% endblock %}
@@ -214,6 +215,12 @@
                 <i data-lucide="list-ordered" class="w-4 h-4"></i>
                 <span>Classement</span>
             </button>
+            <button type="button" @click="tab = 'confrontations'"
+                    :class="tab === 'confrontations' ? 'active' : ''"
+                    class="competition-tab-btn">
+                <i data-lucide="layout-grid" class="w-4 h-4"></i>
+                <span>Confrontations</span>
+            </button>
             <button type="button" @click="tab = 'evolution'; initEvolutionCharts()"
                     :class="tab === 'evolution' ? 'active' : ''"
                     class="competition-tab-btn">
@@ -272,6 +279,42 @@
             <div class="card p-12 text-center text-muted">
                 <i data-lucide="trophy" class="w-12 h-12 mx-auto mb-3 opacity-30"></i>
                 <p class="text-base font-semibold text-primary mb-1">Aucun classement disponible</p>
+                <p class="text-xs">Aucun match joué dans cette compétition pour le moment.</p>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- ═══════════ TAB: Confrontations (Grille aller-retour) ═══════════ -->
+        <div x-show="tab === 'confrontations'" x-cloak x-transition>
+            {% if is_multi_poule and poules_classements %}
+            {# ── Multi-poule: Sub-tabs ── #}
+            <div x-data="{ activePouleCross: '{{ poules_classements[0].poule.code }}' }" class="space-y-4">
+                <div class="poule-subtabs-wrap">
+                    <span class="text-xs font-semibold text-muted uppercase flex items-center px-2">Poule :</span>
+                    {% for pc in poules_classements %}
+                    <button type="button" @click="activePouleCross = '{{ pc.poule.code }}'"
+                            :class="activePouleCross === '{{ pc.poule.code }}' ? 'active' : ''"
+                            class="poule-subtab-btn">
+                        {{ pc.poule.nom or pc.poule.code }}
+                    </button>
+                    {% endfor %}
+                </div>
+
+                {% for pc in poules_classements %}
+                <div x-show="activePouleCross === '{{ pc.poule.code }}'" x-cloak x-transition class="space-y-4">
+                    {{ render_cross_table(pc.cross_table, "Grille des confrontations — " ~ (pc.poule.nom or pc.poule.code), "cross_table_" ~ pc.poule.code) }}
+                </div>
+                {% endfor %}
+            </div>
+
+            {% elif cross_table %}
+            {# ── Single poule: Classic matrix ── #}
+            {{ render_cross_table(cross_table, "Grille des confrontations (Aller-Retour)", "cross_table_main") }}
+
+            {% else %}
+            <div class="card p-12 text-center text-muted">
+                <i data-lucide="layout-grid" class="w-12 h-12 mx-auto mb-3 opacity-30"></i>
+                <p class="text-base font-semibold text-primary mb-1">Matrice non disponible</p>
                 <p class="text-xs">Aucun match joué dans cette compétition pour le moment.</p>
             </div>
             {% endif %}
@@ -392,12 +435,17 @@
                                     {% endif %}
                                 </td>
                                 <td class="text-center">
-                                    {% if m.statut == 'joué' and m.sets_equipe_a is not none and m.sets_equipe_b is not none %}
+                                    {% if m.is_double_forfait %}
+                                    <span class="badge badge-purple text-xs font-mono font-bold" title="Double forfait (-1 pt pour chaque équipe)">P - P</span>
+                                    {% elif m.statut == 'joué' and m.sets_equipe_a is not none and m.sets_equipe_b is not none and not m.forfait %}
                                     <span class="set-score {% if (m.sets_equipe_a or 0) > (m.sets_equipe_b or 0) %}won-a{% else %}won-b{% endif %}">
                                         {{ m.sets_equipe_a }}-{{ m.sets_equipe_b }}
                                     </span>
-                                    {% elif m.statut == 'forfait' %}
-                                    <span class="badge badge-red text-xs">Forfait</span>
+                                    {% elif m.statut == 'forfait' or m.forfait %}
+                                    <span class="set-score {% if (m.sets_equipe_a or 0) > (m.sets_equipe_b or 0) %}won-a{% else %}won-b{% endif %}" title="Forfait : {{ m.forfait_equipe_nom or 'Forfait' }}">
+                                        {{ m.sets_equipe_a }}-{{ m.sets_equipe_b }}
+                                        <span class="text-[0.65rem] text-accent-red ml-0.5">(F)</span>
+                                    </span>
                                     {% else %}
                                     <span class="text-muted font-mono">—</span>
                                     {% endif %}
@@ -411,8 +459,10 @@
                                     {% endif %}
                                 </td>
                                 <td class="text-center">
-                                    {% if m.statut == 'forfait' %}
-                                    <span class="badge badge-red text-xs">Forfait</span>
+                                    {% if m.is_double_forfait %}
+                                    <span class="badge badge-purple text-xs">Double Forfait</span>
+                                    {% elif m.statut == 'forfait' or m.forfait %}
+                                    <span class="badge badge-red text-xs" title="Forfait : {{ m.forfait_equipe_nom or '' }}">Forfait</span>
                                     {% elif m.statut == 'joué' %}
                                     <span class="badge badge-green text-xs">Joué</span>
                                     {% elif m.statut == 'à_venir' %}

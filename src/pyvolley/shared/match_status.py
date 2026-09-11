@@ -27,10 +27,10 @@ def normalize_score_sets(
     """Normalize a set score string to "A/B" format.
 
     Accepted inputs:
-    - "3/1"
-    - "3-1"
-    - "P/3"
-    - "3/P"
+    - "3/1", "3-1", "3 - 1"
+    - "P/3", "P-3", "P - 3"
+    - "3/P", "3-P", "3 - P"
+    - "P/P", "P-P", "P - P"
     """
     if not score_sets:
         return None
@@ -58,6 +58,31 @@ def normalize_score_sets(
             right = "0"
 
     return f"{left}/{right}"
+
+
+def detect_forfeit_type(score_sets: Optional[str]) -> Optional[str]:
+    """Détecte le type de forfait à partir de la chaîne de score sets.
+
+    Returns:
+        "double" si P/P ou double forfait
+        "equipe_a" si forfait équipe A (P/3, P/0, etc.)
+        "equipe_b" si forfait équipe B (3/P, 0/P, etc.)
+        None si aucun forfait détecté
+    """
+    if not score_sets:
+        return None
+    raw = score_sets.strip().upper().replace("-", "/")
+    if "/" not in raw:
+        return None
+    parts = raw.split("/", 1)
+    left, right = parts[0].strip(), parts[1].strip()
+    if left == "P" and right == "P":
+        return "double"
+    if left == "P":
+        return "equipe_a"
+    if right == "P":
+        return "equipe_b"
+    return None
 
 
 def score_sets_indicates_played(score_sets: Optional[str]) -> bool:

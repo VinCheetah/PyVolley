@@ -280,15 +280,17 @@ async def get_map_locations(
     equipe_id: Optional[int] = Query(None, description="Filtrer par ID d'équipe"),
     joueur_id: Optional[int] = Query(None, description="Filtrer par ID de joueur"),
     saison_id: Optional[int] = Query(None, description="Filtrer par ID de saison"),
+    ligue: Optional[str] = Query(None, description="Filtrer par ligue/région"),
     departement: Optional[str] = Query(None, description="Filtrer par code département (ou liste séparée par virgule)"),
     departements: Optional[str] = Query(None, description="Alias pour liste de départements"),
-    limit: int = Query(500, ge=1, le=2000),
+    q: Optional[str] = Query(None, description="Recherche textuelle par mot-clé"),
+    limit: int = Query(1000, ge=1, le=5000),
     session: Session = Depends(get_session),
 ) -> MapResponse:
     """Retourne les marqueurs géolocalisés pour la carte interactive.
 
-    Gère le scoping contextuel (compétition, équipe, club, joueur) pour éviter
-    de polluer la carte avec des entités hors-contexte.
+    Gère le scoping contextuel (compétition, équipe, club, joueur, ligue, département)
+    pour une expérience cartographique performante et ciblée.
     """
     markers: list[MapMarker] = []
 
@@ -305,7 +307,9 @@ async def get_map_locations(
     equipe_id = _to_int(equipe_id)
     joueur_id = _to_int(joueur_id)
     saison_id = _to_int(saison_id)
-    limit = limit if isinstance(limit, int) else 500
+    ligue = _to_str(ligue)
+    q_str = _to_str(q)
+    limit = limit if isinstance(limit, int) else 1000
 
     raw_depts = _to_str(departement) or _to_str(departements) or ""
     dept_set: set[str] = set()
@@ -355,8 +359,17 @@ async def get_map_locations(
         query = session.query(ClubDB)
         if scoped_club_ids is not None:
             query = query.filter(ClubDB.id.in_(scoped_club_ids))
+        if ligue:
+            query = query.filter(ClubDB.ligue == ligue)
         if dept_set:
             query = query.filter(ClubDB.departement.in_(dept_set))
+        if q_str:
+            query = query.filter(
+                or_(
+                    ClubDB.nom.ilike(f"%{q_str}%"),
+                    ClubDB.ville.ilike(f"%{q_str}%"),
+                )
+            )
 
         for club in query.limit(limit).all():
             coords = resolve_entity_coordinates(
@@ -390,9 +403,18 @@ async def get_map_locations(
         query = session.query(SalleClubDB).options(joinedload(SalleClubDB.club))
         if scoped_club_ids is not None:
             query = query.filter(SalleClubDB.club_id.in_(scoped_club_ids))
-        if dept_set:
-            query = query.join(ClubDB, SalleClubDB.club_id == ClubDB.id).filter(
-                ClubDB.departement.in_(dept_set)
+        if ligue or dept_set:
+            query = query.join(ClubDB, SalleClubDB.club_id == ClubDB.id)
+            if ligue:
+                query = query.filter(ClubDB.ligue == ligue)
+            if dept_set:
+                query = query.filter(ClubDB.departement.in_(dept_set))
+        if q_str:
+            query = query.filter(
+                or_(
+                    SalleClubDB.nom.ilike(f"%{q_str}%"),
+                    SalleClubDB.ville.ilike(f"%{q_str}%"),
+                )
             )
 
         for salle in query.limit(limit).all():
@@ -451,8 +473,17 @@ async def get_map_locations(
             query = query.filter(MatchDB.saison_id == saison_id)
         if club_id is not None:
             query = query.filter(EquipeDB.club_id == club_id)
+        if ligue:
+            query = query.filter(ClubDB.ligue == ligue)
         if dept_set:
             query = query.filter(ClubDB.departement.in_(dept_set))
+        if q_str:
+            query = query.filter(
+                or_(
+                    MatchDB.salle.ilike(f"%{q_str}%"),
+                    EquipeDB.nom.ilike(f"%{q_str}%"),
+                )
+            )
 
         seen_match_ids: set[int] = set()
         for match in query.limit(limit).all():

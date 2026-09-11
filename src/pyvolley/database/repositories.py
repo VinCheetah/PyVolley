@@ -18,6 +18,7 @@ from pyvolley.database.models import (
     SanctionDB, FormationDB, ChangementDB, TimeoutDB, StatsCacheDB,
     JoueurMatchStatsDB, JoueurSaisonStatsDB,
     JoueurCarriereStatsDB, EquipeSaisonStatsDB,
+    ClubStatsDB, GeoStatsDB, JoueurLicenceHistoryDB,
 )
 from pyvolley.analysis.classement import (
     MatchData, ClassementComplet, calculer_classement_complet,
@@ -1136,6 +1137,8 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
                 date_match=m.date_match,
                 match_joue=m.match_joue,
                 poule_id=m.poule_id,
+                forfait=m.forfait,
+                type_forfait=getattr(m, "type_forfait", None),
             ))
 
         return result
@@ -2255,4 +2258,160 @@ class EquipeSaisonStatsRepository(BaseRepository[EquipeSaisonStatsDB]):
             self.session.add(entry)
             self.session.flush()
             return entry
+
+
+# ─── ClubStats ─────────────────────────────────────────────────────
+
+class ClubStatsRepository(BaseRepository[ClubStatsDB]):
+    def __init__(self, session: Session):
+        super().__init__(session, ClubStatsDB)
+
+    def get_by_key(self, club_id: int, saison_id: Optional[int] = None) -> Optional[ClubStatsDB]:
+        stmt = select(ClubStatsDB).where(
+            ClubStatsDB.club_id == club_id,
+            ClubStatsDB.saison_id == saison_id,
+        )
+        return self.session.scalars(stmt).first()
+
+    def get_for_club(self, club_id: int) -> List[ClubStatsDB]:
+        stmt = (
+            select(ClubStatsDB)
+            .where(ClubStatsDB.club_id == club_id)
+            .options(joinedload(ClubStatsDB.saison))
+            .order_by(ClubStatsDB.saison_id.desc().nulls_last())
+        )
+        return list(self.session.scalars(stmt).unique())
+
+    def get_leaderboard(
+        self,
+        saison_id: Optional[int] = None,
+        departement: Optional[str] = None,
+        ligue: Optional[str] = None,
+        order_by: str = "nb_victoires",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[ClubStatsDB]:
+        stmt = select(ClubStatsDB).join(ClubDB, ClubStatsDB.club_id == ClubDB.id)
+        if saison_id is not None:
+            stmt = stmt.where(ClubStatsDB.saison_id == saison_id)
+        else:
+            stmt = stmt.where(ClubStatsDB.saison_id.is_(None))
+
+        if departement:
+            stmt = stmt.where(ClubDB.departement == departement)
+        if ligue:
+            stmt = stmt.where(ClubDB.ligue == ligue)
+
+        order_col = getattr(ClubStatsDB, order_by, ClubStatsDB.nb_victoires)
+        stmt = stmt.options(joinedload(ClubStatsDB.club)).order_by(desc(order_col)).limit(limit).offset(offset)
+        return list(self.session.scalars(stmt).unique())
+
+    def upsert(self, data: dict) -> ClubStatsDB:
+        club_id = data["club_id"]
+        saison_id = data.get("saison_id")
+        existing = self.get_by_key(club_id, saison_id)
+        if existing:
+            for k, v in data.items():
+                setattr(existing, k, v)
+            existing.updated_at = datetime.now()
+            self.session.flush()
+            return existing
+        else:
+            entry = ClubStatsDB(**data)
+            self.session.add(entry)
+            self.session.flush()
+            return entry
+
+
+# ─── GeoStats ──────────────────────────────────────────────────────
+
+class GeoStatsRepository(BaseRepository[GeoStatsDB]):
+    def __init__(self, session: Session):
+        super().__init__(session, GeoStatsDB)
+
+    def get_by_key(
+        self, echelon: str, code_territoire: str, saison_id: Optional[int] = None
+    ) -> Optional[GeoStatsDB]:
+        stmt = select(GeoStatsDB).where(
+            GeoStatsDB.echelon == echelon,
+            GeoStatsDB.code_territoire == code_territoire,
+            GeoStatsDB.saison_id == saison_id,
+        )
+        return self.session.scalars(stmt).first()
+
+    def get_by_echelon(
+        self, echelon: str, saison_id: Optional[int] = None
+    ) -> List[GeoStatsDB]:
+        stmt = select(GeoStatsDB).where(
+            GeoStatsDB.echelon == echelon,
+            GeoStatsDB.saison_id == saison_id,
+        ).order_by(desc(GeoStatsDB.nb_clubs))
+        return list(self.session.scalars(stmt))
+
+    def upsert(self, data: dict) -> GeoStatsDB:
+        echelon = data["echelon"]
+        code_territoire = data["code_territoire"]
+        saison_id = data.get("saison_id")
+        existing = self.get_by_key(echelon, code_territoire, saison_id)
+        if existing:
+            for k, v in data.items():
+                setattr(existing, k, v)
+            existing.updated_at = datetime.now()
+            self.session.flush()
+            return existing
+        else:
+            entry = GeoStatsDB(**data)
+            self.session.add(entry)
+            self.session.flush()
+            return entry
+
+
+# ─── JoueurLicenceHistory ──────────────────────────────────────────
+
+class JoueurLicenceHistoryRepository(BaseRepository[JoueurLicenceHistoryDB]):
+    def __init__(self, session: Session):
+        super().__init__(session, JoueurLicenceHistoryDB)
+
+    def get_by_key(self, joueur_id: int, saison_id: int) -> Optional[JoueurLicenceHistoryDB]:
+        stmt = select(JoueurLicenceHistoryDB).where(
+            JoueurLicenceHistoryDB.joueur_id == joueur_id,
+            JoueurLicenceHistoryDB.saison_id == saison_id,
+        )
+        return self.session.scalars(stmt).first()
+
+    def get_for_joueur(self, joueur_id: int) -> List[JoueurLicenceHistoryDB]:
+        stmt = (
+            select(JoueurLicenceHistoryDB)
+            .where(JoueurLicenceHistoryDB.joueur_id == joueur_id)
+            .options(joinedload(JoueurLicenceHistoryDB.saison))
+            .order_by(JoueurLicenceHistoryDB.saison_id.asc())
+        )
+        return list(self.session.scalars(stmt).unique())
+
+    def get_summary_by_saison(self, saison_id: int) -> dict:
+        stmt = (
+            select(
+                JoueurLicenceHistoryDB.type_licence,
+                func.count().label("count"),
+            )
+            .where(JoueurLicenceHistoryDB.saison_id == saison_id)
+            .group_by(JoueurLicenceHistoryDB.type_licence)
+        )
+        return {row.type_licence: row.count for row in self.session.execute(stmt)}
+
+    def upsert(self, data: dict) -> JoueurLicenceHistoryDB:
+        joueur_id = data["joueur_id"]
+        saison_id = data["saison_id"]
+        existing = self.get_by_key(joueur_id, saison_id)
+        if existing:
+            for k, v in data.items():
+                setattr(existing, k, v)
+            self.session.flush()
+            return existing
+        else:
+            entry = JoueurLicenceHistoryDB(**data)
+            self.session.add(entry)
+            self.session.flush()
+            return entry
+
 

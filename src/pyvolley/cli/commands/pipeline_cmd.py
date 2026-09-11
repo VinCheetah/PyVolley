@@ -377,7 +377,7 @@ def cleanup(
 def serve(
     host: str = typer.Option("127.0.0.1", "--host", "-h", help="Adresse d'écoute."),
     port: int = typer.Option(8000, "--port", "-p", help="Port d'écoute."),
-    reload: bool = typer.Option(False, "--reload", "-r", help="Rechargement auto."),
+    reload: bool = typer.Option(True, "--reload", "-r", help="Rechargement auto."),
 ):
     """🌐 Lance le serveur web."""
     import uvicorn

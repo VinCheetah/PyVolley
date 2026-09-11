@@ -543,7 +543,7 @@
                 </h2>
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
                     {% for m in finals_bracket_matchs|sort(attribute='code_match') %}
-                    {% if m.equipe_a and m.equipe_b %{{ render_bracket_match(m) }}{% endif %}
+                    {% if m.equipe_a and m.equipe_b %}{{ render_bracket_match(m) }}{% endif %}
                     {% endfor %}
                 </div>
             </div>

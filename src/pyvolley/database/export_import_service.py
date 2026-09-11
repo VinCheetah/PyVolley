@@ -426,6 +426,7 @@ class ExportImportService:
             sets_equipe_b=match_info.sets_equipe_b,
             match_joue=computed_played,
             forfait=match_info.forfait,
+            type_forfait=match_info.type_forfait,
             has_details=has_details,
             score_source="export" if computed_played else None,
             parsing_status="discovered",
@@ -520,6 +521,7 @@ class ExportImportService:
                 if computed_played:
                     existing.match_joue = True
                     existing.forfait = match_info.forfait
+                    existing.type_forfait = match_info.type_forfait
                 updated = True
 
             can_overwrite_score = (existing.score_source in {None, "export"}) or (not existing.match_joue)
@@ -533,6 +535,7 @@ class ExportImportService:
                     or (existing.sets_equipe_a or 0) != (match_info.sets_equipe_a or 0)
                     or (existing.sets_equipe_b or 0) != (match_info.sets_equipe_b or 0)
                     or bool(existing.forfait) != bool(match_info.forfait)
+                    or existing.type_forfait != match_info.type_forfait
                     or existing.score_source != "export"
                 )
                 if score_changed:
@@ -543,6 +546,7 @@ class ExportImportService:
                     existing.sets_equipe_a = match_info.sets_equipe_a
                     existing.sets_equipe_b = match_info.sets_equipe_b
                     existing.forfait = match_info.forfait
+                    existing.type_forfait = match_info.type_forfait
                     existing.score_export = score_resolution.score_export
                     existing.score_source = "export"
                     updated = True

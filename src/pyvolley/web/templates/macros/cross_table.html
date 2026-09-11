@@ -1,0 +1,238 @@
+{# ═══════════════════════════════════════════════════════════════
+   PyVolley — Cross Table Macro (Matrice des confrontations)
+   Tableau à double entrée pour compétitions aller-retour
+   ═══════════════════════════════════════════════════════════════ #}
+
+{% macro render_cross_table(cross_table, title="Grille des confrontations (Aller-Retour)", unique_id="cross_table") %}
+{% if cross_table and cross_table.nb_equipes > 0 %}
+<div class="card overflow-hidden cross-table-wrapper" id="{{ unique_id }}">
+    <!-- Header & Legend -->
+    <div class="p-4 sm:p-5 border-b border-color-subtle space-y-3">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-lg bg-accent-primary-bg flex items-center justify-center text-accent-primary border border-accent-primary-border">
+                    <i data-lucide="layout-grid" class="w-4 h-4"></i>
+                </div>
+                <div>
+                    <h2 class="text-base font-bold text-white tracking-tight flex items-center gap-2">
+                        {{ title }}
+                    </h2>
+                    <p class="text-xs text-muted">
+                        Lignes = <strong>Équipe hôte (domicile)</strong> • Colonnes = <strong>Équipe visiteuse (extérieur)</strong>
+                    </p>
+                </div>
+            </div>
+
+            <!-- Mini stats bar -->
+            <div class="flex flex-wrap items-center gap-2 text-xs">
+                {% if cross_table.nb_matchs_joues > 0 %}
+                <span class="badge badge-blue">
+                    <i data-lucide="home" class="w-3 h-3 mr-1"></i>
+                    {{ cross_table.pct_victoires_domicile }}% victoires domicile ({{ cross_table.victoires_domicile }}/{{ cross_table.nb_matchs_joues }})
+                </span>
+                <span class="badge font-mono">
+                    {{ cross_table.nb_matchs_joues }} / {{ cross_table.nb_matchs_total }} joués
+                </span>
+                {% else %}
+                <span class="badge font-mono text-muted">0 match joué</span>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Palette Legend -->
+        <div class="cross-table-legend">
+            <span class="legend-title">Légende hôte :</span>
+            <div class="legend-items">
+                <span class="legend-chip legend-win-3-0" title="Victoire 3-0 (+3 points)">
+                    <span class="chip-color"></span> 3-0 <span class="chip-pts">(+3 pts)</span>
+                </span>
+                <span class="legend-chip legend-win-3-1" title="Victoire 3-1 (+3 points)">
+                    <span class="chip-color"></span> 3-1 <span class="chip-pts">(+3 pts)</span>
+                </span>
+                <span class="legend-chip legend-win-3-2" title="Victoire 3-2 au tie-break (+2 points)">
+                    <span class="chip-color"></span> 3-2 <span class="chip-pts">(+2 pts)</span>
+                </span>
+                <span class="legend-chip legend-loss-2-3" title="Défaite 2-3 au tie-break (+1 point pris)">
+                    <span class="chip-color"></span> 2-3 <span class="chip-pts">(+1 pt)</span>
+                </span>
+                <span class="legend-chip legend-loss-1-3" title="Défaite 1-3 (0 point)">
+                    <span class="chip-color"></span> 1-3 <span class="chip-pts">(0 pt)</span>
+                </span>
+                <span class="legend-chip legend-loss-0-3" title="Défaite 0-3 (0 point)">
+                    <span class="chip-color"></span> 0-3 <span class="chip-pts">(0 pt)</span>
+                </span>
+                <span class="legend-chip legend-forfait" title="Forfait">
+                    <span class="chip-color"></span> Forfait
+                </span>
+                <span class="legend-chip legend-upcoming" title="Match non joué / à venir">
+                    <span class="chip-color"></span> À venir
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scrollable Matrix Table -->
+    <div class="matrix-table-container">
+        <table class="cross-matrix-table" data-matrix-id="{{ unique_id }}">
+            <thead>
+                <tr>
+                    <!-- Top-Left Corner Header -->
+                    <th class="matrix-corner-cell">
+                        <div class="corner-label-hote">DOMICILE ↓</div>
+                        <div class="corner-divider"></div>
+                        <div class="corner-label-visiteur">EXTÉRIEUR →</div>
+                    </th>
+
+                    <!-- Column Headers: Visitor Teams -->
+                    {% for eq in cross_table.equipes %}
+                    <th class="matrix-col-header" data-col-idx="{{ loop.index0 }}" title="{{ eq.nom }} (Rang {{ eq.rang }}, {{ eq.points }} pts)">
+                        <div class="col-header-inner">
+                            <span class="col-rank-badge rank-badge-standard">{{ eq.rang }}</span>
+                            <span class="col-team-code">{{ eq.nom_court }}</span>
+                            <span class="col-team-fullname">{{ eq.nom }}</span>
+                        </div>
+                    </th>
+                    {% endfor %}
+                    <!-- Right summary column: stats à domicile -->
+                    <th class="matrix-summary-header" title="Bilan à domicile de l'équipe hôte">
+                        <span>Bilan Dom.</span>
+                    </th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in cross_table.rows %}
+                {% set row_idx = loop.index0 %}
+                <tr class="matrix-row" data-row-idx="{{ row_idx }}">
+                    <!-- Sticky Row Header: Host Team -->
+                    <th class="matrix-row-header" data-row-idx="{{ row_idx }}">
+                        <div class="row-header-inner">
+                            <div class="flex items-center gap-2 min-w-0">
+                                {% if row.hote.rang == 1 %}
+                                <span class="rank-badge rank-badge-1 text-xs">{{ row.hote.rang }}</span>
+                                {% elif row.hote.rang == 2 %}
+                                <span class="rank-badge rank-badge-2 text-xs">{{ row.hote.rang }}</span>
+                                {% elif row.hote.rang == 3 %}
+                                <span class="rank-badge rank-badge-3 text-xs">{{ row.hote.rang }}</span>
+                                {% else %}
+                                <span class="rank-badge-standard text-xs">{{ row.hote.rang }}</span>
+                                {% endif %}
+                                <a href="{{ path_for_entity('equipe', row.hote.id) }}" class="row-team-name hover:text-accent-primary transition truncate" title="{{ row.hote.nom }}">
+                                    {{ row.hote.nom|truncate_name(22) }}
+                                </a>
+                            </div>
+                            <span class="row-team-pts font-mono font-bold text-accent-primary">{{ row.hote.points }} pts</span>
+                        </div>
+                    </th>
+
+                    <!-- Matrix Cells -->
+                    {% for cell in row.cells %}
+                    {% set col_idx = loop.index0 %}
+                    <td class="matrix-cell-wrap" data-row-idx="{{ row_idx }}" data-col-idx="{{ col_idx }}">
+                        {% if cell.is_diagonal %}
+                        <div class="matrix-cell cell-diagonal" title="{{ cell.tooltip_title }}">
+                            <span class="diagonal-line"></span>
+                        </div>
+                        {% elif cell.has_match and cell.is_played %}
+                        <a href="{{ path_for_entity('match', cell.match_id) }}"
+                           class="matrix-cell {{ cell.css_class }}"
+                           title="{{ cell.tooltip_title }}&#10;{{ cell.tooltip_body }}"
+                           data-tooltip-title="{{ cell.tooltip_title }}"
+                           data-tooltip-body="{{ cell.tooltip_body }}">
+                            <span class="cell-score">{{ cell.score_display }}</span>
+                            {% if cell.badge_label %}
+                            <span class="cell-sub-badge">{{ cell.badge_label }}</span>
+                            {% endif %}
+                        </a>
+                        {% elif cell.has_match and not cell.is_played %}
+                        <a href="{{ path_for_entity('match', cell.match_id) }}"
+                           class="matrix-cell cell-upcoming"
+                           title="{{ cell.tooltip_title }}&#10;{{ cell.tooltip_body }}"
+                           data-tooltip-title="{{ cell.tooltip_title }}"
+                           data-tooltip-body="{{ cell.tooltip_body }}">
+                            <span class="cell-upcoming-txt">{{ cell.score_display }}</span>
+                        </a>
+                        {% else %}
+                        <div class="matrix-cell cell-empty" title="Non programmé">
+                            <span class="text-muted">—</span>
+                        </div>
+                        {% endif %}
+                    </td>
+                    {% endfor %}
+
+                    <!-- Row Bilan Domicile -->
+                    <td class="matrix-summary-cell">
+                        {% set st = row.stats_domicile %}
+                        <div class="flex items-center justify-center gap-1.5 text-xs font-mono">
+                            <span class="text-accent-green font-bold">{{ st.victoires }}V</span>
+                            <span class="text-muted">-</span>
+                            <span class="text-accent-red font-bold">{{ st.defaites }}D</span>
+                            <span class="text-muted text-[10px]">({{ st.points }}p)</span>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Matrix Footnote -->
+    <div class="p-3 bg-card-hover border-t border-color-subtle text-xs text-muted flex flex-col sm:flex-row items-center justify-between gap-2">
+        <div class="flex items-center gap-2">
+            <i data-lucide="mouse-pointer-click" class="w-3.5 h-3.5 text-accent-primary"></i>
+            <span>Cliquez sur une case pour ouvrir la feuille de match officielle.</span>
+        </div>
+        <div class="flex items-center gap-3">
+            <span>Règle FFVB : 3-0 / 3-1 (3 pts) • 3-2 (2 pts / 1 pt)</span>
+        </div>
+    </div>
+</div>
+
+<script>
+(function() {
+    const container = document.getElementById('{{ unique_id }}');
+    if (!container) return;
+
+    const table = container.querySelector('.cross-matrix-table');
+    if (!table) return;
+
+    const rowHeaders = table.querySelectorAll('.matrix-row-header');
+    const colHeaders = table.querySelectorAll('.matrix-col-header');
+
+    table.addEventListener('mouseover', function(e) {
+        const cell = e.target.closest('.matrix-cell-wrap');
+        if (!cell) return;
+
+        const rowIdx = cell.getAttribute('data-row-idx');
+        const colIdx = cell.getAttribute('data-col-idx');
+
+        rowHeaders.forEach(rh => {
+            if (rh.getAttribute('data-row-idx') === rowIdx) {
+                rh.classList.add('highlighted');
+            } else {
+                rh.classList.remove('highlighted');
+            }
+        });
+
+        colHeaders.forEach(ch => {
+            if (ch.getAttribute('data-col-idx') === colIdx) {
+                ch.classList.add('highlighted');
+            } else {
+                ch.classList.remove('highlighted');
+            }
+        });
+    });
+
+    table.addEventListener('mouseleave', function() {
+        rowHeaders.forEach(rh => rh.classList.remove('highlighted'));
+        colHeaders.forEach(ch => ch.classList.remove('highlighted'));
+    });
+})();
+</script>
+{% else %}
+<div class="card p-12 text-center text-muted">
+    <i data-lucide="layout-grid" class="w-12 h-12 mx-auto mb-3 opacity-30"></i>
+    <p class="text-base font-semibold text-primary mb-1">Matrice non disponible</p>
+    <p class="text-xs">Aucune confrontation enregistrée pour le moment.</p>
+</div>
+{% endif %}
+{% endmacro %}

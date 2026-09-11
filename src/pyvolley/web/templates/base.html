@@ -81,20 +81,32 @@
                     <i data-lucide="building-2" class="nav-icon"></i>
                     <span class="nav-label">Clubs</span>
                 </a>
+                <a href="/carte" class="sidebar-nav-item {% if '/carte' in request.url.path %}active{% endif %}">
+                    <i data-lucide="map" class="nav-icon"></i>
+                    <span class="nav-label">Carte interactive</span>
+                </a>
 
-                <div class="sidebar-nav-section" style="margin-top: 0.5rem;">Compétitions</div>
+                <div class="sidebar-nav-section" style="margin-top: 0.5rem;">Analyses & Classements</div>
 
-                <a href="/competitions" class="sidebar-nav-item {% if '/competitions' in request.url.path %}active{% endif %}">
-                    <i data-lucide="trophy" class="nav-icon"></i>
-                    <span class="nav-label">Compétitions</span>
+                <a href="/classements" class="sidebar-nav-item {% if '/classements' in request.url.path %}active{% endif %}">
+                    <i data-lucide="list-ordered" class="nav-icon"></i>
+                    <span class="nav-label">Classements</span>
                 </a>
                 <a href="/palmares" class="sidebar-nav-item {% if '/palmares' in request.url.path %}active{% endif %}">
                     <i data-lucide="medal" class="nav-icon"></i>
                     <span class="nav-label">Palmarès</span>
                 </a>
-                <a href="/statistiques" class="sidebar-nav-item {% if '/statistiques' in request.url.path %}active{% endif %}">
+                <a href="/territoire" class="sidebar-nav-item {% if '/territoire' in request.url.path %}active{% endif %}">
+                    <i data-lucide="map-pin" class="nav-icon"></i>
+                    <span class="nav-label">Territoire & Licences</span>
+                </a>
+                <a href="/statistiques" class="sidebar-nav-item {% if request.url.path == '/statistiques' %}active{% endif %}">
                     <i data-lucide="bar-chart-3" class="nav-icon"></i>
-                    <span class="nav-label">Statistiques</span>
+                    <span class="nav-label">Statistiques globales</span>
+                </a>
+                <a href="/competitions" class="sidebar-nav-item {% if '/competitions' in request.url.path %}active{% endif %}">
+                    <i data-lucide="trophy" class="nav-icon"></i>
+                    <span class="nav-label">Compétitions</span>
                 </a>
 
                 <div class="sidebar-nav-section" style="margin-top: 0.5rem;">Acteurs</div>

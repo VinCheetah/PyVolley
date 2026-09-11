@@ -329,3 +329,142 @@ class TestLigneClassementProperties:
     def test_taux_victoire_zero_matchs(self):
         l = LigneClassement(equipe_id=1, equipe_nom="T")
         assert l.taux_victoire == 0.0
+
+
+class TestForfaitEtDoubleForfaitClassement:
+    """Tests spécifiques pour les forfaits simples et doubles forfaits FFVB."""
+
+    def test_forfait_simple_equipe_a(self):
+        """Équipe A déclare forfait contre B."""
+        matchs = [
+            MatchData(
+                match_id=1,
+                equipe_a_id=1,
+                equipe_a_nom="Club A",
+                equipe_b_id=2,
+                equipe_b_nom="Club B",
+                sets_a=0,
+                sets_b=3,
+                forfait=True,
+                type_forfait="equipe_a",
+            )
+        ]
+        lignes = calculer_classement(matchs)
+        assert len(lignes) == 2
+
+        # B gagne 3-0 -> 3 points
+        b = next(l for l in lignes if l.equipe_id == 2)
+        assert b.points == 3
+        assert b.victoires == 1
+        assert b.victoires_3_0 == 1
+        assert b.sets_gagnes == 3
+        assert b.sets_perdus == 0
+        assert b.forfaits == 0
+        assert b.penalites == 0
+        assert b.serie == ["V"]
+
+        # A forfait -> -1 point, défaite 0-3, forfaits=1, penalites=1
+        a = next(l for l in lignes if l.equipe_id == 1)
+        assert a.points == -1
+        assert a.defaites == 1
+        assert a.defaites_0_3 == 1
+        assert a.sets_gagnes == 0
+        assert a.sets_perdus == 3
+        assert a.forfaits == 1
+        assert a.penalites == 1
+        assert a.serie == ["D"]
+
+    def test_forfait_simple_equipe_b(self):
+        """Équipe B déclare forfait contre A."""
+        matchs = [
+            MatchData(
+                match_id=1,
+                equipe_a_id=1,
+                equipe_a_nom="Club A",
+                equipe_b_id=2,
+                equipe_b_nom="Club B",
+                sets_a=3,
+                sets_b=0,
+                forfait=True,
+                type_forfait="equipe_b",
+            )
+        ]
+        lignes = calculer_classement(matchs)
+
+        a = next(l for l in lignes if l.equipe_id == 1)
+        assert a.points == 3
+        assert a.victoires_3_0 == 1
+
+        b = next(l for l in lignes if l.equipe_id == 2)
+        assert b.points == -1
+        assert b.defaites_0_3 == 1
+        assert b.forfaits == 1
+
+    def test_double_forfait(self):
+        """Double forfait P - P : pénalité de -1 point et 0-3 pour les deux équipes."""
+        matchs = [
+            MatchData(
+                match_id=1,
+                equipe_a_id=1,
+                equipe_a_nom="Club A",
+                equipe_b_id=2,
+                equipe_b_nom="Club B",
+                sets_a=0,
+                sets_b=0,
+                forfait=True,
+                type_forfait="double",
+            )
+        ]
+        lignes = calculer_classement(matchs)
+        assert len(lignes) == 2
+
+        a = next(l for l in lignes if l.equipe_id == 1)
+        b = next(l for l in lignes if l.equipe_id == 2)
+
+        # Les deux ont -1 point
+        assert a.points == -1
+        assert b.points == -1
+
+        # Les deux ont 1 match joué, 1 défaite 0-3, 0 set gagné, 3 sets perdus
+        assert a.matchs_joues == 1
+        assert b.matchs_joues == 1
+        assert a.defaites == 1
+        assert b.defaites == 1
+        assert a.defaites_0_3 == 1
+        assert b.defaites_0_3 == 1
+        assert a.sets_gagnes == 0
+        assert b.sets_gagnes == 0
+        assert a.sets_perdus == 3
+        assert b.sets_perdus == 3
+        assert a.forfaits == 1
+        assert b.forfaits == 1
+        assert a.penalites == 1
+        assert b.penalites == 1
+        assert a.serie == ["D"]
+        assert b.serie == ["D"]
+
+    def test_classement_complet_inclut_double_forfait(self):
+        """Un match de double forfait (sets 0-0) doit être compté dans calculer_classement_complet."""
+        matchs = [
+            MatchData(
+                match_id=1,
+                equipe_a_id=1,
+                equipe_a_nom="Club A",
+                equipe_b_id=2,
+                equipe_b_nom="Club B",
+                sets_a=0,
+                sets_b=0,
+                journee="J1",
+                match_joue=True,
+                forfait=True,
+                type_forfait="double",
+            )
+        ]
+        comp = calculer_classement_complet(
+            matchs, competition_id=10, competition_nom="Poule Forfaits"
+        )
+        assert comp.nb_matchs_joues == 1
+        assert len(comp.classement_actuel) == 2
+        assert comp.classement_actuel[0].points == -1
+        assert comp.classement_actuel[1].points == -1
+

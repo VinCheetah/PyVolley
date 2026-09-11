@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse
 
 from pyvolley.web.templateconfig import templates
 from pyvolley.web.helpers.brackets import build_bracket_tree, build_challenge_bracket
+from pyvolley.web.helpers.cross_table import build_cross_table
 from pyvolley.shared.helpers import parse_optional_int
 from pyvolley.api.dependencies import (
     get_competition_repo,
@@ -127,7 +128,7 @@ def competition_detail(
     match_repo: MatchRepository = Depends(get_match_repo),
     equipe_repo: EquipeRepository = Depends(get_equipe_repo),
 ):
-    """Page de détail d'une compétition avec classement et évolution."""
+    """Page de détail d'une compétition avec classement, évolution et matrice."""
     competition = competition_repo.get_with_details(competition_id)
     if not competition:
         return templates.TemplateResponse(
@@ -170,19 +171,39 @@ def competition_detail(
     classement = None
     evolution_json = []
     poules_classements = []
+    cross_table = None
+
+    matchs = match_repo.search(competition_id=competition_id, limit=2000)
+    equipes = competition_repo.get_equipes_for_competition(competition_id)
 
     if is_multi_poule:
         poules_classements_raw = competition_repo.get_classements_par_poule(
             competition_id
         )
-        for poule, cls in poules_classements_raw:
+        poule_cls_map = {p.id: cls for p, cls in poules_classements_raw}
+        for poule in sorted(competition.poules or [], key=lambda p: p.code):
+            cls = poule_cls_map.get(poule.id)
             evo = (
                 [e.model_dump(mode="json") for e in cls.evolution]
-                if cls.evolution
+                if cls and cls.evolution
                 else []
             )
+            poule_matchs = [m for m in matchs if m.poule_id == poule.id]
+            poule_equipes = [
+                eq for eq in (equipes or []) if getattr(eq, "poule_id", None) == poule.id
+            ] or None
+            poule_cross_table = build_cross_table(
+                cls.classement_actuel if cls else [],
+                poule_matchs,
+                equipes_disponibles=poule_equipes,
+            )
             poules_classements.append(
-                {"poule": poule, "classement": cls, "evolution_json": evo}
+                {
+                    "poule": poule,
+                    "classement": cls,
+                    "evolution_json": evo,
+                    "cross_table": poule_cross_table,
+                }
             )
     else:
         classement = competition_repo.get_classement(competition_id)
@@ -190,9 +211,11 @@ def competition_detail(
             evolution_json = [
                 e.model_dump(mode="json") for e in classement.evolution
             ]
-
-    matchs = match_repo.search(competition_id=competition_id, limit=500)
-    equipes = competition_repo.get_equipes_for_competition(competition_id)
+        cross_table = build_cross_table(
+            classement.classement_actuel if classement else [],
+            matchs,
+            equipes_disponibles=equipes,
+        )
 
     # Calcul des journées uniques pour filtrage interactif
     journees_set = {m.journee for m in matchs if m.journee}
@@ -209,6 +232,7 @@ def competition_detail(
             "classement": classement,
             "evolution_json": evolution_json,
             "poules_classements": poules_classements,
+            "cross_table": cross_table,
             "is_multi_poule": is_multi_poule,
             "matchs": matchs,
             "equipes": equipes,
@@ -322,7 +346,7 @@ def _compute_poule_classements(
         poule_matchs = matchs_by_poule[poule_code]
         match_data_list = []
         for m in poule_matchs:
-            if m.match_joue and (m.sets_equipe_a or 0) + (m.sets_equipe_b or 0) > 0:
+            if m.match_joue and ((m.sets_equipe_a or 0) + (m.sets_equipe_b or 0) > 0 or m.forfait):
                 match_data_list.append(
                     MatchData(
                         match_id=m.id,
@@ -335,6 +359,8 @@ def _compute_poule_classements(
                         points_a=0,
                         points_b=0,
                         match_joue=True,
+                        forfait=m.forfait,
+                        type_forfait=getattr(m, "type_forfait", None),
                     )
                 )
         if match_data_list:
@@ -461,7 +487,7 @@ def _build_finals_data(finals_tour: dict) -> dict:
             all_finals_matchs = finals_tour["matchs"]
             match_data_list = []
             for m in all_finals_matchs:
-                if m.match_joue and (m.sets_equipe_a or 0) + (m.sets_equipe_b or 0) > 0:
+                if m.match_joue and ((m.sets_equipe_a or 0) + (m.sets_equipe_b or 0) > 0 or m.forfait):
                     match_data_list.append(
                         MatchData(
                             match_id=m.id,
@@ -474,6 +500,8 @@ def _build_finals_data(finals_tour: dict) -> dict:
                             points_a=0,
                             points_b=0,
                             match_joue=True,
+                            forfait=m.forfait,
+                            type_forfait=getattr(m, "type_forfait", None),
                         )
                     )
 

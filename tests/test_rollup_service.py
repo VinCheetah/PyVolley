@@ -273,3 +273,17 @@ def test_apply_match_delta(db_session):
     )
     assert stats_j1 is not None
     assert stats_j1.points_gagnes == 22
+
+
+def test_apply_batch_deltas_large_chunk(db_session):
+    data = _populate_test_data(db_session)
+    service = RollupStatsService(db_session)
+
+    # Simuler 5000 IDs de matchs (dépassant les seuils par défaut de SQLite 999 ou le chunk 2000)
+    fake_match_ids = list(range(100000, 105000)) + [data["m1"].id, data["m2"].id]
+
+    res = service.apply_batch_deltas(fake_match_ids)
+    assert res["status"] == "updated"
+    assert res["matches_count"] == 2
+    assert res["player_seasons_updated"] >= 2
+

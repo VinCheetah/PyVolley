@@ -1,0 +1,352 @@
+{% extends "base.html" %}
+
+{% block title %}Carte Interactive du Volleyball - PyVolley{% endblock %}
+
+{% block extra_head %}
+<!-- Leaflet CSS & JS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin="anonymous">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+        crossorigin="anonymous"></script>
+
+<!-- MarkerCluster CSS & JS -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+<!-- PyVolley Interactive Map & Carte Styles -->
+<link rel="stylesheet" href="/static/css/interactive-map.css">
+<link rel="stylesheet" href="/static/css/carte.css">
+<script src="/static/js/carte-view.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="carte-container"
+     x-ref="carteContainer"
+     x-data="carteView({
+       entityType:     '{{ selected_entity_type or "club" }}',
+       selectedZone:   '{{ selected_zone or "metropole" }}',
+       saisonId:       '{{ current_saison_id or '' }}',
+       ligue:          '{{ selected_ligue }}',
+       departement:    '{{ selected_departement }}',
+       competitionId:  '{{ selected_competition_id or '' }}',
+       clubId:         '{{ selected_club_id or '' }}',
+       searchQuery:    '{{ search_query }}'
+     })">
+
+    <!-- ═══════════════ Barre des Filtres Supérieure ═══════════════ -->
+    <div class="carte-filter-bar">
+        <!-- Groupe 1 : Sélecteur de Type d'Entités (Clubs par défaut, pas de matchs) -->
+        <div class="carte-filter-group">
+            <div class="carte-entity-pills">
+                <button type="button"
+                        class="carte-entity-pill pill-club"
+                        :class="{ 'active': entityType === 'club' }"
+                        @click="setEntityType('club')"
+                        title="Afficher les clubs">
+                    <i data-lucide="shield" class="w-3.5 h-3.5"></i>
+                    <span>Clubs</span>
+                </button>
+                <button type="button"
+                        class="carte-entity-pill pill-salle"
+                        :class="{ 'active': entityType === 'salle' }"
+                        @click="setEntityType('salle')"
+                        title="Afficher les salles et gymnases">
+                    <i data-lucide="building-2" class="w-3.5 h-3.5"></i>
+                    <span>Salles</span>
+                </button>
+                <button type="button"
+                        class="carte-entity-pill"
+                        :class="{ 'active': entityType === '' || entityType === 'all' }"
+                        @click="setEntityType('')"
+                        title="Afficher clubs et salles">
+                    <i data-lucide="layers" class="w-3.5 h-3.5"></i>
+                    <span>Tous</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Groupe 2 : Zone Géographique & Dropdowns Filtres -->
+        <div class="carte-filter-group">
+            <!-- Sélecteur de Zone Géographique avec centrage automatique -->
+            <select x-model="selectedZone" @change="goToZone($event.target.value)" class="carte-select font-semibold" title="Zone géographique">
+                <option value="metropole">🇫🇷 Métropole</option>
+                <option value="corse">🏝️ Corse</option>
+                <option value="guadeloupe">🌴 Guadeloupe</option>
+                <option value="martinique">🌴 Martinique</option>
+                <option value="guyane">🌳 Guyane</option>
+                <option value="reunion">🌋 La Réunion</option>
+                <option value="mayotte">🏝️ Mayotte</option>
+            </select>
+
+            <!-- Sélecteur de Saison -->
+            <select x-model="saisonId" @change="loadLocations()" class="carte-select" title="Saison sportive">
+                <option value="">Toutes saisons</option>
+                {% for s in saisons %}
+                <option value="{{ s.id }}" {% if current_saison_id == s.id %}selected{% endif %}>
+                    Saison {{ s.code }}
+                </option>
+                {% endfor %}
+            </select>
+
+            <!-- Sélecteur de Ligue / Région -->
+            <select x-model="ligue" @change="loadLocations()" class="carte-select" title="Ligue régionale">
+                <option value="">Toutes les ligues</option>
+                {% for l in ligues %}
+                <option value="{{ l }}" {% if selected_ligue == l %}selected{% endif %}>
+                    {{ l }}
+                </option>
+                {% endfor %}
+            </select>
+
+            <!-- Sélecteur de Département -->
+            <select x-model="departement" @change="loadLocations()" class="carte-select" title="Département">
+                <option value="">Tous les dép.</option>
+                {% for d in departements %}
+                <option value="{{ d }}" {% if selected_departement == d %}selected{% endif %}>
+                    Dép. {{ d }}
+                </option>
+                {% endfor %}
+            </select>
+
+            <!-- Sélecteur de Compétition -->
+            {% if competitions %}
+            <select x-model="competitionId" @change="loadLocations()" class="carte-select hidden md:inline-block" title="Compétition">
+                <option value="">Toutes compétitions</option>
+                {% for c in competitions %}
+                <option value="{{ c.id }}" {% if selected_competition_id == c.id %}selected{% endif %}>
+                    {{ c.nom }}
+                </option>
+                {% endfor %}
+            </select>
+            {% endif %}
+
+            <!-- Recherche Textuelle en Direct -->
+            <div class="carte-search-wrapper">
+                <i data-lucide="search" class="carte-search-icon"></i>
+                <input type="text"
+                       x-model="searchQuery"
+                       @input.debounce.180ms="filterAndRenderMarkers()"
+                       placeholder="Filtrer (nom, ville, CP)..."
+                       class="carte-search-input">
+                <span x-show="searchQuery"
+                      @click="searchQuery = ''; filterAndRenderMarkers()"
+                      class="carte-search-clear"
+                      title="Effacer">✕</span>
+            </div>
+
+            <!-- Réinitialisation des filtres -->
+            <button type="button"
+                    @click="resetFilters()"
+                    class="carte-btn-reset"
+                    title="Réinitialiser tous les filtres">
+                <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+                <span class="hidden sm:inline">Reset</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- ═══════════════ Espace de Travail Cartographique ═══════════════ -->
+    <div class="carte-workspace">
+
+        <!-- Carte Principale Leaflet -->
+        <div class="carte-map-area">
+            <div x-ref="mapContainer" class="carte-map-element"></div>
+
+            <!-- KPI Floating Pill (Haut Gauche) -->
+            <div class="carte-floating-top">
+                <div class="carte-kpi-pill">
+                    <span class="carte-kpi-dot"></span>
+                    <span x-text="totalCount + ' lieu' + (totalCount > 1 ? 'x' : '')"></span>
+                    <span class="text-xs text-muted font-normal" x-show="totalCount > 0">
+                        (<span x-text="clubCount" class="text-blue-400 font-semibold"></span> clubs ·
+                         <span x-text="salleCount" class="text-cyan-400 font-semibold"></span> salles)
+                    </span>
+                </div>
+            </div>
+
+            <!-- Bouton pour basculer le panneau latéral -->
+            <button type="button"
+                    @click="showDrawer = !showDrawer"
+                    class="carte-drawer-toggle-btn"
+                    :title="showDrawer ? 'Masquer la liste' : 'Afficher la liste des résultats'">
+                <i data-lucide="list" class="w-4 h-4"></i>
+                <span x-text="showDrawer ? 'Masquer liste' : 'Voir la liste (' + totalCount + ')'"></span>
+            </button>
+
+            <!-- Contrôles Flottants d'Action (Haut Droite) -->
+            <div class="carte-floating-right">
+                <!-- Sélecteur de Fond de Carte (Calques) -->
+                <div class="relative">
+                    <button type="button"
+                            @click="showLayersMenu = !showLayersMenu"
+                            class="carte-action-btn"
+                            :class="{ 'active': showLayersMenu }"
+                            title="Choisir le style de carte (Satellite par défaut, Sombre, Clair, OSM)">
+                        <i data-lucide="layers" class="w-4 h-4"></i>
+                    </button>
+
+                    <!-- Menu Déroulant des Fonds -->
+                    <div x-show="showLayersMenu"
+                         @click.outside="showLayersMenu = false"
+                         x-transition.origin.top.right
+                         class="carte-layers-menu">
+                        <button type="button"
+                                @click="setTileLayer('satellite')"
+                                class="carte-layer-option"
+                                :class="{ 'selected': currentTileKey === 'satellite' }">
+                            <i data-lucide="globe" class="w-3.5 h-3.5"></i>
+                            <span>Satellite (Esri)</span>
+                        </button>
+                        <button type="button"
+                                @click="setTileLayer('dark')"
+                                class="carte-layer-option"
+                                :class="{ 'selected': currentTileKey === 'dark' }">
+                            <i data-lucide="moon" class="w-3.5 h-3.5"></i>
+                            <span>Sombre (Dark)</span>
+                        </button>
+                        <button type="button"
+                                @click="setTileLayer('voyager')"
+                                class="carte-layer-option"
+                                :class="{ 'selected': currentTileKey === 'voyager' }">
+                            <i data-lucide="sun" class="w-3.5 h-3.5"></i>
+                            <span>Clair (Voyager)</span>
+                        </button>
+                        <button type="button"
+                                @click="setTileLayer('osm')"
+                                class="carte-layer-option"
+                                :class="{ 'selected': currentTileKey === 'osm' }">
+                            <i data-lucide="map" class="w-3.5 h-3.5"></i>
+                            <span>OpenStreetMap</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Toggle Clustering (Activer/Désactiver le regroupement) -->
+                <button type="button"
+                        @click="toggleClustering()"
+                        class="carte-action-btn"
+                        :class="{ 'active': clusteringEnabled }"
+                        :title="clusteringEnabled ? 'Clustering actif (cliquez pour voir les points individuels)' : 'Points individuels (cliquez pour regrouper en clusters)'">
+                    <i data-lucide="scatter-chart" class="w-4 h-4" x-show="clusteringEnabled"></i>
+                    <i data-lucide="grid" class="w-4 h-4" x-show="!clusteringEnabled" x-cloak></i>
+                </button>
+
+                <!-- Géolocalisation ("Autour de moi") -->
+                <button type="button"
+                        @click="locateUser()"
+                        class="carte-action-btn"
+                        title="Localiser ma position GPS (Autour de moi)">
+                    <i data-lucide="crosshair" class="w-4 h-4"></i>
+                </button>
+
+                <!-- Recentrer sur la Zone Active -->
+                <button type="button"
+                        @click="recenter()"
+                        class="carte-action-btn"
+                        title="Recentrer sur la zone géographique active">
+                    <i data-lucide="maximize-2" class="w-4 h-4"></i>
+                </button>
+
+                <!-- Plein Écran -->
+                <button type="button"
+                        @click="toggleFullscreen()"
+                        class="carte-action-btn"
+                        :title="isFullscreen ? 'Quitter le plein écran' : 'Mode Plein Écran'">
+                    <i data-lucide="expand" class="w-4 h-4" x-show="!isFullscreen"></i>
+                    <i data-lucide="shrink" class="w-4 h-4" x-show="isFullscreen" x-cloak></i>
+                </button>
+            </div>
+
+            <!-- Overlays de Chargement & Erreur -->
+            <div class="pyvolley-map-overlay" x-show="loading" x-transition.opacity>
+                <div class="pyvolley-map-overlay-content">
+                    <svg class="animate-spin inline w-4 h-4 text-blue-400" xmlns="http://www.w3.org/2000/svg"
+                         fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10"
+                                stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor"
+                              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                    </svg>
+                    <span>Chargement des données cartographiques…</span>
+                </div>
+            </div>
+
+            <div class="pyvolley-map-overlay" x-show="error && !loading" x-transition.opacity>
+                <div class="pyvolley-map-overlay-content" style="color: #ef4444;">
+                    <i data-lucide="alert-triangle" class="w-4 h-4 inline mr-1"></i>
+                    Impossible de charger les données. Veuillez vérifier votre sélection.
+                </div>
+            </div>
+
+            <div class="pyvolley-map-overlay" x-show="!loading && !error && totalCount === 0" x-transition.opacity>
+                <div class="pyvolley-map-overlay-content" style="color: var(--text-muted);">
+                    <i data-lucide="map-pin-off" class="w-4 h-4 inline mr-1"></i>
+                    Aucun lieu ne correspond aux critères sélectionnés.
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════════════ Panneau Latéral des Résultats (Drawer) ═══════════════ -->
+        <aside class="carte-drawer" :class="{ 'collapsed': !showDrawer }">
+            <!-- Header du Drawer -->
+            <div class="carte-drawer-header">
+                <div class="carte-drawer-title">
+                    <i data-lucide="map-pin" class="w-4 h-4 text-blue-400"></i>
+                    <span>Points répertoriés</span>
+                    <span class="text-xs px-2 py-0.5 rounded-full bg-blue-600/20 text-blue-400 font-mono font-bold" x-text="totalCount"></span>
+                </div>
+                <button type="button"
+                        @click="showDrawer = false"
+                        class="text-zinc-400 hover:text-white p-1 rounded-md transition-colors"
+                        title="Masquer le panneau">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <!-- Corps défilant du Drawer -->
+            <div class="carte-drawer-body">
+                <template x-if="displayedMarkers.length === 0 && !loading">
+                    <div class="text-center py-12 text-zinc-500 text-xs">
+                        <i data-lucide="search-x" class="w-8 h-8 mx-auto mb-2 opacity-50"></i>
+                        Aucun lieu trouvé dans cette sélection.
+                    </div>
+                </template>
+
+                <template x-for="item in displayedMarkers" :key="item.entity_type + '_' + item.entity_id">
+                    <div :id="'drawer-item-' + item.entity_type + '-' + item.entity_id"
+                         @click="selectPoint(item)"
+                         class="carte-point-card"
+                         :class="{ 'selected': selectedPoint && selectedPoint.entity_type === item.entity_type && selectedPoint.entity_id === item.entity_id }">
+
+                        <!-- Icône de type (Clubs & Salles uniquement) -->
+                        <div class="carte-point-icon"
+                             :class="'icon-' + item.entity_type">
+                            <template x-if="item.entity_type === 'club'">
+                                <span>🛡️</span>
+                            </template>
+                            <template x-if="item.entity_type === 'salle'">
+                                <span>🏟️</span>
+                            </template>
+                        </div>
+
+                        <!-- Contenu texte -->
+                        <div class="carte-point-content">
+                            <div class="carte-point-title" x-text="item.label" :title="item.label"></div>
+                            <div class="carte-point-sub" x-text="item.sublabel || (item.entity_type === 'club' ? 'Club FFVB' : 'Salle')"></div>
+                        </div>
+
+                        <!-- Flèche de navigation -->
+                        <div class="text-zinc-500 flex-shrink-0 self-center">
+                            <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </aside>
+
+    </div>
+</div>
+{% endblock %}

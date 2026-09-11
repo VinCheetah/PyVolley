@@ -11,6 +11,7 @@ from pyvolley.api.dependencies import (
     get_competition_repo,
     get_match_repo,
 )
+from pyvolley.web.helpers.cross_table import build_cross_table
 from pyvolley.database.repositories import (
     PouleRepository,
     CompetitionRepository,
@@ -81,9 +82,19 @@ def poule_detail(
     if not is_youth and classement and classement.evolution:
         evolution_json = [e.model_dump(mode="json") for e in classement.evolution]
 
-    # Matchs de la poule uniquement
-    matchs = match_repo.search(competition_id=competition.id, limit=500)
-    matchs = [m for m in matchs if m.poule_id == poule_id]
+    # Matchs de la poule uniquement (recherche directe par poule_id pour exhaustivité)
+    matchs = match_repo.search(poule_id=poule_id, limit=2000)
+
+    # Équipes enregistrées pour cette compétition / poule
+    comp_equipes = competition_repo.get_equipes_for_competition(competition.id) if competition else []
+    poule_equipes = [eq for eq in comp_equipes if getattr(eq, "poule_id", None) == poule_id] or None
+
+    # Matrice des confrontations aller-retour
+    cross_table = build_cross_table(
+        classement.classement_actuel if classement else [],
+        matchs,
+        equipes_disponibles=poule_equipes,
+    )
 
     # Équipes de la poule (déduites des matchs)
     equipe_ids = set()
@@ -114,6 +125,7 @@ def poule_detail(
             "competition": competition,
             "classement": classement,
             "evolution_json": evolution_json,
+            "cross_table": cross_table,
             "matchs": matchs,
             "nb_equipes": len(equipe_ids),
             "sibling_poules": sibling_poules,

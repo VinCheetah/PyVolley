@@ -13,6 +13,13 @@ from pyvolley.cli.helpers import make_progress, saisons_to_db_codes
 console = Console()
 
 
+def _unwrap(val, default=None):
+    """Déballe un paramètre Typer (OptionInfo) si la fonction est appelée directement en Python."""
+    if hasattr(val, "default"):
+        return val.default if val.default is not ... else default
+    return val if val is not None else default
+
+
 def _get_make_progress():
     import sys
     mod = sys.modules.get("pyvolley.cli.main")
@@ -45,6 +52,10 @@ def compute_stats(
     Utilisez ``--force`` pour forcer le recalcul même si le cache est déjà
     à jour.
     """
+    saison = _unwrap(saison)
+    force = bool(_unwrap(force, False))
+    clear = bool(_unwrap(clear, False))
+
     from pyvolley.database.connection import get_db, init_db
     from pyvolley.database.repositories import (
         StatsCacheRepository, SaisonRepository,
@@ -147,6 +158,13 @@ def compute_player_stats(
     Cette commande remplit la table ``joueur_match_stats`` pour éviter les
     recalculs coûteux à l'affichage (web/API).
     """
+    saison = _unwrap(saison)
+    entity = _unwrap(entity)
+    match_id = _unwrap(match_id)
+    limit = _unwrap(limit)
+    force = bool(_unwrap(force, False))
+    clear = bool(_unwrap(clear, False))
+
     from sqlalchemy import select
     from sqlalchemy.orm import selectinload
 
@@ -338,6 +356,8 @@ def compute_rollups(
     ),
 ):
     """Calcule et génère les statistiques agglomérées (joueur-saison, équipes, carrières)."""
+    saison = _unwrap(saison)
+
     from pyvolley.database.connection import get_db
     from pyvolley.database.models import SaisonDB
     from pyvolley.database.rollup_service import RollupStatsService
@@ -346,7 +366,12 @@ def compute_rollups(
     with get_db() as session:
         saison_id = None
         if saison:
-            s_obj = session.scalars(select(SaisonDB).where(SaisonDB.code == saison)).first()
+            try:
+                requested_codes = saisons_to_db_codes([saison])
+            except ValueError as exc:
+                console.print(f"[red]{exc}[/red]")
+                raise typer.Exit(1)
+            s_obj = session.scalars(select(SaisonDB).where(SaisonDB.code.in_(requested_codes))).first()
             if not s_obj:
                 console.print(f"[red]Saison '{saison}' introuvable.[/red]")
                 raise typer.Exit(1)
@@ -365,6 +390,11 @@ def compute_rollups(
         n_es = service.compute_team_season_stats(saison_id=saison_id)
         console.print(f"[green][OK] {n_es} lignes stats_equipe_saison calculées.[/green]")
 
+        console.print("[cyan][...] Calcul des statistiques agglomérées par club...[/cyan]")
+        n_cs = service.compute_club_stats(saison_id=saison_id)
+        service.compute_club_stats(saison_id=None)
+        console.print(f"[green][OK] {n_cs} lignes stats_club calculées.[/green]")
+
         console.print("[cyan][...] Calcul des synthèses de carrière joueur...[/cyan]")
         n_jc = service.compute_player_career_stats()
         console.print(f"[green][OK] {n_jc} lignes stats_joueur_carriere calculées.[/green]")
@@ -375,10 +405,120 @@ def compute_rollups(
             f"- Stats Joueur/Match  : [bold]{n_jms}[/bold]\n"
             f"- Stats Joueur/Saison : [bold]{n_js}[/bold]\n"
             f"- Stats Equipe/Saison : [bold]{n_es}[/bold]\n"
+            f"- Stats Club          : [bold]{n_cs}[/bold]\n"
             f"- Stats Carrière      : [bold]{n_jc}[/bold]",
             title="Bilan des Rollups",
         )
     )
+
+
+@compute_app.command("clubs")
+def compute_clubs(
+    saison: Optional[str] = typer.Option(
+        None, "--saison", "-s", help="Code de la saison (ex: 2025-2026)."
+    ),
+):
+    """Calcule les statistiques agglomérées de clubs."""
+    saison = _unwrap(saison)
+
+    from pyvolley.database.connection import get_db
+    from pyvolley.database.models import SaisonDB
+    from pyvolley.database.rollup_service import RollupStatsService
+    from sqlalchemy import select
+
+    with get_db() as session:
+        saison_id = None
+        if saison:
+            try:
+                requested_codes = saisons_to_db_codes([saison])
+            except ValueError as exc:
+                console.print(f"[red]{exc}[/red]")
+                raise typer.Exit(1)
+            s_obj = session.scalars(select(SaisonDB).where(SaisonDB.code.in_(requested_codes))).first()
+            if not s_obj:
+                console.print(f"[red]Saison '{saison}' introuvable.[/red]")
+                raise typer.Exit(1)
+            saison_id = s_obj.id
+
+        service = RollupStatsService(session)
+        console.print("[cyan][...] Calcul des statistiques par club...[/cyan]")
+        n_saison = service.compute_club_stats(saison_id=saison_id)
+        n_global = service.compute_club_stats(saison_id=None)
+        session.commit()
+        console.print(f"[green]✓ Calcul terminé : {n_saison} entrées saison, {n_global} entrées historiques.[/green]")
+
+
+@compute_app.command("geo")
+def compute_geo(
+    saison: Optional[str] = typer.Option(
+        None, "--saison", "-s", help="Code de la saison (ex: 2025-2026)."
+    ),
+):
+    """Calcule les agrégats territoriaux (France, régions, départements)."""
+    saison = _unwrap(saison)
+
+    from pyvolley.database.connection import get_db
+    from pyvolley.database.models import SaisonDB
+    from pyvolley.database.geographic_service import GeographicStatsService
+    from sqlalchemy import select
+
+    with get_db() as session:
+        saison_id = None
+        if saison:
+            try:
+                requested_codes = saisons_to_db_codes([saison])
+            except ValueError as exc:
+                console.print(f"[red]{exc}[/red]")
+                raise typer.Exit(1)
+            s_obj = session.scalars(select(SaisonDB).where(SaisonDB.code.in_(requested_codes))).first()
+            if not s_obj:
+                console.print(f"[red]Saison '{saison}' introuvable.[/red]")
+                raise typer.Exit(1)
+            saison_id = s_obj.id
+
+        service = GeographicStatsService(session)
+        console.print("[cyan][...] Calcul des agrégats territoriaux...[/cyan]")
+        count = service.compute_territorial_rollups(saison_id=saison_id)
+        if saison_id is not None:
+            service.compute_territorial_rollups(saison_id=None)
+        console.print(f"[green]✓ {count} agrégats territoriaux générés (National, Ligues, Départements).[/green]")
+
+
+@compute_app.command("licences")
+def compute_licences(
+    saison: Optional[str] = typer.Option(
+        None, "--saison", "-s", help="Code de la saison (ex: 2025-2026)."
+    ),
+):
+    """Calcule le statut des licences (nouvelles, reprises, renouvellements)."""
+    saison = _unwrap(saison)
+
+    from pyvolley.database.connection import get_db
+    from pyvolley.database.models import SaisonDB
+    from pyvolley.database.licence_analysis_service import LicenceAnalysisService
+    from sqlalchemy import select
+
+    with get_db() as session:
+        service = LicenceAnalysisService(session)
+        if saison:
+            try:
+                requested_codes = saisons_to_db_codes([saison])
+            except ValueError as exc:
+                console.print(f"[red]{exc}[/red]")
+                raise typer.Exit(1)
+            s_obj = session.scalars(select(SaisonDB).where(SaisonDB.code.in_(requested_codes))).first()
+            if not s_obj:
+                console.print(f"[red]Saison '{saison}' introuvable.[/red]")
+                raise typer.Exit(1)
+            console.print(f"[cyan][...] Analyse des licences pour la saison {s_obj.code}...[/cyan]")
+            count = service.compute_licence_history(s_obj.id)
+            report = service.get_licence_report(s_obj.id)
+            console.print(f"[green]✓ {count} licences analysées : {report.nouvelles_licences} nouvelles, "
+                          f"{report.reprises} reprises, {report.continues} continues ({report.taux_renouvellement}% rétention).[/green]")
+        else:
+            console.print("[cyan][...] Analyse des licences sur l'ensemble des saisons...[/cyan]")
+            count = service.compute_all_seasons_licence_history()
+            console.print(f"[green]✓ {count} enregistrements d'historique de licence générés.[/green]")
 
 
 @compute_app.command("all")
@@ -388,12 +528,29 @@ def compute_all(
     ),
     force: bool = typer.Option(False, "--force", help="Forcer le recalcul complet."),
 ):
-    """Exécute l'ensemble des calculs statistiques (joueurs, rollups, palmarès)."""
-    console.print("[bold blue]=== 1/3 Statistiques Joueurs par Match ===[/bold blue]")
-    compute_player_stats(saison=saison, force=force)
+    """Exécute l'ensemble de la chaîne de calculs statistiques dans l'ordre des dépendances."""
+    saison = _unwrap(saison)
+    force = bool(_unwrap(force, False))
 
-    console.print("\n[bold blue]=== 2/3 Statistiques Agglomérées (Rollups) ===[/bold blue]")
+    console.print("[bold blue]=== 1/5 Statistiques Joueurs par Match ===[/bold blue]")
+    compute_player_stats(
+        saison=saison,
+        entity=None,
+        match_id=None,
+        limit=None,
+        force=force,
+        clear=False,
+    )
+
+    console.print("\n[bold blue]=== 2/5 Statistiques Agglomérées (Rollups Joueurs, Équipes, Clubs) ===[/bold blue]")
     compute_rollups(saison=saison)
 
-    console.print("\n[bold blue]=== 3/3 Statistiques Palmarès ===[/bold blue]")
-    compute_stats(saison=saison, force=force)
+    console.print("\n[bold blue]=== 3/5 Agrégats Territoriaux & Géographiques ===[/bold blue]")
+    compute_geo(saison=saison)
+
+    console.print("\n[bold blue]=== 4/5 Analyse du Cycle des Licences ===[/bold blue]")
+    compute_licences(saison=saison)
+
+    console.print("\n[bold blue]=== 5/5 Statistiques Palmarès ===[/bold blue]")
+    compute_stats(saison=saison, force=force, clear=False)
+

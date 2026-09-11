@@ -70,6 +70,9 @@
                     </td>
                     <td class="text-center">
                         <span class="font-bold text-lg text-accent-primary">{{ ligne.points }}</span>
+                        {% if ligne.forfaits and ligne.forfaits > 0 %}
+                        <span class="inline-block ml-1 text-xs text-accent-red font-bold" title="{{ ligne.forfaits }} forfait(s) (pénalité de -{{ ligne.penalites or ligne.forfaits }} pt)">*</span>
+                        {% endif %}
                     </td>
                     <td class="text-center font-medium">{{ ligne.matchs_joues }}</td>
                     <td class="text-center font-medium text-accent-green">{{ ligne.victoires }}</td>
@@ -106,6 +109,10 @@
                         <span class="text-white">{{ ligne.points_marques }}</span>
                         <span class="text-muted">-</span>
                         <span class="text-secondary">{{ ligne.points_encaisses }}</span>
+                        {% set dp = ligne.points_marques - ligne.points_encaisses %}
+                        <span class="text-xs ml-0.5 {% if dp > 0 %}text-accent-green{% elif dp < 0 %}text-accent-red{% else %}text-muted{% endif %}">
+                            ({% if dp > 0 %}+{% endif %}{{ dp }})
+                        </span>
                     </td>
                     <td class="text-center font-mono text-sm">
                         {% if ligne.points_encaisses > 0 %}
@@ -130,6 +137,16 @@
             </tbody>
         </table>
     </div>
+    {% set has_forfeits = false %}
+    {% for l in cls.classement_actuel %}
+        {% if l.forfaits and l.forfaits > 0 %}{% set has_forfeits = true %}{% endif %}
+    {% endfor %}
+    {% if has_forfeits %}
+    <div class="px-4 py-2 bg-black/20 border-t border-color-subtle text-xs text-muted flex items-center gap-1.5">
+        <span class="text-accent-red font-bold">*</span>
+        <span>Inclut une pénalité FFVB de -1 point par forfait déclaré.</span>
+    </div>
+    {% endif %}
 </div>
 
 {% if cls.classement_actuel|length > 1 %}

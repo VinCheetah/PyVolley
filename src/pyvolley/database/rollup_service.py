@@ -17,18 +17,20 @@ from collections import defaultdict, Counter
 from datetime import datetime, date as dt_date
 from typing import Optional, Sequence
 
-from sqlalchemy import select, func, or_, and_, desc, asc
+from sqlalchemy import select, func, or_, and_, desc, asc, distinct
 from sqlalchemy.orm import Session
 
 from pyvolley.database.models import (
     MatchDB, SetDB, EquipeDB, JoueurDB, ParticipationMatchDB,
     JoueurMatchStatsDB, JoueurSaisonStatsDB, JoueurCarriereStatsDB,
     EquipeSaisonStatsDB, SaisonDB, CompetitionDB, PouleDB,
+    ClubDB, ClubStatsDB,
 )
 from pyvolley.database.repositories import (
     JoueurSaisonStatsRepository,
     JoueurCarriereStatsRepository,
     EquipeSaisonStatsRepository,
+    ClubStatsRepository,
 )
 from pyvolley.shared.categorisation import (
     normalize_categorie,
@@ -37,6 +39,15 @@ from pyvolley.shared.categorisation import (
 )
 
 logger = logging.getLogger(__name__)
+
+ROLLUP_CHUNK_SIZE = 2000
+
+
+def _chunked(seq: Sequence, size: int = ROLLUP_CHUNK_SIZE):
+    """Découpe une séquence en sous-séquences de taille maximale `size`."""
+    seq_list = list(seq) if not isinstance(seq, (list, tuple)) else seq
+    for i in range(0, len(seq_list), size):
+        yield seq_list[i:i + size]
 
 
 class RollupStatsService:
@@ -47,6 +58,7 @@ class RollupStatsService:
         self.joueur_saison_repo = JoueurSaisonStatsRepository(session)
         self.joueur_carriere_repo = JoueurCarriereStatsRepository(session)
         self.equipe_saison_repo = EquipeSaisonStatsRepository(session)
+        self.club_stats_repo = ClubStatsRepository(session)
 
     # =================================================================
     # 0. Statistiques Joueur par Match (JMS)
@@ -124,10 +136,16 @@ class RollupStatsService:
 
         if saison_id:
             stmt = stmt.where(MatchDB.saison_id == saison_id)
-        if joueur_ids:
-            stmt = stmt.where(ParticipationMatchDB.joueur_id.in_(joueur_ids))
 
-        rows = self.session.execute(stmt).all()
+        rows = []
+        if joueur_ids:
+            clean_jids = list(set(joueur_ids))
+            for j_chunk in _chunked(clean_jids):
+                c_stmt = stmt.where(ParticipationMatchDB.joueur_id.in_(j_chunk))
+                rows.extend(self.session.execute(c_stmt).all())
+        else:
+            rows = self.session.execute(stmt).all()
+
         if not rows:
             return 0
 
@@ -291,10 +309,16 @@ class RollupStatsService:
             .group_by(JoueurSaisonStatsDB.joueur_id)
         )
 
-        if joueur_ids:
-            stmt = stmt.where(JoueurSaisonStatsDB.joueur_id.in_(joueur_ids))
+        clean_jids = list(set(joueur_ids)) if joueur_ids else None
 
-        rows = self.session.execute(stmt).all()
+        rows = []
+        if clean_jids:
+            for j_chunk in _chunked(clean_jids):
+                c_stmt = stmt.where(JoueurSaisonStatsDB.joueur_id.in_(j_chunk))
+                rows.extend(self.session.execute(c_stmt).all())
+        else:
+            rows = self.session.execute(stmt).all()
+
         if not rows:
             return 0
 
@@ -309,13 +333,15 @@ class RollupStatsService:
             .where(MatchDB.match_joue.is_(True))
             .group_by(ParticipationMatchDB.joueur_id)
         )
-        if joueur_ids:
-            dates_stmt = dates_stmt.where(ParticipationMatchDB.joueur_id.in_(joueur_ids))
-
-        dates_map = {
-            r.joueur_id: (r.premier_match, r.dernier_match)
-            for r in self.session.execute(dates_stmt).all()
-        }
+        dates_map = {}
+        if clean_jids:
+            for j_chunk in _chunked(clean_jids):
+                c_dates_stmt = dates_stmt.where(ParticipationMatchDB.joueur_id.in_(j_chunk))
+                for r in self.session.execute(c_dates_stmt).all():
+                    dates_map[r.joueur_id] = (r.premier_match, r.dernier_match)
+        else:
+            for r in self.session.execute(dates_stmt).all():
+                dates_map[r.joueur_id] = (r.premier_match, r.dernier_match)
 
         # Max points sur un seul match
         max_pts_stmt = (
@@ -325,13 +351,15 @@ class RollupStatsService:
             )
             .group_by(JoueurMatchStatsDB.joueur_id)
         )
-        if joueur_ids:
-            max_pts_stmt = max_pts_stmt.where(JoueurMatchStatsDB.joueur_id.in_(joueur_ids))
-
-        max_pts_map = {
-            r.joueur_id: (r.max_pts or 0)
-            for r in self.session.execute(max_pts_stmt).all()
-        }
+        max_pts_map = {}
+        if clean_jids:
+            for j_chunk in _chunked(clean_jids):
+                c_max_pts_stmt = max_pts_stmt.where(JoueurMatchStatsDB.joueur_id.in_(j_chunk))
+                for r in self.session.execute(c_max_pts_stmt).all():
+                    max_pts_map[r.joueur_id] = (r.max_pts or 0)
+        else:
+            for r in self.session.execute(max_pts_stmt).all():
+                max_pts_map[r.joueur_id] = (r.max_pts or 0)
 
         # Analyse des catégories et niveaux pour chaque joueur
         cats_stmt = (
@@ -347,8 +375,13 @@ class RollupStatsService:
             .outerjoin(SaisonDB, MatchDB.saison_id == SaisonDB.id)
             .where(MatchDB.match_joue.is_(True))
         )
-        if joueur_ids:
-            cats_stmt = cats_stmt.where(ParticipationMatchDB.joueur_id.in_(joueur_ids))
+        cat_rows = []
+        if clean_jids:
+            for j_chunk in _chunked(clean_jids):
+                c_cats_stmt = cats_stmt.where(ParticipationMatchDB.joueur_id.in_(j_chunk))
+                cat_rows.extend(self.session.execute(c_cats_stmt).all())
+        else:
+            cat_rows = self.session.execute(cats_stmt).all()
 
         player_meta: dict[int, dict] = defaultdict(lambda: {
             "birth_year_min": None,
@@ -356,7 +389,7 @@ class RollupStatsService:
             "max_rank": -1,
             "max_label": None,
         })
-        for crow in self.session.execute(cats_stmt).all():
+        for crow in cat_rows:
             jid = crow.joueur_id
             pm = player_meta[jid]
             # Niveau max
@@ -386,11 +419,16 @@ class RollupStatsService:
             JoueurSaisonStatsDB.role_confiance,
             JoueurSaisonStatsDB.matchs_joues,
         )
-        if joueur_ids:
-            career_roles_stmt = career_roles_stmt.where(JoueurSaisonStatsDB.joueur_id.in_(joueur_ids))
+        career_role_rows = []
+        if clean_jids:
+            for j_chunk in _chunked(clean_jids):
+                c_cr_stmt = career_roles_stmt.where(JoueurSaisonStatsDB.joueur_id.in_(j_chunk))
+                career_role_rows.extend(self.session.execute(c_cr_stmt).all())
+        else:
+            career_role_rows = self.session.execute(career_roles_stmt).all()
 
         career_roles_map: dict[int, dict] = defaultdict(lambda: {"freq": Counter(), "conf_sum": 0.0, "weight_sum": 0})
-        for srow in self.session.execute(career_roles_stmt).all():
+        for srow in career_role_rows:
             j_entry = career_roles_map[srow.joueur_id]
             if srow.roles_frequence:
                 for r_name, r_cnt in srow.roles_frequence.items():
@@ -485,15 +523,28 @@ class RollupStatsService:
             stmt = stmt.where(MatchDB.saison_id == saison_id)
         if competition_id:
             stmt = stmt.where(MatchDB.competition_id == competition_id)
+        matches = []
         if equipe_ids:
-            stmt = stmt.where(
-                or_(
-                    MatchDB.equipe_a_id.in_(equipe_ids),
-                    MatchDB.equipe_b_id.in_(equipe_ids),
+            clean_eq_ids = list(set(equipe_ids))
+            for eq_chunk in _chunked(clean_eq_ids):
+                c_stmt = stmt.where(
+                    or_(
+                        MatchDB.equipe_a_id.in_(eq_chunk),
+                        MatchDB.equipe_b_id.in_(eq_chunk),
+                    )
                 )
-            )
+                matches.extend(self.session.scalars(c_stmt).all())
+            # Déduplication si un match implique deux équipes du même filtre
+            seen_ids = set()
+            dedup_matches = []
+            for m in matches:
+                if m.id not in seen_ids:
+                    seen_ids.add(m.id)
+                    dedup_matches.append(m)
+            matches = dedup_matches
+        else:
+            matches = list(self.session.scalars(stmt).all())
 
-        matches = list(self.session.scalars(stmt).all())
         if not matches:
             return 0
 
@@ -540,7 +591,46 @@ class RollupStatsService:
                     poule_id = m.poule_id
 
                 if m.forfait:
-                    forfaits += 1
+                    is_double = getattr(m, "is_double_forfait", False)
+                    is_my_forfait = is_double or (
+                        getattr(m, "is_forfait_a", False) if side == "A" else getattr(m, "is_forfait_b", False)
+                    )
+                    is_opp_forfait = is_double or (
+                        getattr(m, "is_forfait_b", False) if side == "A" else getattr(m, "is_forfait_a", False)
+                    )
+
+                    if is_double:
+                        # Double forfait : les deux équipes ont forfait
+                        forfaits += 1
+                        defaites += 1
+                        d_0_3 += 1
+                        sets_contre += 3
+                        points_ffvb -= 1
+                        current_streak = current_streak - 1 if current_streak < 0 else -1
+                        continue
+                    elif is_my_forfait:
+                        # Mon équipe a déclaré forfait
+                        forfaits += 1
+                        defaites += 1
+                        d_0_3 += 1
+                        sets_contre += 3
+                        points_ffvb -= 1
+                        current_streak = current_streak - 1 if current_streak < 0 else -1
+                        continue
+                    elif is_opp_forfait:
+                        # Victoire par forfait de l'adversaire (3-0, +3 pts)
+                        victoires += 1
+                        if side == "A":
+                            victoires_dom += 1
+                        else:
+                            victoires_ext += 1
+                        v_3_0 += 1
+                        sets_pour += 3
+                        points_ffvb += 3
+                        current_streak = current_streak + 1 if current_streak > 0 else 1
+                        if current_streak > max_streak:
+                            max_streak = current_streak
+                        continue
 
                 sets_my = (m.sets_equipe_a or 0) if side == "A" else (m.sets_equipe_b or 0)
                 sets_opp = (m.sets_equipe_b or 0) if side == "A" else (m.sets_equipe_a or 0)
@@ -673,6 +763,105 @@ class RollupStatsService:
         return count
 
     # =================================================================
+    # 3b. Statistiques Club par Saison et Carrière
+    # =================================================================
+
+    def compute_club_stats(
+        self,
+        saison_id: Optional[int] = None,
+        club_ids: Optional[Sequence[int]] = None,
+        batch_size: int = 500,
+    ) -> int:
+        """Calcule et met à jour les stats agrégées par club (pour une saison ou au global)."""
+        clean_cids = list(set(club_ids)) if club_ids else None
+
+        # 1. Requête des stats équipes regroupées par club
+        stmt = (
+            select(
+                EquipeDB.club_id,
+                func.count(distinct(EquipeSaisonStatsDB.equipe_id)).label("nb_equipes"),
+                func.sum(EquipeSaisonStatsDB.matchs_joues).label("matchs_joues"),
+                func.sum(EquipeSaisonStatsDB.victoires).label("victoires"),
+                func.sum(EquipeSaisonStatsDB.defaites).label("defaites"),
+                func.sum(EquipeSaisonStatsDB.sets_pour).label("sets_pour"),
+                func.sum(EquipeSaisonStatsDB.sets_contre).label("sets_contre"),
+                func.sum(EquipeSaisonStatsDB.points_pour).label("points_pour"),
+                func.sum(EquipeSaisonStatsDB.points_contre).label("points_contre"),
+            )
+            .join(EquipeDB, EquipeSaisonStatsDB.equipe_id == EquipeDB.id)
+            .where(EquipeDB.club_id.is_not(None))
+        )
+
+        if saison_id:
+            stmt = stmt.where(EquipeSaisonStatsDB.saison_id == saison_id)
+
+        if clean_cids:
+            stmt = stmt.where(EquipeDB.club_id.in_(clean_cids))
+
+        stmt = stmt.group_by(EquipeDB.club_id)
+        team_stats_rows = self.session.execute(stmt).all()
+
+        # 2. Joueurs distincts par club
+        joueurs_stmt = (
+            select(
+                EquipeDB.club_id,
+                func.count(distinct(JoueurSaisonStatsDB.joueur_id)).label("nb_joueurs"),
+            )
+            .join(EquipeDB, JoueurSaisonStatsDB.equipe_id == EquipeDB.id)
+            .where(EquipeDB.club_id.is_not(None))
+        )
+        if saison_id:
+            joueurs_stmt = joueurs_stmt.where(JoueurSaisonStatsDB.saison_id == saison_id)
+        if clean_cids:
+            joueurs_stmt = joueurs_stmt.where(EquipeDB.club_id.in_(clean_cids))
+
+        joueurs_stmt = joueurs_stmt.group_by(EquipeDB.club_id)
+        nb_joueurs_map = {row.club_id: row.nb_joueurs for row in self.session.execute(joueurs_stmt)}
+
+        count = 0
+        now = datetime.now()
+
+        for r in team_stats_rows:
+            cid = r.club_id
+            m_joues = int(r.matchs_joues or 0)
+            vic = int(r.victoires or 0)
+            defa = int(r.defaites or 0)
+            sp = int(r.sets_pour or 0)
+            sc = int(r.sets_contre or 0)
+            pp = int(r.points_pour or 0)
+            pc = int(r.points_contre or 0)
+
+            ratio_v = round(vic / max(1, m_joues), 4) if m_joues > 0 else 0.0
+            ratio_s = round(sp / max(1, sc), 3) if sc > 0 else float(sp)
+            ratio_p = round(pp / max(1, pc), 3) if pc > 0 else float(pp)
+
+            payload = {
+                "club_id": cid,
+                "saison_id": saison_id,
+                "nb_equipes_engagees": int(r.nb_equipes or 0),
+                "nb_matchs_joues": m_joues,
+                "nb_victoires": vic,
+                "nb_defaites": defa,
+                "ratio_victoires": ratio_v,
+                "sets_pour": sp,
+                "sets_contre": sc,
+                "ratio_sets": ratio_s,
+                "points_pour": pp,
+                "points_contre": pc,
+                "ratio_points": ratio_p,
+                "nb_joueurs_distincts": nb_joueurs_map.get(cid, 0),
+                "updated_at": now,
+            }
+            self.club_stats_repo.upsert(payload)
+            count += 1
+
+            if count % batch_size == 0:
+                self.session.flush()
+
+        self.session.flush()
+        return count
+
+    # =================================================================
     # 4. Actualisation Incrémentale Delta Match
     # =================================================================
 
@@ -704,6 +893,7 @@ class RollupStatsService:
 
         # Recalculer les stats saison des 2 équipes
         n_teams = 0
+        n_clubs = 0
         team_ids = [tid for tid in (match.equipe_a_id, match.equipe_b_id) if tid is not None]
         if team_ids:
             n_teams = self.compute_team_season_stats(
@@ -711,6 +901,13 @@ class RollupStatsService:
                 competition_id=match.competition_id,
                 equipe_ids=team_ids,
             )
+            # Récupérer les clubs des équipes pour actualiser leurs stats
+            club_ids = list(self.session.scalars(
+                select(distinct(EquipeDB.club_id)).where(EquipeDB.id.in_(team_ids), EquipeDB.club_id.is_not(None))
+            ))
+            if club_ids:
+                n_clubs = self.compute_club_stats(saison_id=match.saison_id, club_ids=club_ids)
+                self.compute_club_stats(saison_id=None, club_ids=club_ids)
 
         # Rafraîchir le cache poule du match
         if match.poule_id and match.competition_id:
@@ -735,6 +932,7 @@ class RollupStatsService:
             "player_seasons_updated": n_player_seasons,
             "player_careers_updated": n_player_careers,
             "teams_updated": n_teams,
+            "clubs_updated": n_clubs,
         }
 
     def apply_batch_deltas(self, match_ids: Sequence[int]) -> dict:
@@ -750,9 +948,12 @@ class RollupStatsService:
         if not clean_ids:
             return {"status": "skipped", "matches_count": 0}
 
-        # Récupérer les métadonnées de tous les matchs
-        stmt = select(MatchDB).where(MatchDB.id.in_(clean_ids))
-        matches = list(self.session.scalars(stmt).all())
+        # Récupérer les métadonnées de tous les matchs par blocs sécurisés
+        matches = []
+        for chunk in _chunked(clean_ids):
+            stmt = select(MatchDB).where(MatchDB.id.in_(chunk))
+            matches.extend(self.session.scalars(stmt).all())
+
         if not matches:
             return {"status": "skipped", "matches_count": 0}
 
@@ -761,21 +962,21 @@ class RollupStatsService:
         saison_comp_teams_map: dict[tuple[int, int], set[int]] = defaultdict(set)
         poule_comp_map: set[tuple[int, int]] = set()
 
-        # Récupérer toutes les participations pour ces matchs en une seule requête
-        stmt_parts = (
-            select(ParticipationMatchDB.match_id, ParticipationMatchDB.joueur_id)
-            .where(ParticipationMatchDB.match_id.in_(clean_ids))
-        )
-        for m_id, j_id in self.session.execute(stmt_parts):
-            if j_id:
-                all_joueur_ids.add(j_id)
-
         # Map rapide match_id -> saison_id pour les joueurs
         match_saison_map = {m.id: m.saison_id for m in matches if m.saison_id}
-        for m_id, j_id in self.session.execute(stmt_parts):
-            s_id = match_saison_map.get(m_id)
-            if s_id and j_id:
-                saison_player_map[s_id].add(j_id)
+
+        # Récupérer toutes les participations pour ces matchs en une seule passe par blocs
+        for chunk in _chunked(clean_ids):
+            stmt_parts = (
+                select(ParticipationMatchDB.match_id, ParticipationMatchDB.joueur_id)
+                .where(ParticipationMatchDB.match_id.in_(chunk))
+            )
+            for m_id, j_id in self.session.execute(stmt_parts):
+                if j_id:
+                    all_joueur_ids.add(j_id)
+                    s_id = match_saison_map.get(m_id)
+                    if s_id:
+                        saison_player_map[s_id].add(j_id)
 
         for m in matches:
             if not m.saison_id:
@@ -827,6 +1028,19 @@ class RollupStatsService:
             except Exception as exc:
                 logger.debug("Erreur rafraîchissement cache poule %s: %s", poule_id, exc)
 
+        total_clubs = 0
+        all_team_ids = set()
+        for t_ids in saison_comp_teams_map.values():
+            all_team_ids.update(t_ids)
+        if all_team_ids:
+            affected_club_ids = list(self.session.scalars(
+                select(distinct(EquipeDB.club_id)).where(EquipeDB.id.in_(list(all_team_ids)), EquipeDB.club_id.is_not(None))
+            ))
+            if affected_club_ids:
+                for s_id in saison_player_map.keys():
+                    total_clubs += self.compute_club_stats(saison_id=s_id, club_ids=affected_club_ids)
+                self.compute_club_stats(saison_id=None, club_ids=affected_club_ids)
+
         self.session.flush()
 
         return {
@@ -835,5 +1049,6 @@ class RollupStatsService:
             "player_seasons_updated": total_player_seasons,
             "player_careers_updated": total_player_careers,
             "teams_updated": total_teams,
+            "clubs_updated": total_clubs,
             "poules_updated": total_poules,
         }

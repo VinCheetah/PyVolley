@@ -220,7 +220,7 @@ class ScrapePlausibilityEngine:
                             new_value=derived_score,
                         )
                     )
-                elif derived_score and derived_score != match.score_sets:
+                elif not match.forfait and derived_score and derived_score != match.score_sets:
                     old_score = match.score_sets
                     match.score_sets = derived_score
                     issues.append(

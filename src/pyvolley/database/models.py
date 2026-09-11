@@ -19,7 +19,7 @@ from sqlalchemy import (
     Integer, String, Boolean, Date, Time, DateTime, Float,
     Text, JSON, ForeignKey, Table, Column, UniqueConstraint, Index,
 )
-from sqlalchemy.orm import DeclarativeBase, relationship, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, relationship, Mapped, mapped_column, deferred
 
 from pyvolley.shared.match_scores import resolve_match_score
 
@@ -155,6 +155,9 @@ class ClubDB(Base):
         back_populates="club", cascade="all, delete-orphan"
     )
     salles: Mapped[List["SalleClubDB"]] = relationship(
+        back_populates="club", cascade="all, delete-orphan"
+    )
+    stats: Mapped[List["ClubStatsDB"]] = relationship(
         back_populates="club", cascade="all, delete-orphan"
     )
 
@@ -417,6 +420,9 @@ class MatchDB(Base):
 
     # Forfait
     forfait: Mapped[bool] = mapped_column(Boolean, default=False)
+    type_forfait: Mapped[Optional[str]] = deferred(
+        mapped_column(String(20), nullable=True)
+    )  # "equipe_a", "equipe_b", "double"
 
     # Remarques
     remarques: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -526,6 +532,48 @@ class MatchDB(Base):
         if self.date_match and self.date_match > dt_date.today():
             return "à_venir"
         return "sans_résultat"
+
+    @property
+    def is_double_forfait(self) -> bool:
+        if self.__dict__.get("type_forfait") == "double":
+            return True
+        if not self.forfait:
+            return False
+        if self.vainqueur is None and (self.sets_equipe_a or 0) == 0 and (self.sets_equipe_b or 0) == 0:
+            return True
+        return False
+
+    @property
+    def is_forfait_a(self) -> bool:
+        if self.__dict__.get("type_forfait") == "equipe_a":
+            return True
+        if not self.forfait or self.is_double_forfait:
+            return False
+        if self.vainqueur and self.equipe_b and self.vainqueur == self.equipe_b.nom:
+            return True
+        return (self.sets_equipe_b or 0) > (self.sets_equipe_a or 0)
+
+    @property
+    def is_forfait_b(self) -> bool:
+        if self.__dict__.get("type_forfait") == "equipe_b":
+            return True
+        if not self.forfait or self.is_double_forfait:
+            return False
+        if self.vainqueur and self.equipe_a and self.vainqueur == self.equipe_a.nom:
+            return True
+        return (self.sets_equipe_a or 0) > (self.sets_equipe_b or 0)
+
+    @property
+    def forfait_equipe_nom(self) -> Optional[str]:
+        if not self.forfait:
+            return None
+        if self.is_double_forfait:
+            return "Double forfait"
+        if self.is_forfait_a:
+            return self.equipe_a.nom if self.equipe_a else "Équipe A"
+        if self.is_forfait_b:
+            return self.equipe_b.nom if self.equipe_b else "Équipe B"
+        return None
 
     @property
     def score_resolution(self):
@@ -1248,4 +1296,125 @@ class EquipeSaisonStatsDB(Base):
 
     def __repr__(self) -> str:
         return f"<EquipeSaisonStats equipe={self.equipe_id} V/D={self.victoires}/{self.defaites}>"
+
+
+# =====================================================================
+# Statistiques agglomérées par club (rollup)
+# =====================================================================
+
+class ClubStatsDB(Base):
+    """Statistiques agglomérées (rollup) d'un club pour une saison (ou carrière/global si saison_id=None)."""
+    __tablename__ = "stats_club"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    club_id: Mapped[int] = mapped_column(ForeignKey("clubs.id", ondelete="CASCADE"), index=True)
+    saison_id: Mapped[Optional[int]] = mapped_column(ForeignKey("saisons.id", ondelete="CASCADE"), nullable=True, index=True)
+
+    nb_equipes_engagees: Mapped[int] = mapped_column(Integer, default=0)
+    nb_matchs_joues: Mapped[int] = mapped_column(Integer, default=0)
+    nb_victoires: Mapped[int] = mapped_column(Integer, default=0)
+    nb_defaites: Mapped[int] = mapped_column(Integer, default=0)
+    ratio_victoires: Mapped[float] = mapped_column(Float, default=0.0)
+
+    # Sets & points
+    sets_pour: Mapped[int] = mapped_column(Integer, default=0)
+    sets_contre: Mapped[int] = mapped_column(Integer, default=0)
+    ratio_sets: Mapped[float] = mapped_column(Float, default=0.0)
+    points_pour: Mapped[int] = mapped_column(Integer, default=0)
+    points_contre: Mapped[int] = mapped_column(Integer, default=0)
+    ratio_points: Mapped[float] = mapped_column(Float, default=0.0)
+
+    # Divers
+    nb_joueurs_distincts: Mapped[int] = mapped_column(Integer, default=0)
+    max_niveau_label: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    max_niveau_rank: Mapped[int] = mapped_column(Integer, default=-1)
+
+    computed_at: Mapped[dt] = mapped_column(DateTime, default=dt.now)
+    updated_at: Mapped[dt] = mapped_column(DateTime, default=dt.now, onupdate=dt.now)
+
+    club: Mapped["ClubDB"] = relationship(back_populates="stats")
+    saison: Mapped[Optional["SaisonDB"]] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("club_id", "saison_id", name="uq_stats_club_saison"),
+        Index("ix_sc_saison_victoires", "saison_id", "nb_victoires"),
+        Index("ix_sc_ratio_victoires", "ratio_victoires"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<ClubStats club={self.club_id} saison={self.saison_id} V/D={self.nb_victoires}/{self.nb_defaites}>"
+
+
+# =====================================================================
+# Statistiques territoriales et géographiques (rollups)
+# =====================================================================
+
+class GeoStatsDB(Base):
+    """Agrégats territoriaux pré-calculés par saison et échelon (national, région, département)."""
+    __tablename__ = "stats_geographiques"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    saison_id: Mapped[Optional[int]] = mapped_column(ForeignKey("saisons.id", ondelete="CASCADE"), nullable=True, index=True)
+    echelon: Mapped[str] = mapped_column(String(20), index=True)  # "national", "region", "departement"
+    code_territoire: Mapped[str] = mapped_column(String(20), index=True)  # "FR", "ARA", "75", etc.
+    nom_territoire: Mapped[str] = mapped_column(String(100))
+
+    nb_clubs: Mapped[int] = mapped_column(Integer, default=0)
+    nb_equipes: Mapped[int] = mapped_column(Integer, default=0)
+    nb_joueurs_actifs: Mapped[int] = mapped_column(Integer, default=0)
+    nb_matchs_joues: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Répartitions sérialisées en JSON
+    repartition_genre: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    repartition_categories: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    repartition_niveaux: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
+    computed_at: Mapped[dt] = mapped_column(DateTime, default=dt.now)
+    updated_at: Mapped[dt] = mapped_column(DateTime, default=dt.now, onupdate=dt.now)
+
+    saison: Mapped[Optional["SaisonDB"]] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("saison_id", "echelon", "code_territoire", name="uq_geo_stats_territoire"),
+        Index("ix_geo_echelon_territoire", "echelon", "code_territoire"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<GeoStats {self.echelon}:{self.code_territoire} saison={self.saison_id}>"
+
+
+# =====================================================================
+# Historique et statut des licences par joueur et saison
+# =====================================================================
+
+class JoueurLicenceHistoryDB(Base):
+    """Statut de licence d'un joueur pour une saison (nouvelle licence, reprise, continue)."""
+    __tablename__ = "joueur_licence_history"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    joueur_id: Mapped[int] = mapped_column(ForeignKey("joueurs.id", ondelete="CASCADE"), index=True)
+    saison_id: Mapped[int] = mapped_column(ForeignKey("saisons.id", ondelete="CASCADE"), index=True)
+
+    type_licence: Mapped[str] = mapped_column(String(20), index=True)  # "nouvelle", "reprise", "continue"
+    premiere_saison_id: Mapped[Optional[int]] = mapped_column(ForeignKey("saisons.id", ondelete="SET NULL"), nullable=True)
+    nb_saisons_absence: Mapped[int] = mapped_column(Integer, default=0)
+
+    genre_pratique: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    categorie_pratique: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    niveau_max_saison: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+
+    computed_at: Mapped[dt] = mapped_column(DateTime, default=dt.now)
+
+    joueur: Mapped["JoueurDB"] = relationship()
+    saison: Mapped["SaisonDB"] = relationship(foreign_keys=[saison_id])
+    premiere_saison: Mapped[Optional["SaisonDB"]] = relationship(foreign_keys=[premiere_saison_id])
+
+    __table_args__ = (
+        UniqueConstraint("joueur_id", "saison_id", name="uq_joueur_licence_saison"),
+        Index("ix_jlh_saison_type", "saison_id", "type_licence"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<JoueurLicenceHistory joueur={self.joueur_id} saison={self.saison_id} type={self.type_licence}>"
+
 
