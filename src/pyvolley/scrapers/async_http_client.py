@@ -39,12 +39,14 @@ class AsyncHttpClient:
         request_delay: Optional[float] = None,
         timeout: Optional[int] = None,
         max_concurrent: int = 5,
+        burst: Optional[int] = None,
     ):
         self._delay = request_delay if request_delay is not None else settings.ffvb_request_delay
         self._timeout = timeout or settings.ffvb_timeout
         self._max_concurrent = max_concurrent
         self._semaphore = asyncio.Semaphore(max_concurrent)
-        self._last_request_time = 0.0
+        self._burst = max(1, burst if burst is not None else 1)
+        self._next_request_time = 0.0
         self._lock = asyncio.Lock()
 
         self._headers = {
@@ -97,13 +99,26 @@ class AsyncHttpClient:
     def max_concurrent(self) -> int:
         return self._max_concurrent
 
+    @property
+    def burst(self) -> int:
+        return self._burst
+
+    @burst.setter
+    def burst(self, value: int):
+        self._burst = max(1, value)
+
     async def _rate_limit(self):
-        """Applique le délai entre les requêtes (thread-safe)."""
+        """Applique le délai entre requêtes avec support de rafale (burst)."""
+        if self._delay <= 0:
+            return
         async with self._lock:
-            elapsed = time.time() - self._last_request_time
-            if elapsed < self._delay:
-                await asyncio.sleep(self._delay - elapsed)
-            self._last_request_time = time.time()
+            now = time.monotonic()
+            earliest = now - (self._burst - 1) * self._delay
+            scheduled = max(earliest, self._next_request_time)
+            wait_time = max(0.0, scheduled - now)
+            self._next_request_time = scheduled + self._delay
+        if wait_time > 0:
+            await asyncio.sleep(wait_time)
 
     async def get(self, url: str) -> httpx.Response:
         """Effectue une requête GET avec sémaphore, rate limiting et retry."""

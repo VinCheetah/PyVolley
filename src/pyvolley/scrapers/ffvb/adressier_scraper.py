@@ -297,14 +297,74 @@ def build_adressier_url(base_url: str) -> str:
     return f"{base}/adressier/adressier_pdf.php"
 
 
+from pathlib import Path
+import time
+from pyvolley.core.config import settings
+
+
+def _get_adressier_cache_path(entite_code: str, saison: str) -> Path:
+    """Retourne le chemin du fichier de cache disque pour un export adressier CSV."""
+    saison_safe = saison.replace("/", "_")
+    cache_dir = settings.data_dir / "cache" / "adressier"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir / f"{entite_code}_{saison_safe}.csv"
+
+
+def _load_adressier_from_cache(
+    entite_code: str,
+    saison: str,
+    force_refresh: bool = False,
+) -> Optional[bytes]:
+    """Charge le contenu brut de l'adressier depuis le cache disque s'il est valide."""
+    if force_refresh:
+        return None
+    cache_path = _get_adressier_cache_path(entite_code, saison)
+    if not cache_path.exists():
+        return None
+    try:
+        from pyvolley.scrapers.ffvb.utils import get_current_saison
+        current_saison = get_current_saison()
+        is_past_season = saison < current_saison
+
+        if not is_past_season:
+            # TTL de 24h pour la saison courante
+            mtime = cache_path.stat().st_mtime
+            if (time.time() - mtime) > 86400:
+                return None
+
+        return cache_path.read_bytes()
+    except Exception as exc:
+        logger.debug("Erreur lecture cache adressier CSV: %s", exc)
+        return None
+
+
+def _save_adressier_to_cache(
+    entite_code: str,
+    saison: str,
+    content_bytes: bytes,
+) -> None:
+    """Sauvegarde le contenu brut de l'adressier CSV sur le disque."""
+    if not content_bytes:
+        return
+    try:
+        cache_path = _get_adressier_cache_path(entite_code, saison)
+        cache_path.write_bytes(content_bytes)
+    except Exception as exc:
+        logger.debug("Erreur écriture cache adressier CSV: %s", exc)
+
+
 def fetch_adressier(
     client: HttpClient,
     base_url: str,
     entite_code: str,
     saison: str,
     poule_codes: list[str],
+    force_refresh: bool = False,
 ) -> list[AdressierClubInfo]:
     """Télécharge et parse l'adressier FFVB pour une liste de poules.
+
+    Consulte d'abord le cache disque local (TTL 24h pour la saison en cours,
+    permanent pour les saisons passées), évitant de surcharger le serveur FFVB.
 
     Args:
         client: Client HTTP configuré.
@@ -312,6 +372,7 @@ def fetch_adressier(
         entite_code: Code de l'entité (ex: ``ABCCS``).
         saison: Saison au format ``YYYY/YYYY``.
         poule_codes: Liste des codes de poules à inclure.
+        force_refresh: Forcer le téléchargement en ligne sans utiliser le cache disque.
 
     Returns:
         Liste d'``AdressierClubInfo`` (dédupliquée par code club FFVB).
@@ -320,36 +381,41 @@ def fetch_adressier(
         logger.warning("Aucune poule spécifiée pour l'adressier")
         return []
 
-    url = build_adressier_url(base_url)
-
-    # Construire les données POST
-    data: dict[str, str | list[str]] = {
-        "codent": entite_code,
-        "wss_get_saison": saison,
-        "typ_edition": "E",
-    }
-
-    logger.info(
-        "Téléchargement adressier: %s (%d poules, saison=%s)",
-        entite_code, len(poule_codes), saison,
+    # Vérifier le cache disque local avant de solliciter le serveur FFVB
+    cached_content = _load_adressier_from_cache(
+        entite_code, saison, force_refresh=force_refresh,
     )
+    if cached_content:
+        logger.info(
+            "Chargement adressier %s (%s) depuis le cache disque",
+            entite_code, saison,
+        )
+        all_clubs = parse_adressier_csv(cached_content)
+    else:
+        url = build_adressier_url(base_url)
 
-    saved_timeout = client.timeout
-    try:
-        client._timeout = max(saved_timeout, ADRESSIER_TIMEOUT)
-        # POST with list of poule codes
-        post_data = [("codent", entite_code), ("wss_get_saison", saison), ("typ_edition", "E")]
-        for code in poule_codes:
-            post_data.append(("adr_poule[]", code))
+        logger.info(
+            "Téléchargement adressier: %s (%d poules, saison=%s)",
+            entite_code, len(poule_codes), saison,
+        )
 
-        response = client.post(url, data=post_data)
-    except Exception as e:
-        logger.error("Erreur téléchargement adressier %s: %s", entite_code, e)
-        return []
-    finally:
-        client._timeout = saved_timeout
+        saved_timeout = client.timeout
+        try:
+            client._timeout = max(saved_timeout, ADRESSIER_TIMEOUT)
+            # POST with list of poule codes
+            post_data = [("codent", entite_code), ("wss_get_saison", saison), ("typ_edition", "E")]
+            for code in poule_codes:
+                post_data.append(("adr_poule[]", code))
 
-    all_clubs = parse_adressier_csv(response.content)
+            response = client.post(url, data=post_data)
+        except Exception as e:
+            logger.error("Erreur téléchargement adressier %s: %s", entite_code, e)
+            return []
+        finally:
+            client._timeout = saved_timeout
+
+        _save_adressier_to_cache(entite_code, saison, response.content)
+        all_clubs = parse_adressier_csv(response.content)
 
     # Dédupliquer par code_ffvb (garder la première occurrence = rang le plus élevé)
     seen: set[str] = set()

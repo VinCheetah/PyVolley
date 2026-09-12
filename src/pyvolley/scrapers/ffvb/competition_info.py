@@ -29,9 +29,12 @@ Conventions FFVB pour les codes de poule / noms de compétition :
 
 from __future__ import annotations
 
+import json
 import logging
 import re
-from dataclasses import dataclass, field
+import time
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Optional
 from urllib.parse import urlencode, urljoin
 
@@ -764,6 +767,73 @@ def _process_poule_entry(text: str, current_group: str, index: CompetitionIndex)
 _COMPETITION_INDEX_CACHE: dict[tuple[str, str], CompetitionIndex] = {}
 
 
+def _get_competition_cache_path(entite_code: str, saison: str) -> Path:
+    saison_safe = saison.replace("/", "_")
+    from pyvolley.core.config import settings
+    cache_dir = settings.data_dir / "cache" / "competitions"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir / f"{entite_code}_{saison_safe}.json"
+
+
+def _load_competition_index_from_disk(entite_code: str, saison: str) -> Optional[CompetitionIndex]:
+    """Charge l'index des compétitions depuis le cache disque s'il est valide."""
+    cache_path = _get_competition_cache_path(entite_code, saison)
+    if not cache_path.exists():
+        return None
+    try:
+        data = json.loads(cache_path.read_text(encoding="utf-8"))
+        cached_at = data.get("_cached_at", 0)
+
+        # Si saison passée, cache permanent. Si saison récente, TTL 24h (86400s).
+        from datetime import date
+        current_year = date.today().year
+        try:
+            start_year = int(saison.split("/")[0])
+            is_past_season = start_year < current_year - 1
+        except Exception:
+            is_past_season = False
+
+        if not is_past_season and (time.time() - cached_at > 86400):
+            return None
+
+        competitions = {
+            code: CompetitionMeta(**meta_dict)
+            for code, meta_dict in data.get("competitions", {}).items()
+        }
+        return CompetitionIndex(
+            entite_code=data["entite_code"],
+            entite_nom=data["entite_nom"],
+            entite_type=data["entite_type"],
+            saison=data["saison"],
+            competitions=competitions,
+            groupes=data.get("groupes", {}),
+        )
+    except Exception as exc:
+        logger.debug("Erreur lecture cache disque compétition: %s", exc)
+        return None
+
+
+def _save_competition_index_to_disk(index: CompetitionIndex) -> None:
+    """Enregistre l'index des compétitions sur le cache disque."""
+    try:
+        cache_path = _get_competition_cache_path(index.entite_code, index.saison)
+        data = {
+            "entite_code": index.entite_code,
+            "entite_nom": index.entite_nom,
+            "entite_type": index.entite_type,
+            "saison": index.saison,
+            "competitions": {
+                code: asdict(meta)
+                for code, meta in index.competitions.items()
+            },
+            "groupes": index.groupes,
+            "_cached_at": time.time(),
+        }
+        cache_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as exc:
+        logger.debug("Erreur écriture cache disque compétition: %s", exc)
+
+
 def build_competition_index(
     client: HttpClient,
     base_url: str,
@@ -774,7 +844,8 @@ def build_competition_index(
 ) -> CompetitionIndex:
     """Construit ou récupère l'index des compétitions pour une entité.
 
-    Utilise un cache en mémoire pour éviter les requêtes répétées.
+    Consulte d'abord le cache mémoire, puis le cache disque persistant,
+    avant de procéder au scraping de vbspo_home.php.
 
     Args:
         client: Client HTTP.
@@ -787,17 +858,32 @@ def build_competition_index(
         CompetitionIndex complet.
     """
     cache_key = (entite_code, saison)
-    if not force_refresh and cache_key in _COMPETITION_INDEX_CACHE:
-        return _COMPETITION_INDEX_CACHE[cache_key]
+    if not force_refresh:
+        if cache_key in _COMPETITION_INDEX_CACHE:
+            return _COMPETITION_INDEX_CACHE[cache_key]
+        disk_index = _load_competition_index_from_disk(entite_code, saison)
+        if disk_index:
+            _COMPETITION_INDEX_CACHE[cache_key] = disk_index
+            return disk_index
 
     index = scrape_competition_index(client, base_url, entite_code, saison)
     _COMPETITION_INDEX_CACHE[cache_key] = index
+    _save_competition_index_to_disk(index)
     return index
 
 
-def clear_competition_cache() -> None:
-    """Vide le cache des index de compétitions."""
+def clear_competition_cache(*, clear_disk: bool = False) -> None:
+    """Vide le cache des index de compétitions (mémoire et optionnellement disque)."""
     _COMPETITION_INDEX_CACHE.clear()
+    if clear_disk:
+        try:
+            from pyvolley.core.config import settings
+            cache_dir = settings.data_dir / "cache" / "competitions"
+            if cache_dir.exists():
+                for f in cache_dir.glob("*.json"):
+                    f.unlink()
+        except Exception as exc:
+            logger.debug("Erreur vidage cache disque compétitions: %s", exc)
 
 
 # =====================================================================

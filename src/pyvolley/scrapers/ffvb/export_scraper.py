@@ -27,8 +27,10 @@ import html
 import io
 import logging
 import re
+import time
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from pathlib import Path
 from typing import Optional
 from urllib.parse import urlencode, urljoin
 
@@ -475,6 +477,63 @@ def build_feuille_match_url(
     return urljoin(base_url, f"ffvolley_fdme.php?{urlencode(params)}")
 
 
+def _get_export_cache_path(entite_code: str, saison: str, *, poule: Optional[str] = None) -> Path:
+    """Retourne le chemin du fichier de cache disque pour un export CSV."""
+    saison_safe = saison.replace("/", "_")
+    from pyvolley.core.config import settings
+    cache_dir = settings.data_dir / "cache" / "exports"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    suffix = f"_{poule}" if poule else ""
+    return cache_dir / f"{entite_code}_{saison_safe}{suffix}.csv"
+
+
+def _load_export_from_cache(
+    entite_code: str,
+    saison: str,
+    *,
+    poule: Optional[str] = None,
+    force_refresh: bool = False,
+) -> Optional[bytes]:
+    """Charge le contenu brut du CSV depuis le cache disque s'il est valide."""
+    if force_refresh:
+        return None
+    cache_path = _get_export_cache_path(entite_code, saison, poule=poule)
+    if not cache_path.exists():
+        return None
+    try:
+        from pyvolley.scrapers.ffvb.utils import get_current_saison
+        current_saison = get_current_saison()
+        is_past_season = saison < current_saison
+
+        if not is_past_season:
+            # TTL de 24h pour la saison courante
+            mtime = cache_path.stat().st_mtime
+            if (time.time() - mtime) > 86400:
+                return None
+
+        return cache_path.read_bytes()
+    except Exception as exc:
+        logger.debug("Erreur lecture cache export CSV: %s", exc)
+        return None
+
+
+def _save_export_to_cache(
+    entite_code: str,
+    saison: str,
+    content_bytes: bytes,
+    *,
+    poule: Optional[str] = None,
+) -> None:
+    """Sauvegarde le contenu brut du CSV sur le cache disque."""
+    if not content_bytes:
+        return
+    try:
+        cache_path = _get_export_cache_path(entite_code, saison, poule=poule)
+        cache_path.write_bytes(content_bytes)
+    except Exception as exc:
+        logger.debug("Erreur écriture cache export CSV: %s", exc)
+
+
 def fetch_export(
     client: HttpClient,
     base_url: str,
@@ -482,6 +541,7 @@ def fetch_export(
     saison: str,
     *,
     poule: Optional[str] = None,
+    force_refresh: bool = False,
 ) -> list[ExportMatchInfo]:
     """Télécharge et parse l'export CSV complet d'une entité.
 
@@ -491,25 +551,43 @@ def fetch_export(
         entite_code: Code de l'entité (ex: ``ABCCS``)
         saison: Saison au format ``YYYY/YYYY`` (ex: ``2025/2026``)
         poule: Code de poule optionnel (si None → toutes les poules)
+        force_refresh: Forcer le re-téléchargement même si en cache
 
     Returns:
         Liste de ``ExportMatchInfo`` (un par match trouvé dans l'export)
     """
+    cached_content = _load_export_from_cache(
+        entite_code, saison, poule=poule, force_refresh=force_refresh
+    )
+    if cached_content is not None:
+        logger.info(
+            "Export CSV chargé depuis le cache disque: %s (saison=%s, poule=%s)",
+            entite_code, saison, poule or "toutes",
+        )
+        matches = parse_export_csv(cached_content, entite_code, saison, base_url)
+        if poule:
+            matches = [m for m in matches if m.poule_code == poule]
+        return matches
+
     url = build_export_url(base_url, entite_code, saison, poule=poule)
 
     logger.info("Téléchargement export CSV: %s (saison=%s)", entite_code, saison)
 
-    # Utiliser un timeout plus long pour les exports CSV volumineux
-    # (le serveur FFVB peut mettre > 45s à générer la réponse)
-    saved_timeout = client.timeout
+    saved_timeout = getattr(client, "timeout", 30)
     try:
-        client._timeout = max(saved_timeout, EXPORT_TIMEOUT)
+        timeout_val = saved_timeout if isinstance(saved_timeout, (int, float)) else 30
+        client._timeout = max(timeout_val, EXPORT_TIMEOUT)
         response = client.get(url)
     except Exception as e:
         logger.error("Erreur téléchargement export %s: %s", entite_code, e)
         return []
     finally:
         client._timeout = saved_timeout
+
+    if response.content:
+        _save_export_to_cache(
+            entite_code, saison, response.content, poule=poule
+        )
 
     matches = parse_export_csv(response.content, entite_code, saison, base_url)
 
@@ -923,6 +1001,7 @@ def fetch_and_enrich_export(
     saison: str,
     *,
     poule: Optional[str] = None,
+    force_refresh: bool = False,
 ) -> list[ExportMatchInfo]:
     """Télécharge l'export CSV et enrichit avec les métadonnées de compétition.
 
@@ -935,11 +1014,14 @@ def fetch_and_enrich_export(
         entite_code: Code de l'entité.
         saison: Saison au format "YYYY/YYYY".
         poule: Code de poule optionnel.
+        force_refresh: Forcer le re-téléchargement et re-scraping des index.
 
     Returns:
         Liste de matchs enrichis.
     """
-    matches = fetch_export(client, base_url, entite_code, saison, poule=poule)
+    matches = fetch_export(
+        client, base_url, entite_code, saison, poule=poule, force_refresh=force_refresh,
+    )
     if matches:
         enrich_matches_with_competition_info(
             matches, client, base_url, entite_code, saison,

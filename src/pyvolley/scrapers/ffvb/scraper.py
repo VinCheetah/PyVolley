@@ -114,6 +114,7 @@ class FFVBScraper(BaseScraper):
         *,
         poule: Optional[str] = None,
         divisions: Optional[list[str]] = None,
+        force_refresh: bool = False,
     ) -> list[ExportMatchInfo]:
         """Recupere tous les matchs d'une entite via l'export CSV.
 
@@ -129,6 +130,7 @@ class FFVBScraper(BaseScraper):
             saison: Saison (ex: 2025/2026). Par defaut : saison courante.
             poule: Code poule optionnel pour filtrer.
             divisions: Pour jeunes uniquement — codes division a scraper.
+            force_refresh: Forcer le re-téléchargement et re-scraping.
 
         Returns:
             Liste de ExportMatchInfo avec toutes les metadonnees.
@@ -149,18 +151,22 @@ class FFVBScraper(BaseScraper):
             entite_code,
             saison,
             poule=poule,
+            force_refresh=force_refresh,
         )
 
     def scrape_entities(
         self,
         entite_codes: list[str],
         saison: Optional[str] = None,
+        *,
+        force_refresh: bool = False,
     ) -> dict[str, list[ExportMatchInfo]]:
         """Scrape plusieurs entites et retourne les resultats groupes.
 
         Args:
             entite_codes: Liste de codes d'entites.
             saison: Saison.
+            force_refresh: Forcer le re-téléchargement.
 
         Returns:
             Dict {entite_code: [matches]}.
@@ -169,7 +175,7 @@ class FFVBScraper(BaseScraper):
         results: dict[str, list[ExportMatchInfo]] = {}
         for code in entite_codes:
             try:
-                results[code] = self.scrape_entity(code, saison)
+                results[code] = self.scrape_entity(code, saison, force_refresh=force_refresh)
             except Exception as e:
                 logger.error("Erreur scraping %s: %s", code, e)
                 results[code] = []

@@ -18,6 +18,12 @@ from pyvolley.parsers.extractors.fast.utils import (
     parse_date_heure,
     slice_words_in_box,
 )
+from pyvolley.shared.categorisation import (
+    normalize_genre,
+    normalize_categorie,
+    extract_division_number,
+)
+from pyvolley.shared.niveau import classify_level
 
 MD5_ICON_A = "02ef4187ffc068afb86d0e896c92a6f6"
 MD5_ICON_B = "a86a6115ce7f42ec4286e37e69883aa6"
@@ -110,13 +116,6 @@ def extract_fast_header(
     parsed_date, parsed_time = parse_date_heure(raw_date)
 
     # Genre & Catégorie extraits directement de la feuille de match
-    from pyvolley.shared.categorisation import (
-        normalize_genre,
-        normalize_categorie,
-        extract_division_number,
-    )
-    from pyvolley.shared.niveau import classify_level
-
     genre_str = normalize_genre(div_cat_str) or normalize_genre(competition)
     genre = try_enum(Genre, genre_str)
 

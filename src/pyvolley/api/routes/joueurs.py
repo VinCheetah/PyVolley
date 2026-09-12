@@ -123,7 +123,6 @@ async def get_joueur_match_detailed_stats(
     # Mode standard : servir depuis les stats persistées (pas de recalcul runtime)
     has_custom_mode = remplace_par_libero or est_mode_libero or bool(joueurs_remplaces)
     if not has_custom_mode:
-        stats_service.compute_and_store_for_match(match_db)
         persisted = stats_service.get_joueur_match_stats(joueur_id, match_id)
         if persisted:
             return persisted.model_dump(mode="json")
@@ -203,8 +202,10 @@ async def get_match_all_player_stats(
         raise HTTPException(status_code=404, detail="Match non trouvé")
 
     stats_service = JoueurMatchStatsService(match_repo.session)
-    stats_service.compute_and_store_for_match(match_db)
     stats_a_wrapped, stats_b_wrapped = stats_service.get_match_stats_grouped(match_id)
+    if not stats_a_wrapped and not stats_b_wrapped:
+        stats_service.compute_and_store_for_match(match_db)
+        stats_a_wrapped, stats_b_wrapped = stats_service.get_match_stats_grouped(match_id)
     stats_a = [item["stats"] for item in stats_a_wrapped]
     stats_b = [item["stats"] for item in stats_b_wrapped]
 

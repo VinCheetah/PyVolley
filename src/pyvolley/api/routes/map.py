@@ -8,10 +8,10 @@ pour le composant de carte Leaflet.
 from typing import Optional, List
 import urllib.parse
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import or_
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from pyvolley.api.dependencies import get_session
 from pyvolley.database.models import (
@@ -42,6 +42,9 @@ class MapMarker(BaseModel):
     sublabel: Optional[str] = None
     badge: Optional[str] = None
     url: Optional[str] = None
+    departement: Optional[str] = None
+    ville: Optional[str] = None
+    postcode: Optional[str] = None
 
 
 class MapResponse(BaseModel):
@@ -272,8 +275,9 @@ def _match_popup(match: MatchDB, perspective_team_id: Optional[int] = None) -> s
 
 @router.get("/locations", response_model=MapResponse)
 async def get_map_locations(
+    response: Response = None,
     entity_type: Optional[str] = Query(
-        None, description="Filtrer par type d'entité : club, salle, match"
+        None, description="Filtrer par type d'entité : club, salle, match (ou liste ex: club,salle)"
     ),
     club_id: Optional[int] = Query(None, description="Filtrer par ID de club"),
     competition_id: Optional[int] = Query(None, description="Filtrer par ID de compétition"),
@@ -292,6 +296,9 @@ async def get_map_locations(
     Gère le scoping contextuel (compétition, équipe, club, joueur, ligue, département)
     pour une expérience cartographique performante et ciblée.
     """
+    if response:
+        response.headers["Cache-Control"] = "public, max-age=60"
+
     markers: list[MapMarker] = []
 
     # Déballage défensif pour supporter les appels directs / tests unitaires
@@ -338,25 +345,40 @@ async def get_map_locations(
         scoped_club_ids = {club_id}
 
     # Déterminer quelles entités afficher selon le contexte
-    include_clubs = entity_type in (None, "club")
-    include_salles = entity_type in (None, "salle")
-    include_matchs = entity_type in (None, "match")
+    req_entities: set[str] = set()
+    if entity_type:
+        for piece in entity_type.split(","):
+            p_clean = piece.strip().lower()
+            if p_clean:
+                req_entities.add(p_clean)
+
+    if req_entities:
+        include_clubs = "club" in req_entities or "all" in req_entities
+        include_salles = "salle" in req_entities or "all" in req_entities
+        include_matchs = "match" in req_entities or "all" in req_entities
+    else:
+        include_clubs = True
+        include_salles = True
+        include_matchs = True
 
     # Si on est sur une fiche club et entity_type n'est pas spécifié,
     # on priorise le club et ses salles pour éviter d'inonder la carte de matchs.
-    if club_id is not None and entity_type is None:
+    if club_id is not None and not req_entities:
         include_matchs = False
 
     # Si on est sur une fiche joueur et entity_type n'est pas spécifié,
     # on priorise les matchs joués.
-    if joueur_id is not None and entity_type is None:
+    if joueur_id is not None and not req_entities:
         include_clubs = False
         include_salles = False
         include_matchs = True
 
     # ── 1. Marqueurs de Clubs ───────────────────────────────────
     if include_clubs:
-        query = session.query(ClubDB)
+        query = session.query(ClubDB).options(
+            selectinload(ClubDB.salles),
+            selectinload(ClubDB.equipes),
+        )
         if scoped_club_ids is not None:
             query = query.filter(ClubDB.id.in_(scoped_club_ids))
         if ligue:
@@ -372,11 +394,25 @@ async def get_map_locations(
             )
 
         for club in query.limit(limit).all():
+            # Résolution précise : si le club n'a pas de lat/lng direct, chercher sa salle principale
+            c_lat = club.latitude
+            c_lng = club.longitude
+            c_addr = None
+            c_salles = getattr(club, "salles", []) or []
+            if (c_lat is None or c_lng is None) and c_salles:
+                main_salle = next((s for s in c_salles if s.numero == 1 and s.latitude is not None), None)
+                if not main_salle:
+                    main_salle = next((s for s in c_salles if s.latitude is not None), None)
+                if main_salle:
+                    c_lat = main_salle.latitude
+                    c_lng = main_salle.longitude
+                    c_addr = main_salle.adresse
+
             coords = resolve_entity_coordinates(
-                latitude=club.latitude,
-                longitude=club.longitude,
+                latitude=c_lat,
+                longitude=c_lng,
                 ville=club.ville,
-                adresse=club.correspondant_adresse,
+                adresse=c_addr,
                 departement=club.departement,
                 entity_id=club.id,
             )
@@ -394,6 +430,8 @@ async def get_map_locations(
                     icon_color="blue",
                     icon_type="club",
                     sublabel=club.ville or club.departement or "Club",
+                    departement=club.departement,
+                    ville=club.ville,
                     url=f"/clubs/{club.id}",
                 )
             )
@@ -430,6 +468,8 @@ async def get_map_locations(
                 continue
 
             nom_salle = salle.nom or f"Salle {salle.numero}"
+            salle_dept = salle.club.departement if salle.club else None
+            salle_ville = salle.ville or (salle.club.ville if salle.club else None)
             markers.append(
                 MapMarker(
                     lat=coords[0],
@@ -441,6 +481,8 @@ async def get_map_locations(
                     icon_color="cyan",
                     icon_type="salle",
                     sublabel=salle.ville or (salle.club.nom if salle.club else "Salle"),
+                    departement=salle_dept,
+                    ville=salle_ville,
                     url=f"/clubs/{salle.club_id}" if salle.club_id else None,
                 )
             )
@@ -494,26 +536,52 @@ async def get_map_locations(
             lat = lng = None
             if match.equipe_a and match.equipe_a.club:
                 club = match.equipe_a.club
-                # 1. Chercher dans les salles déclarées du club receveur
-                for salle in getattr(club, "salles", []):
+                club_salles = getattr(club, "salles", []) or []
+
+                # 1. Chercher si une salle correspond spécifiquement au nom match.salle
+                matched_salle = None
+                if match.salle and club_salles:
+                    m_norm = match.salle.strip().lower()
+                    for s in club_salles:
+                        s_norm = (s.nom or "").strip().lower()
+                        if s_norm and (s_norm in m_norm or m_norm in s_norm):
+                            matched_salle = s
+                            break
+
+                if matched_salle:
                     c = resolve_entity_coordinates(
-                        latitude=salle.latitude,
-                        longitude=salle.longitude,
-                        ville=salle.ville or club.ville,
-                        adresse=salle.adresse,
+                        latitude=matched_salle.latitude,
+                        longitude=matched_salle.longitude,
+                        ville=matched_salle.ville or club.ville,
+                        adresse=matched_salle.adresse,
                         departement=club.departement,
-                        entity_id=salle.id,
+                        entity_id=matched_salle.id,
                     )
                     if c is not None:
                         lat, lng = c
-                        break
-                # 2. Fallback sur le club receveur
+
+                # 2. Sinon parcourir les salles déclarées du club receveur
+                if lat is None:
+                    for salle in club_salles:
+                        c = resolve_entity_coordinates(
+                            latitude=salle.latitude,
+                            longitude=salle.longitude,
+                            ville=salle.ville or club.ville,
+                            adresse=salle.adresse,
+                            departement=club.departement,
+                            entity_id=salle.id,
+                        )
+                        if c is not None:
+                            lat, lng = c
+                            break
+
+                # 3. Fallback sur le club receveur
                 if lat is None:
                     c = resolve_entity_coordinates(
                         latitude=club.latitude,
                         longitude=club.longitude,
                         ville=club.ville,
-                        adresse=club.correspondant_adresse,
+                        adresse=None,
                         departement=club.departement,
                         entity_id=club.id,
                     )
@@ -552,6 +620,8 @@ async def get_map_locations(
                         icon_color=icon_color,
                         icon_type=icon_type,
                         sublabel=date_label or (match.competition.nom if match.competition else ""),
+                        departement=club.departement if club else None,
+                        ville=club.ville if club else None,
                         url=f"/matchs/{match.id}",
                     )
                 )
