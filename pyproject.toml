@@ -74,10 +74,11 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 asyncio_mode = "auto"
-addopts = "-v --tb=short"
+addopts = "-v --tb=short -m 'not network and not integration and not benchmark' --benchmark-disable"
 markers = [
     "integration: tests d'intégration avec le site FFVB réel",
     "network: tests nécessitant un accès réseau au site FFVB",
+    "benchmark: benchmarks de performance du parseur",
 ]
 
 [tool.black]

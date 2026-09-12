@@ -157,6 +157,7 @@ class RollupStatsService:
 
         count = 0
         now = datetime.now()
+        all_payloads: list[dict] = []
 
         for (j_id, s_id, comp_id, eq_id), match_list in grouped.items():
             if not s_id:
@@ -270,15 +271,13 @@ class RollupStatsService:
                 "role_distribution": role_distribution,
                 "updated_at": now,
             }
+            all_payloads.append(payload)
 
-            self.joueur_saison_repo.upsert(payload)
-            count += 1
+        if all_payloads:
+            self.joueur_saison_repo.bulk_upsert(all_payloads, batch_size=batch_size)
+            self.session.flush()
 
-            if count % batch_size == 0:
-                self.session.flush()
-
-        self.session.flush()
-        return count
+        return len(all_payloads)
 
     # =================================================================
     # 2. Statistiques Joueur Carrière
@@ -440,6 +439,7 @@ class RollupStatsService:
 
         count = 0
         now = datetime.now()
+        all_payloads: list[dict] = []
 
         for r in rows:
             premier_date, dernier_date = dates_map.get(r.joueur_id, (None, None))
@@ -491,15 +491,13 @@ class RollupStatsService:
                 "role_distribution": c_dist,
                 "updated_at": now,
             }
+            all_payloads.append(payload)
 
-            self.joueur_carriere_repo.upsert(payload)
-            count += 1
+        if all_payloads:
+            self.joueur_carriere_repo.bulk_upsert(all_payloads, batch_size=batch_size)
+            self.session.flush()
 
-            if count % batch_size == 0:
-                self.session.flush()
-
-        self.session.flush()
-        return count
+        return len(all_payloads)
 
     # =================================================================
     # 3. Statistiques Équipe par Saison
@@ -737,10 +735,12 @@ class RollupStatsService:
             )
             for rank_num, p in enumerate(grp_items, start=1):
                 p["rang"] = rank_num
-                self.equipe_saison_repo.upsert(p)
-                count += 1
 
-        self.session.flush()
+        if all_payloads:
+            self.equipe_saison_repo.bulk_upsert(all_payloads, batch_size=batch_size)
+            self.session.flush()
+
+        count = len(all_payloads)
 
         # Rafraîchir les caches de poule
         poule_ids = {p["poule_id"] for p in all_payloads if p.get("poule_id")}
@@ -820,6 +820,7 @@ class RollupStatsService:
 
         count = 0
         now = datetime.now()
+        all_payloads: list[dict] = []
 
         for r in team_stats_rows:
             cid = r.club_id
@@ -852,14 +853,13 @@ class RollupStatsService:
                 "nb_joueurs_distincts": nb_joueurs_map.get(cid, 0),
                 "updated_at": now,
             }
-            self.club_stats_repo.upsert(payload)
-            count += 1
+            all_payloads.append(payload)
 
-            if count % batch_size == 0:
-                self.session.flush()
+        if all_payloads:
+            self.club_stats_repo.bulk_upsert(all_payloads, batch_size=batch_size)
+            self.session.flush()
 
-        self.session.flush()
-        return count
+        return len(all_payloads)
 
     # =================================================================
     # 4. Actualisation Incrémentale Delta Match

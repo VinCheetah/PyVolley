@@ -70,6 +70,10 @@ class RankingItem:
     stats_complementaires: Dict[str, Any] = field(default_factory=dict)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def canonical_id(self) -> str:
+        return str(self.metadata.get("licence") or self.metadata.get("code_ffvb") or self.entity_id)
+
 
 @dataclass
 class RankingResult:
@@ -348,7 +352,7 @@ class RankingService:
                     },
                     metadata={
                         "licence": joueur.licence if joueur else None,
-                        "club_id": joueur.club_id if joueur else None,
+                        "club_id": getattr(joueur, "club_id", None) or (rec.equipe.club_id if getattr(rec, "equipe", None) and rec.equipe else None),
                     },
                 )
             )

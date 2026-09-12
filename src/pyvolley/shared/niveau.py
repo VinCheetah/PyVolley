@@ -23,7 +23,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 from pyvolley.shared.categorisation import (
     extract_division_number,
@@ -597,3 +597,114 @@ def niveau_reference_labels() -> list[dict[str, int | str]]:
         {"rank": rank, "label": label}
         for rank, label in sorted(RANK_REFERENCE_LABELS.items(), key=lambda item: item[0])
     ]
+
+
+# ── Échelons administratifs / territoriaux ───────────────────────────
+
+ECHELON_METADATA: dict[str, dict[str, Any]] = {
+    "national": {
+        "key": "national",
+        "label": "National",
+        "short_label": "National",
+        "icon": "trophy",
+        "badge_css": "badge-gold",
+        "description": "Championnats de France et divisions fédérales (Pro A, Pro B, Élite, N2, N3)",
+        "order": 1,
+    },
+    "regional": {
+        "key": "regional",
+        "label": "Régional",
+        "short_label": "Régional",
+        "icon": "map",
+        "badge_css": "badge-blue",
+        "description": "Ligues régionales (Pré-Nationale, Régionale 1, Régionale 2, Jeunes Régionaux)",
+        "order": 2,
+    },
+    "departemental": {
+        "key": "departemental",
+        "label": "Départemental",
+        "short_label": "Départemental",
+        "icon": "map-pin",
+        "badge_css": "badge-teal",
+        "description": "Comités départementaux (Pré-Régionale, D1, D2, D3, D4, Tournois Départementaux)",
+        "order": 3,
+    },
+    "coupe_de_france": {
+        "key": "coupe_de_france",
+        "label": "Coupe de France",
+        "short_label": "Coupes",
+        "icon": "award",
+        "badge_css": "badge-purple",
+        "description": "Coupes de France Seniors, Fédérales et Jeunes (M13 à M21)",
+        "order": 4,
+    },
+    "loisir": {
+        "key": "loisir",
+        "label": "Loisir & Autres",
+        "short_label": "Loisir",
+        "icon": "smile",
+        "badge_css": "badge-yellow",
+        "description": "Championnats loisirs, corpo, détente, brassage et compétitions non officielles",
+        "order": 5,
+    },
+}
+
+
+def resolve_competition_echelon(
+    nom: Optional[str] = None,
+    niveau: Optional[str] = None,
+    categorie: Optional[str] = None,
+    division: Optional[str | int] = None,
+    entite_type: Optional[str] = None,
+    code_competition: Optional[str] = None,
+) -> str:
+    """Détermine l'échelon territorial ('national', 'regional', 'departemental', 'coupe_de_france', 'loisir')."""
+    text = normalize_text_upper(f"{nom or ''} {code_competition or ''}")
+
+    # 1. Coupe de France
+    if "COUPE DE FRANCE" in text or re.search(r"\bCDF\b", text):
+        return "coupe_de_france"
+
+    # 2. Loisir & détente
+    if any(k in text for k in ("LOISIR", "BRASSAGE", "COMPET'FUN", "COMPET FUN", "COMPET'MOUV")):
+        return "loisir"
+
+    # 3. Entité organisatrice explicite
+    if entite_type:
+        ent_norm = entite_type.strip().lower()
+        if ent_norm in ("nationale", "national"):
+            return "national"
+        if ent_norm in ("ligue", "regionale", "regional"):
+            return "regional"
+        if ent_norm in ("comite", "departementale", "departemental"):
+            return "departemental"
+
+    # 4. Classification du niveau
+    classification = classify_level(
+        competition_name=nom,
+        niveau=niveau,
+        categorie=categorie,
+        division=division,
+    )
+    cat_princ = classification.categorie_principale
+    if cat_princ in ("PRO", "ELITE", "NATIONALE"):
+        return "national"
+    if cat_princ in ("PRE_NATIONALE", "REGIONALE"):
+        return "regional"
+    if cat_princ in ("PRE_REGIONALE", "DEPARTEMENTALE"):
+        return "departemental"
+    if cat_princ == "COUPE_DE_FRANCE":
+        return "coupe_de_france"
+    if cat_princ == "LOISIR":
+        return "loisir"
+
+    # 5. Regex directes sur le nom/code
+    if re.search(r"\b(PRO\s*[AB]?|ELITE|NATIONAL(?:E|ES|S)?|N[1-3])\b", text):
+        return "national"
+    if re.search(r"\b(REGIONAL(?:E|ES|S)?|PRE-?NAT(?:IONALE?)?|R[1-4]|TID)\b", text):
+        return "regional"
+    if re.search(r"\b(DEPARTEMENTAL(?:E|ES|S)?|PRE-?REG(?:IONALE?)?|D[1-4])\b", text):
+        return "departemental"
+
+    return "regional"
+

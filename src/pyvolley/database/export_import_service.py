@@ -40,6 +40,11 @@ from pyvolley.database.models import (
 
 from pyvolley.shared.niveau import classify_level
 from pyvolley.core.geo_data import department_from_club_code
+from pyvolley.core.geocoding import (
+    geocode_address,
+    geocode_addresses_batch,
+    get_geocoding_cache,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -230,6 +235,42 @@ class ExportImportService:
             entite_nom = getattr(first, 'entite_nom', None)
         entite = self._get_or_create_entite(entite_code, nom=entite_nom)
 
+        # ── Pré-chargement en BLOC des entités pour éliminer les N+1 SELECT et autoflushes ──
+        all_club_codes = {
+            m.club_a_code_ffvb for m in matches if m.club_a_code_ffvb
+        } | {
+            m.club_b_code_ffvb for m in matches if m.club_b_code_ffvb
+        }
+        if all_club_codes:
+            for i in range(0, len(all_club_codes), 900):
+                chunk = list(all_club_codes)[i : i + 900]
+                for c in self.session.scalars(select(ClubDB).where(ClubDB.code_ffvb.in_(chunk))).all():
+                    if c.code_ffvb:
+                        self._club_cache[c.code_ffvb] = c
+
+        all_licences = {
+            a.licence for m in matches for a in m.arbitres if a.licence
+        }
+        if all_licences:
+            for i in range(0, len(all_licences), 900):
+                chunk = list(all_licences)[i : i + 900]
+                for a in self.session.scalars(select(ArbitreDB).where(ArbitreDB.licence.in_(chunk))).all():
+                    if a.licence:
+                        self._arbitre_cache[a.licence] = a
+
+        if saison and saison.id:
+            for comp in self.session.scalars(select(CompetitionDB).where(CompetitionDB.saison_id == saison.id)).all():
+                key = (comp.nom, comp.saison_id, comp.genre, comp.categorie)
+                self._competition_cache[key] = comp
+
+            for p in self.session.scalars(
+                select(PouleDB).join(CompetitionDB).where(CompetitionDB.saison_id == saison.id)
+            ).all():
+                self._poule_cache[(p.code, p.competition_id)] = p
+
+            for eq in self.session.scalars(select(EquipeDB).where(EquipeDB.saison_id == saison.id)).all():
+                self._equipe_cache[(eq.nom, eq.saison_id, eq.competition_id)] = eq
+
         # Pré-charger les matchs existants pour éviter N+1 requêtes SELECT
         existing_matches_map: dict[str, MatchDB] = {}
         all_codes = [m.code_match for m in matches if m.code_match]
@@ -244,21 +285,26 @@ class ExportImportService:
                 ).all():
                     existing_matches_map[m_db.code_match] = m_db
 
-        for match_info in matches:
-            try:
-                with self.session.begin_nested():
+        batch_size = 200
+        with self.session.no_autoflush:
+            for idx, match_info in enumerate(matches, 1):
+                try:
                     result = self._import_single_match(
                         match_info, saison, entite,
                         existing_match=existing_matches_map.get(match_info.code_match),
                     )
-                stats[result] += 1
-            except Exception as e:
-                logger.error(
-                    "Erreur import match %s: %s",
-                    match_info.code_match, e,
-                )
-                self.clear_caches()
-                stats["errors"] += 1
+                    stats[result] += 1
+                    if idx % batch_size == 0:
+                        self.session.flush()
+                except Exception as e:
+                    logger.error(
+                        "Erreur import match %s: %s",
+                        match_info.code_match, e,
+                    )
+                    self.clear_caches()
+                    stats["errors"] += 1
+
+        self.session.flush()
 
         # Finaliser l'audit
         log_entry.finished_at = datetime.now()
@@ -440,7 +486,6 @@ class ExportImportService:
         )
 
         self.session.add(match_db)
-        self.session.flush()
 
         # Scores détaillés de sets depuis l'export CSV (phase scraping)
         if match_info.sets and has_details:
@@ -594,20 +639,15 @@ class ExportImportService:
 
     def _replace_match_sets_from_export(self, match_db: MatchDB, match_info: ExportMatchInfo) -> None:
         """Remplace les sets d'un match par les scores détaillés de l'export."""
-        for old_set in list(match_db.sets):
-            self.session.delete(old_set)
-        self.session.flush()
-
+        match_db.sets.clear()
         for idx, (score_a, score_b) in enumerate(match_info.sets, start=1):
-            self.session.add(
+            match_db.sets.append(
                 SetDB(
-                    match_id=match_db.id,
                     numero=idx,
                     score_a=score_a,
                     score_b=score_b,
                 )
             )
-        self.session.flush()
 
     # =================================================================
     # Résolution des entités
@@ -1019,31 +1059,24 @@ class ExportImportService:
                     comite_departemental=arb_info.comite_departemental,
                 )
                 self.session.add(arbitre)
-                self.session.flush()
 
             self._arbitre_cache[cache_key] = arbitre
 
         # Déterminer le rôle (1er ou 2e arbitre)
-        existing_roles = self.session.execute(
-            select(ArbitreMatchDB).where(
-                ArbitreMatchDB.match_id == match_db.id,
-            )
-        ).scalars().all()
-
-        role = f"arbitre_{len(existing_roles) + 1}"
+        role = f"arbitre_{len(match_db.arbitrages) + 1}"
 
         # Vérifier qu'il n'est pas déjà assigné
         already_assigned = any(
-            am.arbitre_id == arbitre.id for am in existing_roles
+            am.arbitre == arbitre or (arbitre.id is not None and am.arbitre_id == arbitre.id)
+            for am in match_db.arbitrages
         )
         if not already_assigned:
-            am = ArbitreMatchDB(
-                arbitre_id=arbitre.id,
-                match_id=match_db.id,
-                role=role,
+            match_db.arbitrages.append(
+                ArbitreMatchDB(
+                    arbitre=arbitre,
+                    role=role,
+                )
             )
-            self.session.add(am)
-            self.session.flush()
 
     # =================================================================
     # Enrichissement des clubs depuis l'adressier
@@ -1056,6 +1089,7 @@ class ExportImportService:
         saison: str,
         base_url: str,
         force_reenrich: bool = False,
+        geocode: bool = True,
     ) -> dict:
         """Enrichit les clubs en base avec les données de l'adressier FFVB.
 
@@ -1074,6 +1108,65 @@ class ExportImportService:
         """
         stats = {"enriched": 0, "created": 0, "skipped": 0}
 
+        # Pré-charger les clubs existants par code FFVB pour éviter les requêtes N+1
+        all_codes = [c.code_ffvb for c in clubs_info if c.code_ffvb]
+        existing_clubs_map: dict[str, ClubDB] = {}
+        if all_codes:
+            for i in range(0, len(all_codes), 900):
+                chunk = all_codes[i : i + 900]
+                for c in self.session.scalars(
+                    select(ClubDB).where(ClubDB.code_ffvb.in_(chunk))
+                ).all():
+                    existing_clubs_map[c.code_ffvb] = c
+
+        # Pré-géocodage ciblé par batch CSV (BAN) :
+        # On ne traite que les clubs nouveaux ou dont les coordonnées manquent encore !
+        batch_geo_results: dict[str, Optional[GeocodingResult]] = {}
+        if geocode:
+            geo_items = []
+            for c_info in clubs_info:
+                if not c_info.code_ffvb:
+                    continue
+
+                # Si le club existe déjà, qu'il est déjà enrichi et qu'on ne force pas la réécriture :
+                existing_club = existing_clubs_map.get(c_info.code_ffvb)
+                if not force_reenrich and existing_club and self._has_adressier_data(existing_club):
+                    # Vérifier si club et salles ont déjà leurs coordonnées GPS
+                    club_has_coords = existing_club.latitude is not None and existing_club.longitude is not None
+                    salles_have_coords = all(
+                        s.latitude is not None and s.longitude is not None
+                        for s in existing_club.salles
+                    )
+                    if club_has_coords and (salles_have_coords or not existing_club.salles):
+                        continue
+
+                c_city = None
+                if c_info.correspondant_ville:
+                    _, c_city = _split_postal_city(c_info.correspondant_ville)
+                for s_info in c_info.salles:
+                    v = s_info.ville or c_city
+                    salle_id = f"salle_{c_info.code_ffvb}_{s_info.numero}"
+                    geo_items.append({
+                        "id": salle_id,
+                        "adresse": s_info.adresse,
+                        "ville": v,
+                        "nom": s_info.nom,
+                    })
+                if c_city:
+                    club_id = f"club_{c_info.code_ffvb}"
+                    geo_items.append({
+                        "id": club_id,
+                        "adresse": None,
+                        "ville": c_city,
+                        "nom": c_info.nom,
+                    })
+            if geo_items:
+                batch_geo_results = geocode_addresses_batch(
+                    geo_items,
+                    use_cache=True,
+                    allow_nominatim=False,
+                )
+
         for club_info in clubs_info:
             if not club_info.code_ffvb:
                 stats["skipped"] += 1
@@ -1082,9 +1175,11 @@ class ExportImportService:
             dept = department_from_club_code(club_info.code_ffvb)
 
             # Trouver ou créer le club
-            club = self.session.execute(
-                select(ClubDB).where(ClubDB.code_ffvb == club_info.code_ffvb)
-            ).scalar_one_or_none()
+            club = existing_clubs_map.get(club_info.code_ffvb)
+            if not club:
+                club = self.session.execute(
+                    select(ClubDB).where(ClubDB.code_ffvb == club_info.code_ffvb)
+                ).scalar_one_or_none()
 
             if not club:
                 # Réconciliation : vérifier si un club existait sans code FFVB
@@ -1112,8 +1207,8 @@ class ExportImportService:
                         departement=dept,
                     )
                     self.session.add(club)
-                    self.session.flush()
                     stats["created"] += 1
+                existing_clubs_map[club_info.code_ffvb] = club
             else:
                 if not force_reenrich and self._has_adressier_data(club):
                     stats["skipped"] += 1
@@ -1163,26 +1258,67 @@ class ExportImportService:
             if club_info.correspondant_email:
                 club.correspondant_email = club_info.correspondant_email
 
-            # Salles — supprimer les existantes et recréer
-            for existing_salle in club.salles:
-                self.session.delete(existing_salle)
-            self.session.flush()
+            # Salles — mise à jour in-place pour respecter la contrainte UNIQUE (club_id, numero)
+            existing_salles = {s.numero: s for s in club.salles}
+            new_numeros = {s_info.numero for s_info in club_info.salles}
+            for num, s in list(existing_salles.items()):
+                if num not in new_numeros:
+                    self.session.delete(s)
 
             for salle_info in club_info.salles:
-                salle = SalleClubDB(
-                    club_id=club.id,
-                    numero=salle_info.numero,
-                    nom=salle_info.nom,
-                    adresse=salle_info.adresse,
-                    ville=salle_info.ville,
-                    telephone=salle_info.telephone,
-                    sol=salle_info.sol,
-                    capacite=salle_info.capacite,
-                    transport=salle_info.transport,
-                )
-                self.session.add(salle)
+                lat, lng = None, None
+                if geocode:
+                    salle_id = f"salle_{club_info.code_ffvb}_{salle_info.numero}"
+                    geo_res = batch_geo_results.get(salle_id)
+                    if geo_res:
+                        lat, lng = geo_res.latitude, geo_res.longitude
 
-            self.session.flush()
+                if salle_info.numero in existing_salles:
+                    salle = existing_salles[salle_info.numero]
+                    salle.nom = salle_info.nom
+                    salle.adresse = salle_info.adresse
+                    salle.ville = salle_info.ville
+                    salle.telephone = salle_info.telephone
+                    salle.sol = salle_info.sol
+                    salle.capacite = salle_info.capacite
+                    salle.transport = salle_info.transport
+                    if lat is not None and lng is not None:
+                        salle.latitude = lat
+                        salle.longitude = lng
+                else:
+                    club.salles.append(
+                        SalleClubDB(
+                            numero=salle_info.numero,
+                            nom=salle_info.nom,
+                            adresse=salle_info.adresse,
+                            ville=salle_info.ville,
+                            telephone=salle_info.telephone,
+                            sol=salle_info.sol,
+                            capacite=salle_info.capacite,
+                            transport=salle_info.transport,
+                            latitude=lat,
+                            longitude=lng,
+                        )
+                    )
+
+            # La localisation du club est celle de sa salle principale (Salle 1)
+            main_salle = next((s for s in club.salles if s.numero == 1), None) or (club.salles[0] if club.salles else None)
+            if main_salle and main_salle.latitude is not None and main_salle.longitude is not None:
+                club.latitude = main_salle.latitude
+                club.longitude = main_salle.longitude
+            elif club.ville and geocode and (club.latitude is None or club.longitude is None):
+                # Fallback uniquement sur la commune du club (jamais l'adresse privée du correspondant)
+                club_id = f"club_{club_info.code_ffvb}"
+                city_geo = batch_geo_results.get(club_id)
+                if not city_geo and not batch_geo_results:
+                    city_geo = geocode_address(adresse=None, ville=club.ville, nom=club.nom, allow_nominatim=False)
+                if city_geo:
+                    club.latitude = city_geo.latitude
+                    club.longitude = city_geo.longitude
+
+        self.session.flush()
+        if geocode:
+            get_geocoding_cache().save()
 
         logger.info(
             "Enrichissement clubs %s: %d enrichis, %d créés, %d ignorés%s",

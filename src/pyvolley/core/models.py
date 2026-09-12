@@ -11,7 +11,7 @@ from datetime import date as datetime_date, datetime, time as datetime_time
 from typing import Optional
 from enum import Enum
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from pyvolley.shared.match_scores import resolve_match_score
 
@@ -33,10 +33,11 @@ from pyvolley.core.constants import (
 class PyVolleyModel(BaseModel):
     """Modèle de base avec configuration commune."""
     
-    class Config:
-        from_attributes = True
-        populate_by_name = True
-        str_strip_whitespace = True
+    model_config = ConfigDict(
+        from_attributes=True,
+        populate_by_name=True,
+        str_strip_whitespace=True,
+    )
 
 
 # ============== Joueur ==============

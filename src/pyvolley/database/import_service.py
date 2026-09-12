@@ -67,12 +67,21 @@ class MatchImportService:
         # Nécessaire car autoflush=False empêche les queries de voir les adds en attente
         self._participation_seen: set[tuple[int, int]] = set()
 
-    def clear_caches(self) -> None:
-        """Vide tous les caches internes.
+    def clear_caches(self, clear_all: bool = True) -> None:
+        """Vide les caches internes.
 
-        À appeler impérativement après un ``session.rollback()`` : les objets
-        cachés sont alors détachés et leurs identifiants potentiellement invalides.
+        Args:
+            clear_all: Si True, vide l'intégralité des caches d'entités (saisons, clubs,
+                équipes, joueurs, arbitres...). À appeler impérativement après un
+                ``session.rollback()`` où les identifiants peuvent être invalidés.
+                Si False, ne purge que les structures de suivi temporaires
+                (ex: ``_participation_seen``) pour préserver les entités résolues
+                au cours d'un lot d'import.
         """
+        self._participation_seen.clear()
+        if not clear_all:
+            return
+
         self._saison_cache.clear()
         self._club_cache.clear()
         self._equipe_cache.clear()
@@ -82,7 +91,6 @@ class MatchImportService:
         self._competition_cache.clear()
         self._poule_cache.clear()
         self._entite_cache.clear()
-        self._participation_seen.clear()
 
     # =================================================================
     # Import principal
@@ -93,6 +101,7 @@ class MatchImportService:
         match_data: Match,
         *,
         defer_rollups: bool = False,
+        defer_player_stats: bool = False,
     ) -> Optional[MatchDB]:
         """
         Importe un match complet dans la base de données.
@@ -223,7 +232,7 @@ class MatchImportService:
             self.session.flush()
 
         # 11. Statistiques détaillées joueur (persistées en base)
-        if match_db.has_details:
+        if match_db.has_details and not defer_player_stats:
             stats_service = JoueurMatchStatsService(self.session)
             count = stats_service.compute_and_store_for_match(
                 match_db, force=True, match_core=match_data,
@@ -250,6 +259,7 @@ class MatchImportService:
         *,
         batch_size: int = 200,
         defer_rollups: bool = True,
+        defer_player_stats: bool = False,
     ) -> dict:
         """Importe plusieurs matchs avec commit par batch.
 
@@ -280,7 +290,11 @@ class MatchImportService:
 
         for i, match_data in enumerate(matches):
             try:
-                result = self.import_match(match_data, defer_rollups=defer_rollups)
+                result = self.import_match(
+                    match_data,
+                    defer_rollups=defer_rollups,
+                    defer_player_stats=defer_player_stats,
+                )
                 if result:
                     stats["imported"] += 1
                     batch_imported += 1
@@ -333,6 +347,14 @@ class MatchImportService:
                 self.session.commit()
             except Exception as exc:
                 logger.warning("Erreur lors de l'actualisation consolidée des rollups: %s", exc)
+
+        # Passe consolidée des stats joueurs si différées
+        if defer_player_stats and all_imported_ids:
+            try:
+                self.compute_player_stats_for_matches(all_imported_ids)
+                self.session.commit()
+            except Exception as exc:
+                logger.warning("Erreur lors du calcul consolidé des stats joueurs: %s", exc)
 
         return stats
 
@@ -1459,6 +1481,7 @@ class MatchImportService:
         *,
         force: bool = False,
         defer_rollups: bool = False,
+        defer_player_stats: bool = False,
     ) -> bool:
         """Enrichit un match existant en base avec les données d'un PDF parsé.
 
@@ -1602,43 +1625,45 @@ class MatchImportService:
                 updated = True
 
         # ── Suppression consolidée des anciens éléments détaillés (Bulk Delete direct) ──
+        has_existing_details = bool(force or match_db.has_details or match_db.parsing_status == "parsed")
         expired_relations = []
-        if parsed.sets:
-            if match_db.has_details:
-                set_ids = self.session.scalars(select(SetDB.id).where(SetDB.match_id == match_db.id)).all()
-                if set_ids:
-                    self.session.execute(delete(FormationDB).where(FormationDB.set_id.in_(set_ids)))
-                    self.session.execute(delete(ChangementDB).where(ChangementDB.set_id.in_(set_ids)))
-                    self.session.execute(delete(TimeoutDB).where(TimeoutDB.set_id.in_(set_ids)))
-            self.session.execute(delete(SetDB).where(SetDB.match_id == match_db.id))
-            expired_relations.append("sets")
+        if has_existing_details:
+            if parsed.sets:
+                if match_db.has_details:
+                    set_ids = self.session.scalars(select(SetDB.id).where(SetDB.match_id == match_db.id)).all()
+                    if set_ids:
+                        self.session.execute(delete(FormationDB).where(FormationDB.set_id.in_(set_ids)))
+                        self.session.execute(delete(ChangementDB).where(ChangementDB.set_id.in_(set_ids)))
+                        self.session.execute(delete(TimeoutDB).where(TimeoutDB.set_id.in_(set_ids)))
+                self.session.execute(delete(SetDB).where(SetDB.match_id == match_db.id))
+                expired_relations.append("sets")
 
-        if parsed.arbitres:
-            self.session.execute(delete(ArbitreMatchDB).where(ArbitreMatchDB.match_id == match_db.id))
-            expired_relations.append("arbitrages")
+            if parsed.arbitres:
+                self.session.execute(delete(ArbitreMatchDB).where(ArbitreMatchDB.match_id == match_db.id))
+                expired_relations.append("arbitrages")
 
-        if parsed.sanctions:
-            self.session.execute(delete(SanctionDB).where(SanctionDB.match_id == match_db.id))
-            expired_relations.append("sanctions")
+            if parsed.sanctions:
+                self.session.execute(delete(SanctionDB).where(SanctionDB.match_id == match_db.id))
+                expired_relations.append("sanctions")
 
-        if parsed.equipe_a and parsed.equipe_a.officiels:
-            self.session.execute(delete(OfficielMatchDB).where(OfficielMatchDB.match_id == match_db.id, OfficielMatchDB.equipe == "A"))
-            if "officiels" not in expired_relations:
-                expired_relations.append("officiels")
+            if parsed.equipe_a and parsed.equipe_a.officiels:
+                self.session.execute(delete(OfficielMatchDB).where(OfficielMatchDB.match_id == match_db.id, OfficielMatchDB.equipe == "A"))
+                if "officiels" not in expired_relations:
+                    expired_relations.append("officiels")
 
-        if parsed.equipe_b and parsed.equipe_b.officiels:
-            self.session.execute(delete(OfficielMatchDB).where(OfficielMatchDB.match_id == match_db.id, OfficielMatchDB.equipe == "B"))
-            if "officiels" not in expired_relations:
-                expired_relations.append("officiels")
+            if parsed.equipe_b and parsed.equipe_b.officiels:
+                self.session.execute(delete(OfficielMatchDB).where(OfficielMatchDB.match_id == match_db.id, OfficielMatchDB.equipe == "B"))
+                if "officiels" not in expired_relations:
+                    expired_relations.append("officiels")
 
-        if (parsed.equipe_a or parsed.equipe_b) and (force or match_db.has_details):
-            self.session.execute(delete(ParticipationMatchDB).where(ParticipationMatchDB.match_id == match_db.id))
-            self._participation_seen = {k for k in self._participation_seen if k[0] != match_db.id}
-            if "participations" not in expired_relations:
-                expired_relations.append("participations")
+            if (parsed.equipe_a or parsed.equipe_b):
+                self.session.execute(delete(ParticipationMatchDB).where(ParticipationMatchDB.match_id == match_db.id))
+                self._participation_seen = {k for k in self._participation_seen if k[0] != match_db.id}
+                if "participations" not in expired_relations:
+                    expired_relations.append("participations")
 
-        if expired_relations:
-            self.session.expire(match_db, expired_relations)
+            if expired_relations:
+                self.session.expire(match_db, expired_relations)
 
         # ── Sets détaillés ──
         if parsed.sets:
@@ -1703,11 +1728,12 @@ class MatchImportService:
             match_db.source_pdf = parsed.source_pdf
             match_db.parsed_at = parsed.parsed_at or datetime.now()
             match_db.updated_at = datetime.now()
-            self.session.flush()
+            if not defer_player_stats or not defer_rollups:
+                self.session.flush()
 
             # Recalcule et persiste les statistiques détaillées des joueurs
             # en réutilisant directement l'objet core parsed sans re-conversion SQL.
-            if match_db.has_details:
+            if match_db.has_details and not defer_player_stats:
                 stats_service = JoueurMatchStatsService(self.session)
                 count = stats_service.compute_and_store_for_match(
                     match_db, force=True, match_core=parsed, flush=not defer_rollups,
@@ -1727,6 +1753,43 @@ class MatchImportService:
                     logger.warning("Erreur lors de l'actualisation des rollups pour le match %s: %s", match_db.id, exc)
 
         return updated
+
+    def compute_player_stats_for_matches(
+        self,
+        match_ids: list[int],
+        *,
+        chunk_size: int = 50,
+        progress_callback: Optional[Any] = None,
+    ) -> int:
+        """Calcule et persiste les statistiques détaillées des joueurs pour une liste de matchs.
+
+        Exécuté en passe unique consolidée pour éviter des calculs bloquants et des flushes
+        répétitifs dans la boucle d'enrichissement principale.
+        """
+        if not match_ids:
+            return 0
+
+        stats_service = JoueurMatchStatsService(self.session)
+        total_rows = 0
+
+        for i, match_id in enumerate(match_ids):
+            match_db = self.session.get(MatchDB, match_id)
+            if match_db and match_db.has_details:
+                rows = stats_service.compute_and_store_for_match(
+                    match_db,
+                    force=True,
+                    flush=False,
+                )
+                total_rows += rows
+
+            if progress_callback:
+                progress_callback(1)
+
+            if (i + 1) % chunk_size == 0:
+                self.session.flush()
+
+        self.session.flush()
+        return total_rows
 
     # =================================================================
     # Requêtes de statut pour le pipeline

@@ -392,3 +392,28 @@ def vacuum_db() -> dict:
         "freed_mb": round(freed_mb, 2),
     }
 
+
+@contextmanager
+def sqlite_bulk_mode(session: Session) -> Generator[None, None, None]:
+    """Optimise SQLite pour les écritures massives par lots.
+
+    Désactive temporairement les checkpoints WAL automatiques en cours de lot
+    pour éviter les blocages disque bloquants (fsync), puis effectue un
+    checkpoint consolidé et rétablit les valeurs par défaut à la sortie.
+    Sans effet si le backend n'est pas SQLite.
+    """
+    if not settings.is_sqlite:
+        yield
+        return
+
+    try:
+        session.execute(text("PRAGMA wal_autocheckpoint = 0"))
+        yield
+    finally:
+        try:
+            session.execute(text("PRAGMA wal_checkpoint(PASSIVE)"))
+            session.execute(text("PRAGMA wal_autocheckpoint = 1000"))
+        except Exception as exc:
+            logger.debug("Échec de restauration des pragmas SQLite bulk: %s", exc)
+
+

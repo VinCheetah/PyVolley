@@ -30,7 +30,7 @@ from pyvolley.database.models import (
     SaisonDB,
 )
 from pyvolley.database.repositories import JoueurMatchStatsRepository
-from pyvolley.database.rollup_service import RollupStatsService
+from pyvolley.database.rollup_service import RollupStatsService, _chunked
 
 logger = logging.getLogger(__name__)
 
@@ -335,6 +335,15 @@ class RoleDiffusionService:
         updated_joueurs: set[int] = set()
         updated_saisons: set[int] = set()
 
+        # Pré-charger toutes les lignes joueur_match_stats concernées en batch
+        # pour éviter des milliers de requêtes SELECT unitaires (anti-pattern N+1).
+        all_match_ids = list(match_cache.keys())
+        existing_entries: dict[tuple[int, int], JoueurMatchStatsDB] = {}
+        for chunk in _chunked(all_match_ids, 500):
+            stmt = select(JoueurMatchStatsDB).where(JoueurMatchStatsDB.match_id.in_(chunk))
+            for jms in self.session.scalars(stmt):
+                existing_entries[(jms.match_id, jms.joueur_id)] = jms
+
         for (m_id, side, num), role_inf in beliefs.items():
             m_info = match_cache.get(m_id)
             if not m_info:
@@ -347,14 +356,7 @@ class RoleDiffusionService:
             if m_info["saison_id"]:
                 updated_saisons.add(m_info["saison_id"])
 
-            # Mettre à jour joueur_match_stats
-            stmt = select(JoueurMatchStatsDB).where(
-                and_(
-                    JoueurMatchStatsDB.match_id == m_id,
-                    JoueurMatchStatsDB.joueur_id == j_id,
-                )
-            )
-            entry = self.session.scalars(stmt).first()
+            entry = existing_entries.get((m_id, j_id))
             if entry:
                 entry.role_principal = role_inf.role_principal
                 entry.role_confiance = role_inf.role_confiance
@@ -362,7 +364,7 @@ class RoleDiffusionService:
                 entry.role_scores = role_inf.role_scores
                 entry.indices_roles = role_inf.indices
 
-        self.session.commit()
+        self.session.flush()
 
         # Recalculer les rollups joueur-saison et carriere pour les joueurs mis à jour
         if updated_joueurs:
@@ -372,4 +374,4 @@ class RoleDiffusionService:
                     saison_id=s_id, joueur_ids=j_ids_list
                 )
             self.rollup_service.compute_player_career_stats(joueur_ids=j_ids_list)
-            self.session.commit()
+            self.session.flush()

@@ -8,7 +8,7 @@ et fournir des méthodes de recherche avancées.
 from typing import Optional, List, Type, TypeVar, Generic
 from datetime import datetime
 from datetime import date as dt_date
-from sqlalchemy.orm import Session, joinedload, subqueryload
+from sqlalchemy.orm import Session, joinedload, subqueryload, selectinload
 from sqlalchemy import select, func, or_, case, extract, distinct, desc, asc, and_, literal_column
 
 from pyvolley.database.models import (
@@ -23,6 +23,7 @@ from pyvolley.database.models import (
 from pyvolley.analysis.classement import (
     MatchData, ClassementComplet, calculer_classement_complet,
 )
+from pyvolley.database.upsert import bulk_upsert as db_bulk_upsert
 
 
 T = TypeVar("T", bound=Base)
@@ -74,6 +75,14 @@ class JoueurRepository(BaseRepository[JoueurDB]):
 
     def get_by_licence(self, licence: str) -> Optional[JoueurDB]:
         return self.session.scalar(select(JoueurDB).where(JoueurDB.licence == licence))
+
+    def get_by_licence_or_id(self, identifier: str | int) -> Optional[JoueurDB]:
+        """Récupère un joueur par sa licence FFVB ou son ID."""
+        ident_str = str(identifier).strip()
+        joueur = self.get_by_licence(ident_str)
+        if not joueur and ident_str.isdigit():
+            joueur = self.get(int(ident_str))
+        return joueur
 
     def search_by_name(
         self,
@@ -492,18 +501,24 @@ class ClubRepository(BaseRepository[ClubDB]):
         )
         return match.club if match else None
 
-    def get_with_details(self, club_id: int) -> Optional[ClubDB]:
-        """Récupère un club avec ses salles et aliases (eager loading)."""
-        from pyvolley.database.models import SalleClubDB
+    def get_by_code(self, code_ffvb: str) -> Optional[ClubDB]:
+        """Cherche un club via son code FFVB officiel."""
+        return self.session.scalar(select(ClubDB).where(ClubDB.code_ffvb == code_ffvb))
+
+    def get_with_details(self, club_id_or_code: int | str) -> Optional[ClubDB]:
+        """Récupère un club avec ses salles et aliases (eager loading) par code FFVB ou ID."""
+        identifier = str(club_id_or_code).strip()
         stmt = (
             select(ClubDB)
             .options(
                 joinedload(ClubDB.salles),
                 joinedload(ClubDB.aliases),
             )
-            .where(ClubDB.id == club_id)
         )
-        return self.session.scalar(stmt)
+        club = self.session.scalar(stmt.where(ClubDB.code_ffvb == identifier))
+        if not club and identifier.isdigit():
+            club = self.session.scalar(stmt.where(ClubDB.id == int(identifier)))
+        return club
 
 
 # ─── Equipe ────────────────────────────────────────────────────────
@@ -881,8 +896,9 @@ class MatchRepository(BaseRepository[MatchDB]):
     def exists(self, code_match: str, saison_id: Optional[int] = None) -> bool:
         return self.get_by_code(code_match, saison_id) is not None
 
-    def get_with_details(self, match_id: int) -> Optional[MatchDB]:
-        """Charge un match avec toutes ses relations (sets, participations, etc.)."""
+    def get_with_details(self, match_id_or_code: int | str) -> Optional[MatchDB]:
+        """Charge un match avec toutes ses relations (sets, participations, etc.) par code FFVB ou ID."""
+        identifier = str(match_id_or_code).strip()
         stmt = (
             select(MatchDB)
             .options(
@@ -900,9 +916,13 @@ class MatchRepository(BaseRepository[MatchDB]):
                 joinedload(MatchDB.saison),
                 joinedload(MatchDB.poule),
             )
-            .where(MatchDB.id == match_id)
         )
-        return self.session.scalar(stmt)
+        match = self.session.scalars(
+            stmt.where(MatchDB.code_match == identifier).order_by(MatchDB.date_match.desc())
+        ).first()
+        if not match and identifier.isdigit():
+            match = self.session.scalar(stmt.where(MatchDB.id == int(identifier)))
+        return match
 
     def get_stats_by_month(
         self,
@@ -1022,6 +1042,45 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
         stmt = stmt.limit(limit).offset(offset)
         return list(self.session.scalars(stmt).unique())
 
+    def get_for_presentation(
+        self,
+        saison_id: Optional[int] = None,
+        genre: Optional[str] = None,
+        categorie: Optional[str] = None,
+        q: Optional[str] = None,
+        exclude_code_only: bool = False,
+    ) -> List[CompetitionDB]:
+        """Récupère les compétitions avec leurs relations complètes pour la présentation structurée."""
+        stmt = (
+            select(CompetitionDB)
+            .options(
+                joinedload(CompetitionDB.saison),
+                joinedload(CompetitionDB.entite),
+                selectinload(CompetitionDB.poules),
+                selectinload(CompetitionDB.matchs),
+            )
+        )
+        if saison_id:
+            stmt = stmt.where(CompetitionDB.saison_id == saison_id)
+        if genre:
+            stmt = stmt.where(CompetitionDB.genre == genre)
+        if categorie:
+            stmt = stmt.where(CompetitionDB.categorie == categorie)
+        if q:
+            clean_q = f"%{q.strip()}%"
+            stmt = stmt.where(
+                or_(
+                    CompetitionDB.nom.ilike(clean_q),
+                    CompetitionDB.code_competition.ilike(clean_q),
+                )
+            )
+        if exclude_code_only:
+            stmt = stmt.where(CompetitionDB.nom != CompetitionDB.code_competition)
+
+        stmt = stmt.order_by(CompetitionDB.nom)
+        return list(self.session.scalars(stmt).unique())
+
+
     def search_by_name(self, query: str, genre: Optional[str] = None,
                        categorie: Optional[str] = None, limit: int = 20) -> List[CompetitionDB]:
         stmt = (
@@ -1079,8 +1138,9 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
             stmt = stmt.where(CompetitionDB.nom != CompetitionDB.code_competition)
         return self.session.scalar(stmt) or 0
 
-    def get_with_details(self, competition_id: int) -> Optional[CompetitionDB]:
-        """Charge une compétition avec ses relations (saison, entité, poules + matchs)."""
+    def get_with_details(self, competition_id_or_code: int | str) -> Optional[CompetitionDB]:
+        """Charge une compétition avec ses relations (saison, entité, poules + matchs) par code ou ID."""
+        identifier = str(competition_id_or_code).strip()
         stmt = (
             select(CompetitionDB)
             .options(
@@ -1088,9 +1148,13 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
                 joinedload(CompetitionDB.entite),
                 joinedload(CompetitionDB.poules).subqueryload(PouleDB.matchs),
             )
-            .where(CompetitionDB.id == competition_id)
         )
-        return self.session.scalar(stmt)
+        comp = self.session.scalars(
+            stmt.where(CompetitionDB.code_competition == identifier).order_by(CompetitionDB.id.desc())
+        ).first()
+        if not comp and identifier.isdigit():
+            comp = self.session.scalar(stmt.where(CompetitionDB.id == int(identifier)))
+        return comp
 
     def get_matchs_for_classement(
         self, competition_id: int, *, poule_id: Optional[int] = None
@@ -1306,8 +1370,9 @@ class PouleRepository(BaseRepository[PouleDB]):
             select(PouleDB).where(PouleDB.competition_id == competition_id)
         ))
 
-    def get_with_details(self, poule_id: int) -> Optional[PouleDB]:
-        """Charge une poule avec ses relations (compétition, saison, entité, matchs)."""
+    def get_with_details(self, poule_id_or_code: int | str) -> Optional[PouleDB]:
+        """Charge une poule avec ses relations (compétition, saison, entité, matchs) par code ou ID."""
+        identifier = str(poule_id_or_code).strip()
         stmt = (
             select(PouleDB)
             .options(
@@ -1316,9 +1381,13 @@ class PouleRepository(BaseRepository[PouleDB]):
                 joinedload(PouleDB.competition).joinedload(CompetitionDB.poules),
                 joinedload(PouleDB.matchs),
             )
-            .where(PouleDB.id == poule_id)
         )
-        return self.session.scalar(stmt)
+        poule = self.session.scalars(
+            stmt.where(PouleDB.code == identifier).order_by(PouleDB.id.desc())
+        ).first()
+        if not poule and identifier.isdigit():
+            poule = self.session.scalar(stmt.where(PouleDB.id == int(identifier)))
+        return poule
 
 
 # ─── EntiteFFVB ────────────────────────────────────────────────────
@@ -1399,10 +1468,23 @@ class ArbitreRepository(BaseRepository[ArbitreDB]):
             .order_by(ArbitreDB.ligue)
         ))
 
-    def get_stats(self, arbitre_id: int) -> dict:
-        arbitre = self.get(arbitre_id)
+    def get_by_licence(self, licence: str) -> Optional[ArbitreDB]:
+        """Récupère un arbitre par sa licence FFVB."""
+        return self.session.scalar(select(ArbitreDB).where(ArbitreDB.licence == licence))
+
+    def get_by_licence_or_id(self, identifier: str | int) -> Optional[ArbitreDB]:
+        """Récupère un arbitre par sa licence FFVB ou son ID."""
+        ident_str = str(identifier).strip()
+        arbitre = self.get_by_licence(ident_str)
+        if not arbitre and ident_str.isdigit():
+            arbitre = self.get(int(ident_str))
+        return arbitre
+
+    def get_stats(self, arbitre_id_or_licence: int | str) -> dict:
+        arbitre = self.get_by_licence_or_id(arbitre_id_or_licence)
         if not arbitre:
             return {}
+        arbitre_id = arbitre.id
         matchs_count = self.session.scalar(
             select(func.count()).select_from(ArbitreMatchDB)
             .where(ArbitreMatchDB.arbitre_id == arbitre_id)
@@ -1822,8 +1904,8 @@ class EntraineurRepository:
         return self.session.scalar(select(func.count()).select_from(subq)) or 0
 
     def get_by_id(self, entraineur_id: str) -> Optional[dict]:
-        """Récupère un entraîneur par son identifiant construit."""
-        nom, prenom, licence = self._parse_id(entraineur_id)
+        """Récupère un entraîneur par son identifiant construit ou par licence."""
+        nom, prenom, licence = self._resolve_id_or_licence(entraineur_id)
         conditions = [
             OfficielMatchDB.role.in_(self._COACH_ROLES),
             OfficielMatchDB.nom == nom,
@@ -1847,16 +1929,17 @@ class EntraineurRepository:
         if not first:
             return None
 
+        canonical_id = first.licence if first.licence else self._build_id(first.nom, first.prenom, first.licence)
         return {
             "nom": first.nom,
             "prenom": first.prenom,
             "licence": first.licence,
-            "id": entraineur_id,
+            "id": canonical_id,
         }
 
     def get_stats(self, entraineur_id: str) -> dict:
         """Statistiques complètes d'un entraîneur."""
-        nom, prenom, licence = self._parse_id(entraineur_id)
+        nom, prenom, licence = self._resolve_id_or_licence(entraineur_id)
         conditions = self._build_conditions(nom, prenom, licence)
 
         # Nombre total de matchs
@@ -1938,7 +2021,7 @@ class EntraineurRepository:
 
     def get_matchs(self, entraineur_id: str, limit: int = 50) -> List[MatchDB]:
         """Matchs d'un entraîneur."""
-        nom, prenom, licence = self._parse_id(entraineur_id)
+        nom, prenom, licence = self._resolve_id_or_licence(entraineur_id)
         conditions = self._build_conditions(nom, prenom, licence)
         match_ids = self.session.scalars(
             select(distinct(OfficielMatchDB.match_id)).where(and_(*conditions))
@@ -1955,6 +2038,19 @@ class EntraineurRepository:
         return list(self.session.scalars(stmt).unique())
 
     # ─── Helpers ────────────────────────────────────
+
+    def _resolve_id_or_licence(self, entraineur_id: str) -> tuple:
+        if "::" in entraineur_id:
+            return self._parse_id(entraineur_id)
+        first = self.session.scalar(
+            select(OfficielMatchDB).where(
+                OfficielMatchDB.role.in_(self._COACH_ROLES),
+                OfficielMatchDB.licence == entraineur_id,
+            )
+        )
+        if first:
+            return first.nom, first.prenom, first.licence
+        return self._parse_id(entraineur_id)
 
     @staticmethod
     def _build_id(nom: str, prenom: Optional[str], licence: Optional[str]) -> str:
@@ -2117,7 +2213,17 @@ class JoueurSaisonStatsRepository(BaseRepository[JoueurSaisonStatsDB]):
             for r in rows
         ]
 
-    def upsert(self, data: dict) -> JoueurSaisonStatsDB:
+    def bulk_upsert(self, records: List[dict], batch_size: int = 1000) -> int:
+        """Insère ou met à jour une liste de statistiques joueur-saison par lots optimisés."""
+        return db_bulk_upsert(
+            self.session,
+            JoueurSaisonStatsDB,
+            records,
+            index_elements=["joueur_id", "saison_id", "competition_id", "equipe_id"],
+            batch_size=batch_size,
+        )
+
+    def upsert(self, data: dict, flush: bool = True) -> JoueurSaisonStatsDB:
         joueur_id = data["joueur_id"]
         saison_id = data["saison_id"]
         competition_id = data.get("competition_id")
@@ -2128,12 +2234,14 @@ class JoueurSaisonStatsRepository(BaseRepository[JoueurSaisonStatsDB]):
             for k, v in data.items():
                 setattr(existing, k, v)
             existing.updated_at = datetime.now()
-            self.session.flush()
+            if flush:
+                self.session.flush()
             return existing
         else:
             entry = JoueurSaisonStatsDB(**data)
             self.session.add(entry)
-            self.session.flush()
+            if flush:
+                self.session.flush()
             return entry
 
 
@@ -2178,19 +2286,31 @@ class JoueurCarriereStatsRepository(BaseRepository[JoueurCarriereStatsDB]):
             for r in rows
         ]
 
-    def upsert(self, data: dict) -> JoueurCarriereStatsDB:
+    def bulk_upsert(self, records: List[dict], batch_size: int = 1000) -> int:
+        """Insère ou met à jour une liste de synthèses carrière par lots optimisés."""
+        return db_bulk_upsert(
+            self.session,
+            JoueurCarriereStatsDB,
+            records,
+            index_elements=["joueur_id"],
+            batch_size=batch_size,
+        )
+
+    def upsert(self, data: dict, flush: bool = True) -> JoueurCarriereStatsDB:
         joueur_id = data["joueur_id"]
         existing = self.get_for_joueur(joueur_id)
         if existing:
             for k, v in data.items():
                 setattr(existing, k, v)
             existing.updated_at = datetime.now()
-            self.session.flush()
+            if flush:
+                self.session.flush()
             return existing
         else:
             entry = JoueurCarriereStatsDB(**data)
             self.session.add(entry)
-            self.session.flush()
+            if flush:
+                self.session.flush()
             return entry
 
 
@@ -2241,7 +2361,17 @@ class EquipeSaisonStatsRepository(BaseRepository[EquipeSaisonStatsDB]):
         )
         return list(self.session.scalars(stmt).unique())
 
-    def upsert(self, data: dict) -> EquipeSaisonStatsDB:
+    def bulk_upsert(self, records: List[dict], batch_size: int = 1000) -> int:
+        """Insère ou met à jour une liste de bilans d'équipe par lots optimisés."""
+        return db_bulk_upsert(
+            self.session,
+            EquipeSaisonStatsDB,
+            records,
+            index_elements=["equipe_id", "saison_id", "competition_id"],
+            batch_size=batch_size,
+        )
+
+    def upsert(self, data: dict, flush: bool = True) -> EquipeSaisonStatsDB:
         equipe_id = data["equipe_id"]
         saison_id = data["saison_id"]
         competition_id = data.get("competition_id")
@@ -2251,12 +2381,14 @@ class EquipeSaisonStatsRepository(BaseRepository[EquipeSaisonStatsDB]):
             for k, v in data.items():
                 setattr(existing, k, v)
             existing.updated_at = datetime.now()
-            self.session.flush()
+            if flush:
+                self.session.flush()
             return existing
         else:
             entry = EquipeSaisonStatsDB(**data)
             self.session.add(entry)
-            self.session.flush()
+            if flush:
+                self.session.flush()
             return entry
 
 
@@ -2306,7 +2438,17 @@ class ClubStatsRepository(BaseRepository[ClubStatsDB]):
         stmt = stmt.options(joinedload(ClubStatsDB.club)).order_by(desc(order_col)).limit(limit).offset(offset)
         return list(self.session.scalars(stmt).unique())
 
-    def upsert(self, data: dict) -> ClubStatsDB:
+    def bulk_upsert(self, records: List[dict], batch_size: int = 1000) -> int:
+        """Insère ou met à jour une liste de statistiques de club par lots optimisés."""
+        return db_bulk_upsert(
+            self.session,
+            ClubStatsDB,
+            records,
+            index_elements=["club_id", "saison_id"],
+            batch_size=batch_size,
+        )
+
+    def upsert(self, data: dict, flush: bool = True) -> ClubStatsDB:
         club_id = data["club_id"]
         saison_id = data.get("saison_id")
         existing = self.get_by_key(club_id, saison_id)
@@ -2314,12 +2456,14 @@ class ClubStatsRepository(BaseRepository[ClubStatsDB]):
             for k, v in data.items():
                 setattr(existing, k, v)
             existing.updated_at = datetime.now()
-            self.session.flush()
+            if flush:
+                self.session.flush()
             return existing
         else:
             entry = ClubStatsDB(**data)
             self.session.add(entry)
-            self.session.flush()
+            if flush:
+                self.session.flush()
             return entry
 
 
@@ -2348,7 +2492,17 @@ class GeoStatsRepository(BaseRepository[GeoStatsDB]):
         ).order_by(desc(GeoStatsDB.nb_clubs))
         return list(self.session.scalars(stmt))
 
-    def upsert(self, data: dict) -> GeoStatsDB:
+    def bulk_upsert(self, records: List[dict], batch_size: int = 1000) -> int:
+        """Insère ou met à jour une liste d'agrégats territoriaux par lots optimisés."""
+        return db_bulk_upsert(
+            self.session,
+            GeoStatsDB,
+            records,
+            index_elements=["saison_id", "echelon", "code_territoire"],
+            batch_size=batch_size,
+        )
+
+    def upsert(self, data: dict, flush: bool = True) -> GeoStatsDB:
         echelon = data["echelon"]
         code_territoire = data["code_territoire"]
         saison_id = data.get("saison_id")
@@ -2357,12 +2511,14 @@ class GeoStatsRepository(BaseRepository[GeoStatsDB]):
             for k, v in data.items():
                 setattr(existing, k, v)
             existing.updated_at = datetime.now()
-            self.session.flush()
+            if flush:
+                self.session.flush()
             return existing
         else:
             entry = GeoStatsDB(**data)
             self.session.add(entry)
-            self.session.flush()
+            if flush:
+                self.session.flush()
             return entry
 
 
