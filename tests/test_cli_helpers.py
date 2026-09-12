@@ -546,7 +546,7 @@ def test_import_scrape_consolidates_club_enrichment_at_end(monkeypatch):
             self.client = object()
             self.base_url = "https://example.com"
 
-        def scrape_entity(self, entity, saison):
+        def scrape_entity(self, entity, saison, *args, **kwargs):
             # 2 poules pour ABCCS en 2023/2024, 2 poules en 2024/2025
             if entity == "ABCCS":
                 if saison == "2023/2024":
@@ -569,7 +569,7 @@ def test_import_scrape_consolidates_club_enrichment_at_end(monkeypatch):
 
     adressier_calls = []
 
-    def fake_fetch_adressier(client, base_url, entite, saison, poules):
+    def fake_fetch_adressier(client, base_url, entite, saison, poules, *args, **kwargs):
         adressier_calls.append({
             "entite": entite,
             "saison": saison,

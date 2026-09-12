@@ -46,6 +46,24 @@ class TestFastParserRegistration:
             assert parser.can_parse(pdf), f"can_parse failed for {pdf.name}"
 
 
+_LEGACY_CACHE: dict[Path, ParseResult] = {}
+_FAST_CACHE: dict[Path, ParseResult] = {}
+
+
+def _get_legacy_sample(pdf_path: Path):
+    """Met en cache le résultat d'extraction legacy pour éviter des dizaines de ré-extractions pdfplumber."""
+    if pdf_path not in _LEGACY_CACHE:
+        _LEGACY_CACHE[pdf_path] = MatchSheetParser().parse(pdf_path)
+    return _LEGACY_CACHE[pdf_path]
+
+
+def _get_fast_sample(pdf_path: Path):
+    """Met en cache le résultat d'extraction fast."""
+    if pdf_path not in _FAST_CACHE:
+        _FAST_CACHE[pdf_path] = FastMatchSheetParser().parse(pdf_path)
+    return _FAST_CACHE[pdf_path]
+
+
 class TestFastParserParity:
     """Vérifie que FastMatchSheetParser produit des résultats identiques à MatchSheetParser."""
 
@@ -55,15 +73,14 @@ class TestFastParserParity:
 
     @pytest.mark.parametrize("pdf_path", SAMPLE_PDFS, ids=[p.stem for p in SAMPLE_PDFS])
     def test_parse_succeeds(self, pdf_path):
-        parser = FastMatchSheetParser()
-        res = parser.parse(pdf_path)
+        res = _get_fast_sample(pdf_path)
         assert res.success, f"Fast parser failed on {pdf_path.name}: {res.errors}"
         assert res.match is not None
 
     @pytest.mark.parametrize("pdf_path", SAMPLE_PDFS, ids=[p.stem for p in SAMPLE_PDFS])
     def test_parity_header_and_teams(self, pdf_path):
-        legacy = MatchSheetParser().parse(pdf_path).match
-        fast = FastMatchSheetParser().parse(pdf_path).match
+        legacy = _get_legacy_sample(pdf_path).match
+        fast = _get_fast_sample(pdf_path).match
 
         assert legacy is not None and fast is not None
         assert fast.code_match == legacy.code_match
@@ -89,8 +106,8 @@ class TestFastParserParity:
 
     @pytest.mark.parametrize("pdf_path", PLAYED_PDFS, ids=[p.stem for p in PLAYED_PDFS])
     def test_parity_sets_and_scores(self, pdf_path):
-        legacy = MatchSheetParser().parse(pdf_path).match
-        fast = FastMatchSheetParser().parse(pdf_path).match
+        legacy = _get_legacy_sample(pdf_path).match
+        fast = _get_fast_sample(pdf_path).match
 
         assert legacy is not None and fast is not None
         assert len(fast.sets) == len(legacy.sets)
@@ -104,8 +121,8 @@ class TestFastParserParity:
 
     @pytest.mark.parametrize("pdf_path", SAMPLE_PDFS, ids=[p.stem for p in SAMPLE_PDFS])
     def test_parity_joueurs_count(self, pdf_path):
-        legacy = MatchSheetParser().parse(pdf_path).match
-        fast = FastMatchSheetParser().parse(pdf_path).match
+        legacy = _get_legacy_sample(pdf_path).match
+        fast = _get_fast_sample(pdf_path).match
 
         assert legacy is not None and fast is not None
         assert len(fast.equipe_a.joueurs) + len(fast.equipe_b.joueurs) == len(legacy.equipe_a.joueurs) + len(legacy.equipe_b.joueurs)

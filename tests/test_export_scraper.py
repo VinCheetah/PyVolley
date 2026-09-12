@@ -591,3 +591,67 @@ class TestArbitreInfo:
         a = ArbitreInfo(licence="123456", nom="Dupont", ligue="LIRA")
         assert a.licence == "123456"
         assert a.comite_departemental is None
+
+
+class TestExportDiskCache:
+    """Tests du système de cache disque pour les exports CSV."""
+
+    def test_cache_save_load_and_force_refresh(self, tmp_path, monkeypatch):
+        from unittest.mock import MagicMock
+        from pyvolley.core.config import settings
+        monkeypatch.setattr(settings, "data_dir", tmp_path)
+
+        from pyvolley.scrapers.ffvb.export_scraper import (
+            _get_export_cache_path,
+            _load_export_from_cache,
+            _save_export_to_cache,
+            fetch_export,
+        )
+
+        csv_content = (
+            "ENTITE;JO;MATCH;DATE;HEURE;EQA_NO;EQA_NOM;EQB_NO;EQB_NOM;SET;SCORE;TOTAL;SALLE;"
+            "ARB1_LIC;ARB1_NOM;ARB1_LIG;ARB1_CD;ARB2_LIC;ARB2_NOM;ARB2_LIG;ARB2_CD;"
+            "MARQ_LIC;MARQ_NOM;MARQ_LIG;MARQ_CD;J1_LIC;J1_NOM;J1_LIG;J1_CD;"
+            "J2_LIC;J2_NOM;J2_LIG;J2_CD;VAINQUEUR;FORFAIT;TYPE_FORFAIT;COMMENTAIRE;EXTRA1;EXTRA2;EXTRA3\n"
+            "ABCCS;01;EMA001;2024-10-05;20:00;0132380;EQUIPE A;0132348;EQUIPE B; 3/0;25-20,25-22,25-18;75-60;SALLE 1;"
+            ";;;;;;;;;;;;;;;;;;;;;;;;;\n"
+        ).encode("iso-8859-1")
+
+        # 1. Pas encore en cache
+        assert _load_export_from_cache("TEST", "2024/2025") is None
+
+        # 2. Sauvegarde en cache
+        _save_export_to_cache("TEST", "2024/2025", csv_content)
+        loaded = _load_export_from_cache("TEST", "2024/2025")
+        assert loaded == csv_content
+
+        # 3. force_refresh ignore le cache
+        assert _load_export_from_cache("TEST", "2024/2025", force_refresh=True) is None
+
+        # 4. fetch_export utilise le cache sans appeler HTTP
+        mock_client = MagicMock()
+        matches = fetch_export(
+            mock_client,
+            "http://example.com/",
+            "TEST",
+            "2024/2025",
+            force_refresh=False,
+        )
+        assert len(matches) == 1
+        assert matches[0].code_match == "EMA001"
+        mock_client.get.assert_not_called()
+
+        # 5. fetch_export avec force_refresh=True appelle le client HTTP
+        mock_resp = MagicMock()
+        mock_resp.content = csv_content
+        mock_client.get.return_value = mock_resp
+        matches_refreshed = fetch_export(
+            mock_client,
+            "http://example.com/",
+            "TEST",
+            "2024/2025",
+            force_refresh=True,
+        )
+        assert len(matches_refreshed) == 1
+        mock_client.get.assert_called_once()
+

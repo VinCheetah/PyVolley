@@ -6,14 +6,20 @@ import glob
 import pymupdf
 import pytest
 
+from pathlib import Path
 from pyvolley.parsers.extractors.equipes_geometry import extract_team_roster_geometry, RosterData
 from pyvolley.parsers.layout_config import DEFAULT_FFVB_LAYOUT
 
 
 def test_section_2_roster_extraction_2025_2026():
-    pdfs = sorted(glob.glob("data/pdfs/2025-2026/**/*.pdf", recursive=True))
-    if not pdfs:
-        pdfs = sorted(glob.glob("data/pdfs/**/*.pdf", recursive=True))
+    sample_dir = Path(__file__).resolve().parent.parent / "data" / "data_sample"
+    sample_pdfs = sorted(sample_dir.glob("*.pdf")) if sample_dir.exists() else []
+    if sample_pdfs:
+        pdfs = sample_pdfs
+    else:
+        pdfs = sorted(glob.glob("data/pdfs/2025-2026/**/*.pdf", recursive=True))
+        if not pdfs:
+            pdfs = sorted(glob.glob("data/pdfs/**/*.pdf", recursive=True))
     if not pdfs:
         pytest.skip("Aucun PDF disponible pour les tests")
 

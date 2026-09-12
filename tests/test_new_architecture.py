@@ -109,10 +109,47 @@ def test_ranking_service(test_session):
     assert res.items[0].rank == 1
 
 
-def test_web_routes_render():
-    """Vérifie que les nouvelles routes /classements et /territoire répondent en HTTP 200."""
+@pytest.fixture
+def new_arch_client():
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    from sqlalchemy.pool import StaticPool
+    from pyvolley.api.dependencies import get_session
+    from pyvolley.database.models import Base
+
+    engine = create_engine(
+        "sqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+    session = TestingSessionLocal()
+
+    s = SaisonDB(code="2025-2026", nom="Saison Test")
+    c = ClubDB(nom="Paris Volley", departement="75", ligue="IDF")
+    session.add_all([s, c])
+    session.commit()
+
     app = create_web_app()
-    client = TestClient(app)
+
+    def override_get_session():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_session] = override_get_session
+    with TestClient(app) as client:
+        yield client
+    app.dependency_overrides.clear()
+    session.close()
+
+
+def test_web_routes_render(new_arch_client):
+    """Vérifie que les nouvelles routes /classements et /territoire répondent en HTTP 200."""
+    client = new_arch_client
 
     # 1. Route /classements
     response = client.get("/classements")

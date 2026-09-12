@@ -43,6 +43,7 @@ def _skip_if_no_samples():
 # =====================================================================
 
 
+@pytest.mark.benchmark
 @pytest.mark.skipif(not HAS_PYTEST_BENCHMARK, reason="pytest-benchmark is not installed")
 class TestParserBenchmark:
     """Performance benchmarks for the parser."""
@@ -84,6 +85,15 @@ class TestParserBenchmark:
 # Robustness tests – validate parsing quality
 # =====================================================================
 
+_PARSED_SAMPLE_CACHE: dict[Path, ParseResult] = {}
+
+
+def _get_parsed_sample(pdf_path: Path) -> ParseResult:
+    """Met en cache le résultat d'extraction pour éviter 81 ré-extractions coûteuses."""
+    if pdf_path not in _PARSED_SAMPLE_CACHE:
+        _PARSED_SAMPLE_CACHE[pdf_path] = MatchSheetParser().parse(pdf_path)
+    return _PARSED_SAMPLE_CACHE[pdf_path]
+
 
 class TestParserQuality:
     """Validate parsing quality across all sample PDFs."""
@@ -99,8 +109,7 @@ class TestParserQuality:
     )
     def test_parse_succeeds(self, pdf_path):
         """Every sample PDF must parse successfully."""
-        parser = MatchSheetParser()
-        result = parser.parse(pdf_path)
+        result = _get_parsed_sample(pdf_path)
         assert result.success, f"Parse failed for {pdf_path.name}: {result.errors}"
         assert result.match is not None
 
@@ -111,8 +120,7 @@ class TestParserQuality:
     )
     def test_team_names_not_garbled(self, pdf_path):
         """Team names must not contain timing/set data artifacts."""
-        parser = MatchSheetParser()
-        result = parser.parse(pdf_path)
+        result = _get_parsed_sample(pdf_path)
         assert result.match is not None
         for label, eq in [("A", result.match.equipe_a), ("B", result.match.equipe_b)]:
             assert eq is not None, f"Equipe {label} is None for {pdf_path.name}"
@@ -139,8 +147,7 @@ class TestParserQuality:
     )
     def test_joueurs_extracted(self, pdf_path):
         """Each team should have at least some players."""
-        parser = MatchSheetParser()
-        result = parser.parse(pdf_path)
+        result = _get_parsed_sample(pdf_path)
         assert result.match is not None
         for label, eq in [("A", result.match.equipe_a), ("B", result.match.equipe_b)]:
             assert eq is not None
@@ -155,8 +162,7 @@ class TestParserQuality:
     )
     def test_played_match_has_details(self, pdf_path):
         """Played matches should have set details."""
-        parser = MatchSheetParser()
-        result = parser.parse(pdf_path)
+        result = _get_parsed_sample(pdf_path)
         assert result.match is not None
         assert result.match.has_details, (
             f"Played match {pdf_path.name} should have details"
@@ -169,8 +175,7 @@ class TestParserQuality:
     )
     def test_played_match_has_sets(self, pdf_path):
         """Played matches should have at least 2 sets."""
-        parser = MatchSheetParser()
-        result = parser.parse(pdf_path)
+        result = _get_parsed_sample(pdf_path)
         assert result.match is not None
         assert len(result.match.sets) >= 2, (
             f"Played match {pdf_path.name} has only {len(result.match.sets)} sets"
@@ -183,8 +188,7 @@ class TestParserQuality:
     )
     def test_played_match_has_score(self, pdf_path):
         """Played matches should have a score final."""
-        parser = MatchSheetParser()
-        result = parser.parse(pdf_path)
+        result = _get_parsed_sample(pdf_path)
         assert result.match is not None
         assert result.match.score_final, (
             f"Played match {pdf_path.name} has no score_final"
@@ -205,8 +209,7 @@ class TestParserQuality:
     )
     def test_header_fields_extracted(self, pdf_path):
         """Basic header fields should be extracted."""
-        parser = MatchSheetParser()
-        result = parser.parse(pdf_path)
+        result = _get_parsed_sample(pdf_path)
         assert result.match is not None
         m = result.match
         assert m.competition, f"No competition for {pdf_path.name}"
@@ -219,8 +222,7 @@ class TestParserQuality:
     )
     def test_no_parsing_errors(self, pdf_path):
         """Parser should not produce errors in diagnostics."""
-        parser = MatchSheetParser()
-        result = parser.parse(pdf_path)
+        result = _get_parsed_sample(pdf_path)
         parse_errors = [
             d for d in result.diagnostics
             if d.level.value == "error" and d.origin.value == "parsing"
@@ -237,8 +239,7 @@ class TestParserQuality:
     )
     def test_field_sources_populated(self, pdf_path):
         """ParseResult.field_sources should be populated with source labels."""
-        parser = MatchSheetParser()
-        result = parser.parse(pdf_path)
+        result = _get_parsed_sample(pdf_path)
         assert result.field_sources, (
             f"No field_sources for {pdf_path.name}"
         )

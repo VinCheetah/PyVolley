@@ -8,6 +8,7 @@ Couvre :
 """
 
 import pytest
+from unittest.mock import patch
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
@@ -348,6 +349,47 @@ class TestBuildUrls:
         assert "2025" in url
 
 
+class TestFetchAdressierCache:
+    """Tests du cache disque pour fetch_adressier."""
+
+    def test_fetch_adressier_disk_cache(self, tmp_path, monkeypatch):
+        from unittest.mock import MagicMock
+        from pyvolley.scrapers.ffvb.adressier_scraper import fetch_adressier
+
+        monkeypatch.setattr("pyvolley.core.config.settings.data_dir", tmp_path)
+        client = MagicMock()
+        client.timeout = 30
+
+        csv_row = [
+            "ABCCS", "PMA", "0622126", "HARNES VB", "NATIONALE", "1",
+            "M. DUPONT", "M. COACH", "", "M. CONTACT",
+            "1 RUE DU STADE", "", "", "62440", "HARNES",
+            "03.21.00.00.00", "", "contact@harnes.fr", "ROUGE",
+            "SALLE REGIONALE", "12 RUE DES SPORTS", "HARNES", "03.21.00.00.01", "Parquet", "1500", "BUS",
+            "", "", "", "", "", "",
+            "", "", "", "",
+        ]
+        csv_bytes = _build_csv([";".join(csv_row)])
+        mock_response = MagicMock()
+        mock_response.content = csv_bytes
+        client.post.return_value = mock_response
+
+        # 1er appel: télécharge et enregistre en cache
+        clubs1 = fetch_adressier(client, "https://www.ffvbbeach.org/ffvbapp/resu/", "ABCCS", "2024/2025", ["PMA"])
+        assert len(clubs1) == 1
+        assert client.post.call_count == 1
+
+        # 2e appel: recharge depuis le cache disque sans nouvel appel HTTP
+        clubs2 = fetch_adressier(client, "https://www.ffvbbeach.org/ffvbapp/resu/", "ABCCS", "2024/2025", ["PMA"])
+        assert len(clubs2) == 1
+        assert client.post.call_count == 1
+
+        # 3e appel avec force_refresh=True: force le téléchargement
+        clubs3 = fetch_adressier(client, "https://www.ffvbbeach.org/ffvbapp/resu/", "ABCCS", "2024/2025", ["PMA"], force_refresh=True)
+        assert len(clubs3) == 1
+        assert client.post.call_count == 2
+
+
 # =====================================================================
 # Tests d'enrichissement des clubs en base
 # =====================================================================
@@ -642,6 +684,43 @@ class TestEnrichClubs:
         # Vérifier les deux clubs
         all_clubs = adressier_session.execute(select(ClubDB)).scalars().all()
         assert len(all_clubs) == 2
+
+    def test_enrich_skips_geocoding_for_already_geocoded_clubs(self, adressier_session):
+        """Vérifie que les clubs déjà pourvus de coordonnées GPS ne sont pas ré-envoyés au géocodage."""
+        with patch("pyvolley.database.export_import_service.geocode_addresses_batch") as mock_batch:
+            mock_batch.return_value = {}
+
+            club = ClubDB(
+                nom="CLUB DEJA GEOCODE",
+                code_ffvb="0888000",
+                correspondant_email="contact@club.fr",
+                latitude=45.123,
+                longitude=5.456,
+            )
+            adressier_session.add(club)
+            adressier_session.flush()
+
+            service = ExportImportService(adressier_session)
+            clubs_info = [
+                AdressierClubInfo(
+                    code_ffvb="0888000",
+                    nom="CLUB DEJA GEOCODE",
+                    correspondant_email="contact@club.fr",
+                    correspondant_ville="75001 PARIS",
+                )
+            ]
+
+            stats = service.enrich_clubs(
+                clubs_info,
+                "ABCCS",
+                "2024/2025",
+                "https://www.ffvbbeach.org/ffvbapp/resu/",
+                geocode=True,
+            )
+
+            assert stats["skipped"] == 1
+            # Comme le club est déjà complet et géocodé, mock_batch ne doit pas être appelé
+            assert mock_batch.call_count == 0
 
 
 # =====================================================================
