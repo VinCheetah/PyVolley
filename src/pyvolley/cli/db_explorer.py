@@ -1136,24 +1136,44 @@ def search_equipes(
 @explore_app.command("competitions")
 def search_competitions(
     query: Optional[str] = typer.Argument(None, help="Recherche par nom ou code"),
-    saison: Optional[str] = typer.Option(None, "--saison", "-s", help="Filtrer par saison (23/24 ou 22/25)"),
+    saison: Optional[str] = typer.Option(None, "--saison", "-s", help="Filtrer par saison (23/24 ou 25/26)"),
     genre: Optional[str] = typer.Option(None, "--genre", "-g", help="Filtrer par genre"),
+    echelon: Optional[str] = typer.Option(None, "--echelon", "-E", help="Filtrer par échelon (national, regional, departemental, coupe, loisir)"),
     entite: Optional[str] = typer.Option(None, "--entite", "-e", help="Filtrer par entité organisatrice"),
-    limit: int = typer.Option(30, "--limit", "-n", help="Nombre max de résultats"),
+    limit: int = typer.Option(100, "--limit", "-n", help="Nombre max de résultats"),
+    flat: bool = typer.Option(False, "--flat", help="Affichage tabulaire plat sans regroupement par échelon"),
 ):
     """
-    🏆 Recherche et liste les compétitions.
+    🏆 Recherche et liste les compétitions organisées par échelon et triées par niveau.
     
     Exemples:
         pyvolley db explore competitions
+        pyvolley db explore competitions --saison 25/26
+        pyvolley db explore competitions --echelon regional
         pyvolley db explore competitions "Nationale"
-        pyvolley db explore competitions --saison 23/24
     """
+    from collections import defaultdict
+    from sqlalchemy.orm import joinedload, selectinload
     from pyvolley.database.models import CompetitionDB, SaisonDB, EntiteFFVBDB
+    from pyvolley.shared.niveau import (
+        classify_level,
+        resolve_competition_echelon,
+        ECHELON_METADATA,
+    )
 
     session = _get_session()
     try:
-        stmt = select(CompetitionDB).outerjoin(SaisonDB).outerjoin(EntiteFFVBDB)
+        stmt = (
+            select(CompetitionDB)
+            .outerjoin(SaisonDB)
+            .outerjoin(EntiteFFVBDB)
+            .options(
+                joinedload(CompetitionDB.saison),
+                joinedload(CompetitionDB.entite),
+                selectinload(CompetitionDB.poules),
+                selectinload(CompetitionDB.matchs),
+            )
+        )
         conditions = []
 
         if query:
@@ -1185,39 +1205,166 @@ def search_competitions(
             stmt = stmt.where(*conditions)
 
         stmt = stmt.order_by(CompetitionDB.nom).limit(limit)
-        competitions = list(session.scalars(stmt))
+        competitions = list(session.scalars(stmt).unique())
 
         if not competitions:
             console.print("[yellow]Aucune compétition trouvée[/yellow]")
             return
 
-        tbl = Table(
-            title=f"🏆 Compétitions ({len(competitions)})",
-            box=box.ROUNDED,
-            row_styles=["", "dim"],
-        )
-        tbl.add_column("ID", style="dim", width=5, justify="right")
-        tbl.add_column("Code", style="cyan", width=10)
-        tbl.add_column("Nom", style="bold white", min_width=25)
-        tbl.add_column("Saison", style="yellow", width=12)
-        tbl.add_column("Genre", justify="center", width=6)
-        tbl.add_column("Catégorie", style="dim", width=12)
-        tbl.add_column("Entité", style="magenta", width=10)
-        tbl.add_column("Matchs", justify="right", style="green", width=7)
-
+        # Classification de chaque compétition
+        classified_items = []
         for c in competitions:
-            tbl.add_row(
-                str(c.id),
-                c.code_competition or "-",
-                c.nom,
-                c.saison.code if c.saison else "-",
-                c.genre or "-",
-                c.categorie or "-",
-                c.entite.code if c.entite else "-",
-                str(len(c.matchs)),
+            e_type = c.entite.type if c.entite else None
+            ech_key = resolve_competition_echelon(
+                nom=c.nom,
+                niveau=c.niveau,
+                categorie=c.categorie,
+                division=c.division,
+                entite_type=e_type,
+                code_competition=c.code_competition,
             )
+            lvl = classify_level(
+                competition_name=c.nom,
+                niveau=c.niveau,
+                categorie=c.categorie,
+                division=c.division,
+            )
+            classified_items.append((c, ech_key, lvl))
 
-        console.print(tbl)
+        # Filtrage par échelon le cas échéant
+        if echelon:
+            echelon_norm = echelon.strip().lower()
+            if echelon_norm in ("coupe", "cdf"):
+                echelon_norm = "coupe_de_france"
+            classified_items = [item for item in classified_items if item[1] == echelon_norm]
+            if not classified_items:
+                console.print(f"[yellow]Aucune compétition pour l'échelon '{echelon}'[/yellow]")
+                return
+
+        total_matches = sum(len(c.matchs) for c, _, _ in classified_items)
+
+        # Style de niveau
+        def format_level_badge(lvl):
+            lbl = lvl.label
+            if lvl.rank >= 14:
+                return f"[bold yellow]{lbl}[/bold yellow]"
+            elif lvl.rank >= 11:
+                return f"[bold blue]{lbl}[/bold blue]"
+            elif lvl.rank >= 9:
+                return f"[bold cyan]{lbl}[/bold cyan]"
+            elif lvl.rank >= 6:
+                return f"[bold green]{lbl}[/bold green]"
+            elif lvl.rank >= 1:
+                return f"[green]{lbl}[/green]"
+            return f"[dim]{lbl}[/dim]"
+
+        if flat:
+            # Mode plat non groupé
+            tbl = Table(
+                title=f"🏆 Compétitions ({len(classified_items)}) — Total : {total_matches} matchs",
+                box=box.ROUNDED,
+                row_styles=["", "dim"],
+            )
+            tbl.add_column("Échelon", style="magenta", width=14)
+            tbl.add_column("Niveau", width=12)
+            tbl.add_column("Code", style="cyan", width=8)
+            tbl.add_column("Nom", style="bold white", min_width=25)
+            tbl.add_column("Saison", style="yellow", width=11)
+            tbl.add_column("Genre", justify="center", width=6)
+            tbl.add_column("Cat.", style="dim", width=8)
+            tbl.add_column("Poules", justify="center", width=7)
+            tbl.add_column("Matchs", justify="right", style="green", width=7)
+
+            for c, ech_key, lvl in classified_items:
+                ech_label = ECHELON_METADATA.get(ech_key, {}).get("label", ech_key)
+                tbl.add_row(
+                    ech_label,
+                    format_level_badge(lvl),
+                    c.code_competition or "-",
+                    c.nom,
+                    c.saison.code if c.saison else "-",
+                    c.genre or "-",
+                    c.categorie or "-",
+                    str(len(c.poules)),
+                    str(len(c.matchs)),
+                )
+            console.print(tbl)
+        else:
+            # Mode hiérarchique groupé par échelon et trié par niveau
+            echelon_groups = defaultdict(list)
+            for item in classified_items:
+                echelon_groups[item[1]].append(item)
+
+            for ech_key, ech_meta in sorted(ECHELON_METADATA.items(), key=lambda x: x[1]["order"]):
+                items = echelon_groups.get(ech_key, [])
+                if not items:
+                    continue
+
+                # Tri par niveau (rank décroissant : Elite > N2 > N3 > Prénat > R1...), seniors avant jeunes, genre, nom
+                genre_order = {"MASCULIN": 1, "FEMININ": 2, "MIXTE": 3}
+                items.sort(
+                    key=lambda x: (
+                        -x[2].rank,
+                        1 if x[2].is_youth else 0,
+                        genre_order.get(x[0].genre or "", 9),
+                        x[0].nom.upper(),
+                    )
+                )
+
+                ech_matches = sum(len(c.matchs) for c, _, _ in items)
+                title = f"{ech_meta['label'].upper()} ({len(items)} compétition{'s' if len(items) > 1 else ''} · {ech_matches} match{'s' if ech_matches > 1 else ''})"
+
+                tbl = Table(
+                    title=f"[bold]{title}[/bold]",
+                    title_justify="left",
+                    box=box.ROUNDED,
+                    row_styles=["", "dim"],
+                )
+                tbl.add_column("Niveau", width=14)
+                tbl.add_column("Code", style="cyan", width=8)
+                tbl.add_column("Nom de la compétition", style="bold white", min_width=28)
+                tbl.add_column("Saison", style="yellow", width=11)
+                tbl.add_column("Genre", justify="center", width=6)
+                tbl.add_column("Cat.", style="dim", width=8)
+                tbl.add_column("Entité", style="magenta", width=10)
+                tbl.add_column("Poules", justify="center", width=7)
+                tbl.add_column("Matchs", justify="right", style="green", width=7)
+
+                for c, _, lvl in items:
+                    tbl.add_row(
+                        format_level_badge(lvl),
+                        c.code_competition or "-",
+                        c.nom,
+                        c.saison.code if c.saison else "-",
+                        c.genre or "-",
+                        c.categorie or "-",
+                        c.entite.code if c.entite else "-",
+                        str(len(c.poules)),
+                        str(len(c.matchs)),
+                    )
+
+                console.print(tbl)
+                console.print()
+
+        # Bilan synthétique
+        count_nat = sum(1 for _, e, _ in classified_items if e == "national")
+        count_reg = sum(1 for _, e, _ in classified_items if e == "regional")
+        count_dep = sum(1 for _, e, _ in classified_items if e == "departemental")
+        count_cdf = sum(1 for _, e, _ in classified_items if e == "coupe_de_france")
+        count_loi = sum(1 for _, e, _ in classified_items if e == "loisir")
+
+        summary_parts = []
+        if count_nat: summary_parts.append(f"{count_nat} National")
+        if count_reg: summary_parts.append(f"{count_reg} Régional")
+        if count_dep: summary_parts.append(f"{count_dep} Départemental")
+        if count_cdf: summary_parts.append(f"{count_cdf} Coupes")
+        if count_loi: summary_parts.append(f"{count_loi} Loisir")
+
+        breakdown = " · ".join(summary_parts) if summary_parts else "0 compétition"
+        console.print(
+            f"[bold green]✓ Total : {len(classified_items)} compétition(s)[/bold green] "
+            f"[dim]({breakdown}) · {total_matches} match(s)[/dim]\n"
+        )
     finally:
         session.close()
 

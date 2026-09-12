@@ -13,7 +13,13 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskPr
 from sqlalchemy import select, or_, and_, desc
 from sqlalchemy.orm import selectinload
 
-from pyvolley.cli.helpers import make_progress, saisons_to_db_codes
+import time
+from pyvolley.cli.helpers import (
+    make_progress,
+    saisons_to_db_codes,
+    format_duration,
+    format_rate,
+)
 from pyvolley.database.connection import get_db, init_db
 from pyvolley.database.models import (
     JoueurDB,
@@ -43,6 +49,13 @@ roles_app = typer.Typer(
 console = Console()
 
 
+def _unwrap(val, default=None):
+    """Déballe un paramètre Typer (OptionInfo) si la fonction est appelée directement en Python."""
+    if hasattr(val, "default"):
+        return val.default if val.default is not ... else default
+    return val if val is not None else default
+
+
 @roles_app.command("diffuse")
 def diffuse_roles(
     iterations: int = typer.Option(
@@ -66,6 +79,12 @@ def diffuse_roles(
     Propagera les certitudes entre coéquipiers (binômes en rotation, règles de composition)
     et stabilisera les rôles de chaque joueur sur l'ensemble de ses matchs.
     """
+    iterations = int(_unwrap(iterations, 3))
+    saison = _unwrap(saison)
+    entity = _unwrap(entity)
+    match_id = _unwrap(match_id)
+    commit = bool(_unwrap(commit, True))
+
     init_db()
 
     with get_db() as session:
@@ -111,10 +130,21 @@ def diffuse_roles(
             )
         )
 
+        pass_durations: dict[int, float] = {}
+        last_step: Optional[int] = None
+        last_step_t: float = time.perf_counter()
+        t_diffusion_start = time.perf_counter()
+
         with make_progress(console) as progress:
             task = progress.add_task("Diffusion des rôles...", total=iterations + 1)
 
             def progress_hook(step: int, total_steps: int, msg: str):
+                nonlocal last_step, last_step_t
+                now = time.perf_counter()
+                if last_step is not None:
+                    pass_durations[last_step] = now - last_step_t
+                last_step = step
+                last_step_t = now
                 progress.update(task, completed=step, description=f"[cyan]{msg}[/cyan]")
 
             report = service.run_diffusion(
@@ -125,7 +155,12 @@ def diffuse_roles(
                 commit=commit,
                 progress_callback=progress_hook,
             )
+            now = time.perf_counter()
+            if last_step is not None:
+                pass_durations[last_step] = now - last_step_t
             progress.update(task, completed=iterations + 1, description="[green]✓ Terminé ![/green]")
+
+        total_diffusion_duration = time.perf_counter() - t_diffusion_start
 
         if report.total_matches == 0:
             console.print("[yellow]Aucun match détaillé trouvé pour ces critères.[/yellow]")
@@ -138,14 +173,18 @@ def diffuse_roles(
         iter_table.add_column("Confiance moyenne", justify="right", style="green")
         iter_table.add_column("Haute confiance (≥70%)", justify="right", style="gold1")
         iter_table.add_column("Rôles d'exception (atypiques)", justify="right", style="magenta")
+        iter_table.add_column("Durée", justify="right", style="cyan")
 
         for metric in report.iterations_history:
+            d_sec = pass_durations.get(metric.iteration)
+            d_str = format_duration(d_sec) if d_sec is not None else "—"
             iter_table.add_row(
                 f"Passe {metric.iteration}" if metric.iteration > 0 else "Passe 0 (Locale)",
                 str(metric.changed_roles_count) if metric.iteration > 0 else "—",
                 f"{round(metric.average_confidence * 100, 1)}%",
                 f"{metric.high_confidence_count} ({round(metric.high_confidence_count / max(1, report.total_player_matches) * 100, 1)}%)",
                 str(metric.atypical_roles_count),
+                d_str,
             )
         console.print(iter_table)
 
@@ -172,6 +211,7 @@ def diffuse_roles(
             if report.converged
             else "[bold yellow]Fin des itérations planifiées.[/bold yellow]"
         )
+        rate_str = format_rate(report.total_matches, total_diffusion_duration, "m")
         console.print(
             Panel(
                 f"{status_msg}\n"
@@ -179,7 +219,8 @@ def diffuse_roles(
                 f"• Joueurs concernés : [bold]{report.total_players}[/bold]\n"
                 f"• Participations évaluées : [bold]{report.total_player_matches}[/bold]\n"
                 f"• Confiance moyenne finale : [bold green]{round(report.average_final_confidence * 100, 1)}%[/bold green]\n"
-                f"• Changements de poste d'exception : [bold magenta]{report.atypical_match_roles}[/bold magenta]",
+                f"• Changements de poste d'exception : [bold magenta]{report.atypical_match_roles}[/bold magenta]\n"
+                f"• Durée totale : [bold]{format_duration(total_diffusion_duration)}[/bold] ({rate_str})",
                 title="Bilan",
             )
         )

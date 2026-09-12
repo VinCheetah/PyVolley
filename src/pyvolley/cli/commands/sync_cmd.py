@@ -219,3 +219,186 @@ def sync_logos(
             "[yellow]Aucun logo validé. Astuce: relancer avec "
             "--min-score 0.4 ou --badge-fallback pour générer des blasons.[/yellow]"
         )
+
+
+@sync_app.command("geocode")
+def sync_geocode(
+    salles: bool = typer.Option(True, "--salles/--no-salles", help="Géocoder les salles de club."),
+    clubs: bool = typer.Option(True, "--clubs/--no-clubs", help="Géocoder les adresses des clubs."),
+    only_missing: bool = typer.Option(
+        True,
+        "--only-missing/--all",
+        help="Ne traiter que les entités sans coordonnées GPS (ignorer celles déjà géocodées).",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Forcer le re-géocodage même pour les entités déjà pourvues de coordonnées.",
+    ),
+    limit: int = typer.Option(0, "--limit", "-n", help="Nombre max d'entités par catégorie (0 = toutes)."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Simuler les requêtes sans enregistrer en base."),
+):
+    """📍 Géocode les adresses des salles (gymnases) et des clubs pour un positionnement parfait sur la carte."""
+    import time
+    from pyvolley.core.geocoding import (
+        geocode_address,
+        geocode_club_entity,
+        get_geocoding_cache,
+    )
+    from pyvolley.database.connection import DatabaseSession
+    from pyvolley.database.models import ClubDB, SalleClubDB
+
+    should_force = force or (not only_missing)
+    cache = get_geocoding_cache()
+
+    console.print(
+        Panel(
+            "[bold cyan]Géolocalisation Haute Précision des Lieux de Volleyball[/bold cyan]\n"
+            f"Mode: {'[yellow]SIMULATION (dry-run)[/yellow]' if dry_run else '[green]ENREGISTREMENT[/green]'} | "
+            f"Cibles: {'Salles ' if salles else ''}{'Clubs' if clubs else ''} | "
+            f"Filtre: {'Tous (forcé)' if should_force else 'Uniquement manquants'}",
+            title="PyVolley Geocoding Engine",
+        )
+    )
+
+    total_geocoded = 0
+    total_failed = 0
+    total_skipped = 0
+
+    results_table = Table(title="Résultats détaillés du géocodage")
+    results_table.add_column("Type", style="cyan", width=8)
+    results_table.add_column("Nom / Libellé", style="white", min_width=25)
+    results_table.add_column("Adresse originale", style="dim", min_width=25)
+    results_table.add_column("Coordonnées GPS", style="green", justify="center", width=22)
+    results_table.add_column("Précision", style="yellow", width=14)
+    results_table.add_column("Score", style="magenta", justify="right", width=7)
+
+    with DatabaseSession() as session:
+        # ── 1. Géocodage des Salles ─────────────────────────────
+        if salles:
+            s_query = session.query(SalleClubDB)
+            if not should_force:
+                s_query = s_query.filter(
+                    (SalleClubDB.latitude.is_(None)) | (SalleClubDB.longitude.is_(None))
+                )
+            if limit > 0:
+                s_query = s_query.limit(limit)
+
+            salles_list = s_query.all()
+            if salles_list:
+                console.print(f"\n[cyan]Traitement de {len(salles_list)} salle(s)...[/cyan]")
+                with make_progress(console) as progress:
+                    task = progress.add_task("[cyan]Géocodage des salles...", total=len(salles_list))
+                    for s in salles_list:
+                        nom_s = s.nom or f"Salle {s.numero}"
+                        addr_str = f"{s.adresse or ''} {s.ville or ''}".strip()
+                        res = geocode_address(
+                            adresse=s.adresse,
+                            ville=s.ville or (s.club.ville if s.club else None),
+                            nom=s.nom,
+                        )
+                        if res:
+                            total_geocoded += 1
+                            if not dry_run:
+                                s.latitude = res.latitude
+                                s.longitude = res.longitude
+
+                            results_table.add_row(
+                                "Salle",
+                                nom_s[:30],
+                                addr_str[:35],
+                                f"{res.latitude:.5f}, {res.longitude:.5f}",
+                                res.match_type,
+                                f"{res.score:.2f}",
+                            )
+                        else:
+                            total_failed += 1
+                            results_table.add_row(
+                                "Salle",
+                                nom_s[:30],
+                                addr_str[:35],
+                                "[red]Échec[/red]",
+                                "-",
+                                "0.00",
+                            )
+
+                        progress.advance(task)
+                        time.sleep(0.02)
+            else:
+                console.print("[dim]Aucune salle nécessitant un géocodage.[/dim]")
+
+        # ── 2. Géocodage des Clubs ──────────────────────────────
+        if clubs:
+            c_query = session.query(ClubDB)
+            if not should_force:
+                c_query = c_query.filter(
+                    (ClubDB.latitude.is_(None)) | (ClubDB.longitude.is_(None))
+                )
+            if limit > 0:
+                c_query = c_query.limit(limit)
+
+            clubs_list = c_query.all()
+            if clubs_list:
+                console.print(f"\n[magenta]Traitement de {len(clubs_list)} club(s)...[/magenta]")
+                with make_progress(console) as progress:
+                    task = progress.add_task("[magenta]Géocodage des clubs...", total=len(clubs_list))
+                    for c in clubs_list:
+                        main_s = next((s for s in (c.salles or []) if s.numero == 1), None) or (c.salles[0] if c.salles else None)
+                        addr_str = (
+                            f"{main_s.nom or f'Salle {main_s.numero}'}: {main_s.adresse or ''} {main_s.ville or ''}".strip()
+                            if main_s
+                            else (c.ville or "Commune")
+                        )
+                        res = geocode_club_entity(c, session=session, force=should_force)
+                        if res:
+                            total_geocoded += 1
+                            if not dry_run:
+                                c.latitude = res.latitude
+                                c.longitude = res.longitude
+
+                            results_table.add_row(
+                                "Club",
+                                c.nom[:30],
+                                addr_str[:35],
+                                f"{res.latitude:.5f}, {res.longitude:.5f}",
+                                res.match_type,
+                                f"{res.score:.2f}",
+                            )
+                        else:
+                            total_failed += 1
+                            results_table.add_row(
+                                "Club",
+                                c.nom[:30],
+                                addr_str[:35],
+                                "[red]Échec[/red]",
+                                "-",
+                                "0.00",
+                            )
+
+                        progress.advance(task)
+                        time.sleep(0.01)
+            else:
+                console.print("[dim]Aucun club nécessitant un géocodage.[/dim]")
+
+        if not dry_run:
+            session.commit()
+            cache.save()
+
+    if total_geocoded + total_failed > 0:
+        console.print("\n")
+        console.print(results_table)
+
+    console.print(
+        Panel(
+            f"[green]✓ {total_geocoded} entité(s) géolocalisée(s) avec succès[/green]\n"
+            f"[red]✗ {total_failed} échec(s)[/red]\n"
+            f"[dim]Base de données : {'Modifiée avec succès' if not dry_run else 'Non modifiée (dry-run)'}[/dim]",
+            title="Bilan du Géocodage",
+        )
+    )
+
+
+# Alias de confort pour pyvolley sync geo
+sync_app.command("geo")(sync_geocode)
+

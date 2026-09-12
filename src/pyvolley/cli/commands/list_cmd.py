@@ -126,3 +126,33 @@ def list_matches(
             f"\n[dim]... et {len(export_matches) - limit} autres matchs[/dim]"
         )
     console.print(f"\n[green]{len(export_matches)} match(s)[/green]")
+
+
+@list_app.command("competitions")
+def list_competitions(
+    saison: Optional[str] = typer.Option(
+        None, "--saison", "-s", help="Saison YY/YY (ex: 25/26).",
+    ),
+    echelon: Optional[str] = typer.Option(
+        None, "--echelon", "-e", help="Filtrer par échelon (national, regional, departemental, coupe, loisir).",
+    ),
+    genre: Optional[str] = typer.Option(
+        None, "--genre", "-g", help="Filtrer par genre (MASCULIN, FEMININ, MIXTE).",
+    ),
+    entity: Optional[str] = typer.Option(
+        None, "--entity", "-E", help="Filtrer par entité organisatrice (ex: LIRA, ABCCS).",
+    ),
+):
+    """🏆 Liste les compétitions d'une saison organisées par échelon et triées par niveau."""
+    from pyvolley.cli.db_explorer import search_competitions
+
+    search_competitions(
+        query=None,
+        saison=saison,
+        genre=genre,
+        echelon=echelon,
+        entite=entity,
+        limit=200,
+        flat=False,
+    )
+

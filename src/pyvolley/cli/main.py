@@ -57,6 +57,9 @@ from pyvolley.cli.helpers import (
     add_entity_filter,
     make_progress,
     format_entities_display,
+    PipelineTimer,
+    format_duration,
+    format_rate,
 )
 
 # ── Sous-applications (Namespaces) ─────────────────────────────────────────
@@ -72,7 +75,7 @@ from pyvolley.cli.commands.compute_cmd import (
 )
 from pyvolley.cli.commands.db_cmd import db_app
 from pyvolley.cli.commands.audit_cmd import audit_app
-from pyvolley.cli.commands.sync_cmd import sync_app
+from pyvolley.cli.commands.sync_cmd import sync_app, sync_geocode
 from pyvolley.cli.commands.import_cmd import (
     import_data,
     _is_local_pdf_usable,
@@ -111,6 +114,8 @@ app.command("parse")(parse)
 app.command("serve")(serve)
 app.command("simulate")(simulate)
 app.command("cleanup")(cleanup)
+app.command("geocode")(sync_geocode)
+
 
 # Export interne pour compatibilité des tests existants
 _apply_plausibility_core_to_match_db = apply_plausibility_core_to_match_db

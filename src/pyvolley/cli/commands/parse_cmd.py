@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
@@ -33,6 +35,10 @@ def parse(
         "fast", "--parser", "-p",
         help="Parser à utiliser : 'fast' (FastMatchSheetParser, ~20ms) ou 'legacy' (MatchSheetParser, ~1200ms).",
     ),
+    jobs: int = typer.Option(
+        min(8, os.cpu_count() or 4), "--jobs", "-j",
+        help="Nombre de threads de parsing en parallèle (1 = séquentiel).",
+    ),
     verbose: bool = typer.Option(
         False, "--verbose", "-v", help="Afficher les détails.",
     ),
@@ -61,6 +67,7 @@ def parse(
         pyvolley parse match.pdf
         pyvolley parse data/pdfs/ -n 10 --parser legacy
         pyvolley parse match.pdf -o resultat.json -v
+        pyvolley parse data/pdfs/ -j 8
     """
     from pyvolley.parsers.factory import ParserFactory
 
@@ -80,6 +87,10 @@ def parse(
     if limit:
         pdf_files = pdf_files[:limit]
 
+    if review_fixes and jobs > 1:
+        console.print("[dim]Mode validation manuelle activé : exécution séquentielle forcée.[/dim]")
+        jobs = 1
+
     parser = ParserFactory.get(parser_name)
     approval_cb = None
     if review_fixes:
@@ -92,7 +103,8 @@ def parse(
     )
     console.print(
         f"[blue]Parser : {parser.name} v{parser.version} — "
-        f"{len(pdf_files)} fichier(s)[/blue]\n"
+        f"{len(pdf_files)} fichier(s)"
+        f"{f' ({jobs} threads)' if jobs > 1 and len(pdf_files) > 1 else ''}[/blue]\n"
     )
 
     results = []
@@ -102,58 +114,75 @@ def parse(
     with make_progress(console) as progress:
         task = progress.add_task("Parsing...", total=len(pdf_files))
 
-        for pdf_file in pdf_files:
-            try:
-                result = parser.parse(pdf_file)
-
-                if result.success and result.match:
-                    successful += 1
-                    results.append({
-                        'file': str(pdf_file),
-                        'match': result.match,
-                        'parse_time_ms': result.parse_time_ms,
-                        'diagnostics': result.diagnostics,
-                        'plausibility_report': (
-                            result.plausibility_report.to_dict()
-                            if result.plausibility_report else None
-                        ),
-                    })
-
-                    if verbose:
-                        m = result.match
-                        progress.console.print(
-                            f"  [green]OK[/green] {pdf_file.name}: "
-                            f"{m.equipe_a.nom if m.equipe_a else '?'} vs "
-                            f"{m.equipe_b.nom if m.equipe_b else '?'}"
-                        )
-                        if result.diagnostics:
-                            for d in result.diagnostics:
-                                progress.console.print(
-                                    f"      [yellow][!] {d}[/yellow]"
-                                )
-
-                    progress.update(
-                        task, advance=1,
-                        description=f"[green]OK {pdf_file.name[:30]}[/green]",
-                    )
-                else:
-                    failed += 1
-                    msg = result.errors[0][:60] if result.errors else "Erreur"
-                    if verbose:
-                        progress.console.print(
-                            f"  [red]ERR[/red] {pdf_file.name}: {msg}"
-                        )
-                    progress.update(
-                        task, advance=1,
-                        description=f"[red]ERR {pdf_file.name[:30]}[/red]",
-                    )
-
-            except Exception:
+        def _process_one_result(pdf_file, result, exc=None):
+            nonlocal successful, failed
+            if exc:
                 failed += 1
                 progress.update(
                     task, advance=1,
                     description=f"[red]ERR {pdf_file.name[:30]}[/red]",
                 )
+                return
+
+            if result and result.success and result.match:
+                successful += 1
+                results.append({
+                    'file': str(pdf_file),
+                    'match': result.match,
+                    'parse_time_ms': result.parse_time_ms,
+                    'diagnostics': result.diagnostics,
+                    'plausibility_report': (
+                        result.plausibility_report.to_dict()
+                        if result.plausibility_report else None
+                    ),
+                })
+
+                if verbose:
+                    m = result.match
+                    progress.console.print(
+                        f"  [green]OK[/green] {pdf_file.name}: "
+                        f"{m.equipe_a.nom if m.equipe_a else '?'} vs "
+                        f"{m.equipe_b.nom if m.equipe_b else '?'}"
+                    )
+                    if result.diagnostics:
+                        for d in result.diagnostics:
+                            progress.console.print(
+                                f"      [yellow][!] {d}[/yellow]"
+                            )
+
+                progress.update(
+                    task, advance=1,
+                    description=f"[green]OK {pdf_file.name[:30]}[/green]",
+                )
+            else:
+                failed += 1
+                msg = result.errors[0][:60] if result and result.errors else "Erreur"
+                if verbose:
+                    progress.console.print(
+                        f"  [red]ERR[/red] {pdf_file.name}: {msg}"
+                    )
+                progress.update(
+                    task, advance=1,
+                    description=f"[red]ERR {pdf_file.name[:30]}[/red]",
+                )
+
+        if jobs > 1 and len(pdf_files) > 1:
+            def _worker(f):
+                try:
+                    return f, parser.parse(f), None
+                except Exception as exc:
+                    return f, None, exc
+
+            with ThreadPoolExecutor(max_workers=jobs) as executor:
+                for pdf_file, result, exc in executor.map(_worker, pdf_files, chunksize=8):
+                    _process_one_result(pdf_file, result, exc)
+        else:
+            for pdf_file in pdf_files:
+                try:
+                    result = parser.parse(pdf_file)
+                    _process_one_result(pdf_file, result, None)
+                except Exception as exc:
+                    _process_one_result(pdf_file, None, exc)
 
     console.print(Panel(
         f"[green]Succes : {successful}[/green]\n"

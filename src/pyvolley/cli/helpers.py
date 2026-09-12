@@ -419,3 +419,34 @@ def configure_parser_plausibility(
 
 
 _configure_parser_plausibility = configure_parser_plausibility
+
+
+# ── Télémétrie et Chronométrage ─────────────────────────────────────
+from pyvolley.cli.timing import (
+    PipelineTimer,
+    StepMetric,
+    format_duration,
+    format_rate,
+)
+
+__all__ = [
+    "resolve_entities",
+    "resolve_saisons",
+    "format_saison_short",
+    "expand_saison_inputs",
+    "saison_to_db_code",
+    "saisons_to_db_codes",
+    "display_entities",
+    "build_pdf_index",
+    "find_pdf_for_match",
+    "add_saison_filter",
+    "add_entity_filter",
+    "make_progress",
+    "sanitize_filename",
+    "format_entities_display",
+    "configure_parser_plausibility",
+    "PipelineTimer",
+    "StepMetric",
+    "format_duration",
+    "format_rate",
+]

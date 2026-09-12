@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import time
 from typing import Optional
 
 import typer
 from rich.console import Console
 from rich.panel import Panel
 
-from pyvolley.cli.helpers import make_progress, saisons_to_db_codes
+from pyvolley.cli.helpers import (
+    make_progress,
+    saisons_to_db_codes,
+    PipelineTimer,
+    format_duration,
+    format_rate,
+)
 
 console = Console()
 
@@ -105,6 +112,7 @@ def compute_stats(
         computed = 0
         skipped = 0
 
+        t0 = time.perf_counter()
         with make_progress(console) as progress:
             task = progress.add_task("Calcul...", total=len(filter_combos))
 
@@ -124,8 +132,10 @@ def compute_stats(
                     description=f"[green]✓ {label}[/green]",
                 )
 
+        duration = time.perf_counter() - t0
+        rate_str = format_rate(computed, duration, "combos")
         console.print(
-            f"\n[green]✓ {computed} calculées[/green] | "
+            f"\n[green]✓ {computed} calculées en {format_duration(duration)} ({rate_str})[/green] | "
             f"[dim]{skipped} déjà à jour[/dim]"
         )
 
@@ -252,6 +262,7 @@ def compute_player_stats(
         updated_rows = 0
         errors = 0
 
+        t0 = time.perf_counter()
         with _get_make_progress()(console) as progress:
             task = progress.add_task("Calcul stats joueurs...", total=len(matches))
 
@@ -337,6 +348,7 @@ def compute_player_stats(
 
             session.commit()
 
+        duration = time.perf_counter() - t0
         console.print(Panel(
             f"[green]✓ Matchs traités : {processed}[/green]\n"
             f"[dim]↷ Matchs ignorés (déjà à jour) : {skipped_up_to_date}[/dim]\n"
@@ -344,8 +356,10 @@ def compute_player_stats(
             f"[dim]↷ Matchs ignorés (non parsés) : {skipped_not_parsed}[/dim]\n"
             f"[dim]↷ Matchs ignorés (sans joueurs exploitables) : {skipped_no_expected_players}[/dim]\n"
             f"[cyan]👥 Lignes stats écrites : {updated_rows}[/cyan]\n"
-            f"[red]✗ Erreurs : {errors}[/red]",
-            title="Statistiques joueurs",
+            f"[red]✗ Erreurs : {errors}[/red]\n"
+            f"[yellow]⏱ Durée de calcul : {format_duration(duration)} "
+            f"({format_rate(processed, duration, 'matchs')}, {format_rate(updated_rows, duration, 'lignes')})[/yellow]",
+            title=f"Statistiques joueurs (calculées en {format_duration(duration)})",
         ))
 
 
@@ -377,37 +391,52 @@ def compute_rollups(
                 raise typer.Exit(1)
             saison_id = s_obj.id
 
+        t_all_start = time.perf_counter()
         service = RollupStatsService(session)
+
+        t0 = time.perf_counter()
         console.print("[cyan][...] Calcul et synchronisation des stats joueur par match...[/cyan]")
         n_jms = service.compute_all_player_match_stats(saison_id=saison_id)
-        console.print(f"[green][OK] {n_jms} lignes joueur_match_stats synchronisées.[/green]")
+        d0 = time.perf_counter() - t0
+        console.print(f"[green][OK] {n_jms} lignes joueur_match_stats synchronisées en {format_duration(d0)} ({format_rate(n_jms, d0, 'lignes')}).[/green]")
 
+        t1 = time.perf_counter()
         console.print("[cyan][...] Calcul des statistiques joueur par saison...[/cyan]")
         n_js = service.compute_player_season_stats(saison_id=saison_id)
-        console.print(f"[green][OK] {n_js} lignes stats_joueur_saison calculées.[/green]")
+        d1 = time.perf_counter() - t1
+        console.print(f"[green][OK] {n_js} lignes stats_joueur_saison calculées en {format_duration(d1)} ({format_rate(n_js, d1, 'lignes')}).[/green]")
 
+        t2 = time.perf_counter()
         console.print("[cyan][...] Calcul des bilans d'équipe par saison...[/cyan]")
         n_es = service.compute_team_season_stats(saison_id=saison_id)
-        console.print(f"[green][OK] {n_es} lignes stats_equipe_saison calculées.[/green]")
+        d2 = time.perf_counter() - t2
+        console.print(f"[green][OK] {n_es} lignes stats_equipe_saison calculées en {format_duration(d2)} ({format_rate(n_es, d2, 'lignes')}).[/green]")
 
+        t3 = time.perf_counter()
         console.print("[cyan][...] Calcul des statistiques agglomérées par club...[/cyan]")
         n_cs = service.compute_club_stats(saison_id=saison_id)
         service.compute_club_stats(saison_id=None)
-        console.print(f"[green][OK] {n_cs} lignes stats_club calculées.[/green]")
+        d3 = time.perf_counter() - t3
+        console.print(f"[green][OK] {n_cs} lignes stats_club calculées en {format_duration(d3)} ({format_rate(n_cs, d3, 'lignes')}).[/green]")
 
+        t4 = time.perf_counter()
         console.print("[cyan][...] Calcul des synthèses de carrière joueur...[/cyan]")
         n_jc = service.compute_player_career_stats()
-        console.print(f"[green][OK] {n_jc} lignes stats_joueur_carriere calculées.[/green]")
+        d4 = time.perf_counter() - t4
+        console.print(f"[green][OK] {n_jc} lignes stats_joueur_carriere calculées en {format_duration(d4)} ({format_rate(n_jc, d4, 'lignes')}).[/green]")
+
+        total_rollups_duration = time.perf_counter() - t_all_start
 
     console.print(
         Panel(
             f"[bold green]Statistiques agglomérées générées avec succès ![/bold green]\n"
-            f"- Stats Joueur/Match  : [bold]{n_jms}[/bold]\n"
-            f"- Stats Joueur/Saison : [bold]{n_js}[/bold]\n"
-            f"- Stats Equipe/Saison : [bold]{n_es}[/bold]\n"
-            f"- Stats Club          : [bold]{n_cs}[/bold]\n"
-            f"- Stats Carrière      : [bold]{n_jc}[/bold]",
-            title="Bilan des Rollups",
+            f"- Stats Joueur/Match  : [bold]{n_jms}[/bold] ({format_duration(d0)})\n"
+            f"- Stats Joueur/Saison : [bold]{n_js}[/bold] ({format_duration(d1)})\n"
+            f"- Stats Equipe/Saison : [bold]{n_es}[/bold] ({format_duration(d2)})\n"
+            f"- Stats Club          : [bold]{n_cs}[/bold] ({format_duration(d3)})\n"
+            f"- Stats Carrière      : [bold]{n_jc}[/bold] ({format_duration(d4)})\n"
+            f"[yellow]⏱ Durée totale rollups : {format_duration(total_rollups_duration)}[/yellow]",
+            title=f"Bilan des Rollups (calculés en {format_duration(total_rollups_duration)})",
         )
     )
 
@@ -426,6 +455,7 @@ def compute_clubs(
     from pyvolley.database.rollup_service import RollupStatsService
     from sqlalchemy import select
 
+    t0 = time.perf_counter()
     with get_db() as session:
         saison_id = None
         if saison:
@@ -445,7 +475,11 @@ def compute_clubs(
         n_saison = service.compute_club_stats(saison_id=saison_id)
         n_global = service.compute_club_stats(saison_id=None)
         session.commit()
-        console.print(f"[green]✓ Calcul terminé : {n_saison} entrées saison, {n_global} entrées historiques.[/green]")
+        duration = time.perf_counter() - t0
+        console.print(
+            f"[green]✓ Calcul terminé en {format_duration(duration)} : "
+            f"{n_saison} entrées saison, {n_global} entrées historiques.[/green]"
+        )
 
 
 @compute_app.command("geo")
@@ -462,6 +496,7 @@ def compute_geo(
     from pyvolley.database.geographic_service import GeographicStatsService
     from sqlalchemy import select
 
+    t0 = time.perf_counter()
     with get_db() as session:
         saison_id = None
         if saison:
@@ -481,7 +516,11 @@ def compute_geo(
         count = service.compute_territorial_rollups(saison_id=saison_id)
         if saison_id is not None:
             service.compute_territorial_rollups(saison_id=None)
-        console.print(f"[green]✓ {count} agrégats territoriaux générés (National, Ligues, Départements).[/green]")
+        duration = time.perf_counter() - t0
+        console.print(
+            f"[green]✓ {count} agrégats territoriaux générés en {format_duration(duration)} "
+            f"(National, Ligues, Départements).[/green]"
+        )
 
 
 @compute_app.command("licences")
@@ -498,6 +537,7 @@ def compute_licences(
     from pyvolley.database.licence_analysis_service import LicenceAnalysisService
     from sqlalchemy import select
 
+    t0 = time.perf_counter()
     with get_db() as session:
         service = LicenceAnalysisService(session)
         if saison:
@@ -513,12 +553,20 @@ def compute_licences(
             console.print(f"[cyan][...] Analyse des licences pour la saison {s_obj.code}...[/cyan]")
             count = service.compute_licence_history(s_obj.id)
             report = service.get_licence_report(s_obj.id)
-            console.print(f"[green]✓ {count} licences analysées : {report.nouvelles_licences} nouvelles, "
-                          f"{report.reprises} reprises, {report.continues} continues ({report.taux_renouvellement}% rétention).[/green]")
+            duration = time.perf_counter() - t0
+            console.print(
+                f"[green]✓ {count} licences analysées en {format_duration(duration)} : "
+                f"{report.nouvelles_licences} nouvelles, {report.reprises} reprises, "
+                f"{report.continues} continues ({report.taux_renouvellement}% rétention).[/green]"
+            )
         else:
             console.print("[cyan][...] Analyse des licences sur l'ensemble des saisons...[/cyan]")
             count = service.compute_all_seasons_licence_history()
-            console.print(f"[green]✓ {count} enregistrements d'historique de licence générés.[/green]")
+            duration = time.perf_counter() - t0
+            console.print(
+                f"[green]✓ {count} enregistrements d'historique de licence générés en "
+                f"{format_duration(duration)}.[/green]"
+            )
 
 
 @compute_app.command("all")
@@ -527,30 +575,89 @@ def compute_all(
         None, "--saison", "-s", help="Code de la saison (ex: 23/24 ou 2025-2026)."
     ),
     force: bool = typer.Option(False, "--force", help="Forcer le recalcul complet."),
+    skip_roles: bool = typer.Option(False, "--skip-roles", help="Ignorer l'étape de diffusion réseau des rôles."),
+    timing_detail: str = typer.Option(
+        "summary", "--timing-detail", "--timing-summary", "-T",
+        help="Niveau de détail du récapitulatif temporel : 'none', 'summary' ou 'detailed'.",
+    ),
 ):
-    """Exécute l'ensemble de la chaîne de calculs statistiques dans l'ordre des dépendances."""
+    """Exécute l'ensemble de la chaîne de calculs statistiques dans l'ordre rigoureux des dépendances :
+    1. Statistiques joueurs par match (timeline et évidences locales)
+    2. Diffusion réseau des rôles (propagation multi-passes avec coéquipiers)
+    3. Statistiques agglomérées (rollups avec rôles stabilisés)
+    4. Agrégats territoriaux
+    5. Analyse du cycle des licences
+    6. Palmarès et caches
+    """
     saison = _unwrap(saison)
     force = bool(_unwrap(force, False))
+    skip_roles = bool(_unwrap(skip_roles, False))
+    timing_detail = str(_unwrap(timing_detail, "summary"))
 
-    console.print("[bold blue]=== 1/5 Statistiques Joueurs par Match ===[/bold blue]")
-    compute_player_stats(
-        saison=saison,
-        entity=None,
-        match_id=None,
-        limit=None,
-        force=force,
-        clear=False,
+    timer = PipelineTimer(label="Chaîne Complète de Calculs (compute all)")
+
+    # 1. Joueurs par match
+    console.print("[bold blue]=== 1/6 Statistiques Joueurs par Match ===[/bold blue]")
+    with timer.step("players", "1/6 Stats Joueurs par Match", items_unit="matchs") as s:
+        compute_player_stats(
+            saison=saison,
+            entity=None,
+            match_id=None,
+            limit=None,
+            force=force,
+            clear=False,
+        )
+    console.print(f"[green]✓ Étape 1/6 terminée en {format_duration(s.duration)}[/green]\n")
+
+    # 2. Diffusion rôles
+    if not skip_roles:
+        console.print("[bold blue]=== 2/6 Diffusion Réseau des Rôles (3 passes) ===[/bold blue]")
+        from pyvolley.cli.commands.roles_cmd import diffuse_roles
+        with timer.step("roles", "2/6 Diffusion Réseau des Rôles", items_unit="passes") as s:
+            diffuse_roles(
+                iterations=3,
+                saison=saison,
+                entity=None,
+                match_id=None,
+                commit=True,
+            )
+        console.print(f"[green]✓ Étape 2/6 terminée en {format_duration(s.duration)}[/green]\n")
+    else:
+        console.print("[dim]=== 2/6 Diffusion Réseau des Rôles (ignorée via --skip-roles) ===[/dim]\n")
+        timer.start_step("roles", "2/6 Diffusion Réseau des Rôles").finish(status="skipped")
+
+    # 3. Rollups
+    console.print("[bold blue]=== 3/6 Statistiques Agglomérées (Rollups Joueurs, Équipes, Clubs) ===[/bold blue]")
+    with timer.step("rollups", "3/6 Statistiques Agglomérées (Rollups)", items_unit="catégories") as s:
+        compute_rollups(saison=saison)
+    console.print(f"[green]✓ Étape 3/6 terminée en {format_duration(s.duration)}[/green]\n")
+
+    # 4. Geo
+    console.print("[bold blue]=== 4/6 Agrégats Territoriaux & Géographiques ===[/bold blue]")
+    with timer.step("geo", "4/6 Agrégats Territoriaux & Géographiques", items_unit="agrégats") as s:
+        compute_geo(saison=saison)
+    console.print(f"[green]✓ Étape 4/6 terminée en {format_duration(s.duration)}[/green]\n")
+
+    # 5. Licences
+    console.print("[bold blue]=== 5/6 Analyse du Cycle des Licences ===[/bold blue]")
+    with timer.step("licences", "5/6 Analyse du Cycle des Licences", items_unit="licences") as s:
+        compute_licences(saison=saison)
+    console.print(f"[green]✓ Étape 5/6 terminée en {format_duration(s.duration)}[/green]\n")
+
+    # 6. Palmarès
+    console.print("[bold blue]=== 6/6 Statistiques Palmarès & Caches ===[/bold blue]")
+    with timer.step("palmares", "6/6 Statistiques Palmarès & Caches", items_unit="combos") as s:
+        compute_stats(saison=saison, force=force, clear=False)
+    console.print(f"[green]✓ Étape 6/6 terminée en {format_duration(s.duration)}[/green]\n")
+
+    timer.stop_pipeline()
+    console.print(Panel(
+        f"[bold green]Chaîne complète de calculs terminée avec succès en {format_duration(timer.total_duration)}[/bold green]",
+        title="✅ Calculs Terminés",
+    ))
+    timer.display_summary(
+        console,
+        detail_level=timing_detail,
+        title="⏱️ Récapitulatif de la Chaîne de Calculs",
     )
-
-    console.print("\n[bold blue]=== 2/5 Statistiques Agglomérées (Rollups Joueurs, Équipes, Clubs) ===[/bold blue]")
-    compute_rollups(saison=saison)
-
-    console.print("\n[bold blue]=== 3/5 Agrégats Territoriaux & Géographiques ===[/bold blue]")
-    compute_geo(saison=saison)
-
-    console.print("\n[bold blue]=== 4/5 Analyse du Cycle des Licences ===[/bold blue]")
-    compute_licences(saison=saison)
-
-    console.print("\n[bold blue]=== 5/5 Statistiques Palmarès ===[/bold blue]")
-    compute_stats(saison=saison, force=force, clear=False)
 
