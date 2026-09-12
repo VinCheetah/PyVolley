@@ -195,7 +195,7 @@
                         <td>{{ j.prenom }}</td>
                         <td class="text-muted">{{ j.licence }}</td>
                         <td class="text-center">
-                            <a href="{{ path_for_entity('joueur', j.id) }}" class="badge badge-blue">Voir profil</a>
+                            <a href="{{ path_for_entity('joueur', j) }}" class="badge badge-blue">Voir profil</a>
                         </td>
                     </tr>
                     {% endfor %}
@@ -241,7 +241,7 @@
                             <span class="font-mono text-xs text-muted">{{ c.code_ffvb or '—' }}</span>
                         </td>
                         <td class="text-center">
-                            <a href="{{ path_for_entity('club', c.id) }}" class="badge badge-green">Voir club</a>
+                            <a href="{{ path_for_entity('club', c) }}" class="badge badge-green">Voir club</a>
                         </td>
                     </tr>
                     {% endfor %}
@@ -327,7 +327,7 @@
                         <td>{{ a.prenom or '-' }}</td>
                         <td class="text-muted">{{ a.ligue or '-' }}</td>
                         <td class="text-center">
-                            <a href="{{ path_for_entity('arbitre', a.id) }}" class="badge badge-gold">Voir profil</a>
+                            <a href="{{ path_for_entity('arbitre', a) }}" class="badge badge-gold">Voir profil</a>
                         </td>
                     </tr>
                     {% endfor %}

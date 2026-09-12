@@ -159,21 +159,21 @@ def clubs_list(
     )
 
 
-@router.get("/clubs/{club_id}", response_class=HTMLResponse)
+@router.get("/clubs/{identifier}", response_class=HTMLResponse)
 def club_detail(
     request: Request,
-    club_id: int,
+    identifier: str,
     club_repo: ClubRepository = Depends(get_club_repo),
     equipe_repo: EquipeRepository = Depends(get_equipe_repo),
 ):
-    club = club_repo.get_with_details(club_id)
+    club = club_repo.get_with_details(identifier)
     if not club:
         return templates.TemplateResponse(
             "error.html",
             {"request": request, "message": "Club non trouvé"},
             status_code=404,
         )
-    equipes = equipe_repo.get_by_club(club_id)
+    equipes = equipe_repo.get_by_club(club.id)
 
     ffvb_links = _build_ffvb_links(club, equipes)
 

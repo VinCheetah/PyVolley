@@ -133,7 +133,7 @@
                             <span class="diagonal-line"></span>
                         </div>
                         {% elif cell.has_match and cell.is_played %}
-                        <a href="{{ path_for_entity('match', cell.match_id) }}"
+                        <a href="{{ path_for_entity('match', cell.code_match or cell.match_id) }}"
                            class="matrix-cell {{ cell.css_class }}"
                            title="{{ cell.tooltip_title }}&#10;{{ cell.tooltip_body }}"
                            data-tooltip-title="{{ cell.tooltip_title }}"
@@ -144,7 +144,7 @@
                             {% endif %}
                         </a>
                         {% elif cell.has_match and not cell.is_played %}
-                        <a href="{{ path_for_entity('match', cell.match_id) }}"
+                        <a href="{{ path_for_entity('match', cell.code_match or cell.match_id) }}"
                            class="matrix-cell cell-upcoming"
                            title="{{ cell.tooltip_title }}&#10;{{ cell.tooltip_body }}"
                            data-tooltip-title="{{ cell.tooltip_title }}"

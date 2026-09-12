@@ -47,21 +47,21 @@ def arbitres_list(
     )
 
 
-@router.get("/arbitres/{arbitre_id}", response_class=HTMLResponse)
+@router.get("/arbitres/{identifier}", response_class=HTMLResponse)
 def arbitre_detail(
     request: Request,
-    arbitre_id: int,
+    identifier: str,
     arbitre_repo: ArbitreRepository = Depends(get_arbitre_repo),
 ):
-    arbitre = arbitre_repo.get(arbitre_id)
+    arbitre = arbitre_repo.get_by_licence_or_id(identifier)
     if not arbitre:
         return templates.TemplateResponse(
             "error.html",
             {"request": request, "message": "Arbitre non trouvé"},
             status_code=404,
         )
-    stats = arbitre_repo.get_stats(arbitre_id)
-    matchs = arbitre_repo.get_matchs(arbitre_id, limit=50)
+    stats = arbitre_repo.get_stats(arbitre.id)
+    matchs = arbitre_repo.get_matchs(arbitre.id, limit=50)
     return templates.TemplateResponse(
         "arbitres/detail.html",
         {"request": request, "arbitre": arbitre, "stats": stats, "matchs": matchs},

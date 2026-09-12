@@ -723,13 +723,13 @@ def matchs_list(
     )
 
 
-@router.get("/matchs/{match_id}", response_class=HTMLResponse)
+@router.get("/matchs/{identifier}", response_class=HTMLResponse)
 def match_detail(
     request: Request,
-    match_id: int,
+    identifier: str,
     repo: MatchRepository = Depends(get_match_repo),
 ):
-    match = repo.get_with_details(match_id)
+    match = repo.get_with_details(identifier)
     if not match:
         return templates.TemplateResponse(
             "error.html",
@@ -775,8 +775,10 @@ def match_detail(
         from pyvolley.database.player_stats_service import JoueurMatchStatsService
 
         stats_service = JoueurMatchStatsService(repo.session)
-        stats_service.compute_and_store_for_match(match)
         player_stats_a, player_stats_b = stats_service.get_match_stats_grouped(match.id)
+        if not player_stats_a and not player_stats_b:
+            stats_service.compute_and_store_for_match(match)
+            player_stats_a, player_stats_b = stats_service.get_match_stats_grouped(match.id)
 
         participant_count_a = len([p for p in (match.participations or []) if p.equipe_id == match.equipe_a_id])
         participant_count_b = len([p for p in (match.participations or []) if p.equipe_id == match.equipe_b_id])
@@ -812,9 +814,6 @@ def match_detail(
             .order_by(MatchDB.date_match.desc(), MatchDB.id.desc())
             .limit(8)
         )) if match.equipe_b_id else []
-
-        for prev in prev_matches_a + prev_matches_b:
-            stats_service.compute_and_store_for_match(prev)
 
         prev_ids = [m.id for m in (prev_matches_a + prev_matches_b)]
         prev_rows = list(repo.session.scalars(

@@ -354,6 +354,7 @@ class MatchViewService:
                     "nom": f"{p.joueur.nom} {p.joueur.prenom}" if p.joueur else f"#{p.numero_maillot}",
                     "display_name": p.joueur.nom if p.joueur else f"#{p.numero_maillot}",
                     "joueur_id": p.joueur_id,
+                    "licence": p.joueur.licence if p.joueur else None,
                     "role_principal": getattr(p.joueur, "role_principal", None) if p.joueur else None,
                     "role_confiance": getattr(p.joueur, "role_confiance", None) if p.joueur else None,
                     "est_libero": p.est_libero,

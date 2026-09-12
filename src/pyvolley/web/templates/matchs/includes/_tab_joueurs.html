@@ -41,7 +41,7 @@
                         {{ p.numero_maillot or '?' }}
                     </span>
                     <div class="min-w-0">
-                        <a href="{{ path_for_entity('joueur', p.joueur.id) }}" class="font-bold text-sm text-white hover:underline transition truncate block no-underline">
+                        <a href="{{ path_for_entity('joueur', p.joueur) }}" class="font-bold text-sm text-white hover:underline transition truncate block no-underline">
                             {{ p.joueur.nom }} <span class="font-normal" style="color: var(--text-muted);">{{ p.joueur.prenom }}</span>
                         </a>
                     </div>
@@ -97,7 +97,7 @@
                         {{ p.numero_maillot or '?' }}
                     </span>
                     <div class="min-w-0">
-                        <a href="{{ path_for_entity('joueur', p.joueur.id) }}" class="font-bold text-sm text-white hover:underline transition truncate block no-underline">
+                        <a href="{{ path_for_entity('joueur', p.joueur) }}" class="font-bold text-sm text-white hover:underline transition truncate block no-underline">
                             {{ p.joueur.nom }} <span class="font-normal" style="color: var(--text-muted);">{{ p.joueur.prenom }}</span>
                         </a>
                     </div>

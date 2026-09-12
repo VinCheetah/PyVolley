@@ -9,7 +9,7 @@
 {% block content %}
 <div class="space-y-6">
 
-    {{ breadcrumb([('Accueil', '/'), ('Compétitions', '/competitions'), (competition.nom|truncate_name(30), path_for_entity('competition', competition.id)), (poule.nom or poule.code, '')]) }}
+    {{ breadcrumb([('Accueil', '/'), ('Compétitions', '/competitions'), (competition.nom|truncate_name(30), path_for_entity('competition', competition)), (poule.nom or poule.code, '')]) }}
 
     {% set nb_matchs_joues = matchs|selectattr("match_joue")|list|length %}
     {% set nb_matchs_total = matchs|length %}
@@ -27,7 +27,7 @@
                         {{ poule.nom or poule.code }}
                     </h1>
                     <p class="text-xs text-muted mb-2">
-                        Poule de <a href="{{ path_for_entity('competition', competition.id) }}" class="text-accent-primary hover:underline font-medium">{{ competition.nom }}</a>
+                        Poule de <a href="{{ path_for_entity('competition', competition) }}" class="text-accent-primary hover:underline font-medium">{{ competition.nom }}</a>
                         {% if is_youth %}
                         <span class="badge badge-yellow ml-2 text-xs">Plateau — Journée unique</span>
                         {% endif %}
@@ -44,34 +44,33 @@
                             {% if competition.genre == 'MASCULIN' %}♂{% elif competition.genre == 'FEMININ' %}♀{% else %}⚥{% endif %} {{ competition.genre }}
                         </span>
                         {% endif %}
-                        {% if competition.categorie %}
-                        <span class="badge badge-yellow"><i data-lucide="users" class="w-3 h-3 mr-0.5"></i>{{ competition.categorie }}</span>
+                        {{ niveau_badge }}
+                        {% if competition.code_competition %}
+                        <span class="badge badge-gray font-mono text-xs">
+                            <i data-lucide="hash" class="w-3 h-3 mr-0.5"></i>{{ competition.code_competition }}
+                        </span>
                         {% endif %}
-                        {% if niveau_badge %}
-                        <span class="badge {{ niveau_badge.css_class }}"><i data-lucide="bar-chart-3" class="w-3 h-3 mr-0.5"></i>{{ niveau_badge.label }}</span>
-                        {% endif %}
-                        <span class="badge font-mono text-muted">{{ poule.code }}</span>
                     </div>
                 </div>
             </div>
 
-            <!-- Quick Action Links -->
-            <div class="competition-quick-actions">
-                {% if poule.url_calendrier %}
-                <a href="{{ poule.url_calendrier }}" target="_blank" rel="noopener noreferrer"
-                   class="competition-quick-btn text-accent-blue" title="Calendrier officiel FFVB de la poule">
-                    <i data-lucide="calendar-days" class="w-3.5 h-3.5"></i>
-                    Calendrier FFVB
+            <!-- Action buttons -->
+            <div class="flex flex-wrap items-center gap-2">
+                {% if competition.code_competition %}
+                <a href="https://www.ffvbbeach.org/ffvbapp/resu/seniors/{{ competition.saison.code[:4] if competition.saison else '2024' }}/{{ competition.code_competition }}.htm"
+                   target="_blank" rel="noopener noreferrer"
+                   class="competition-quick-btn btn-ffvb" title="Voir sur le site officiel FFVB">
+                    <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                    Site FFVB
                 </a>
-                {% endif %}
-                {% if poule.url_classement %}
-                <a href="{{ poule.url_classement }}" target="_blank" rel="noopener noreferrer"
-                   class="competition-quick-btn text-accent-gold" title="Classement officiel FFVB de la poule">
+                <a href="https://www.ffvbbeach.org/ffvbapp/resu/vbscores.php?poule={{ poule.code }}"
+                   target="_blank" rel="noopener noreferrer"
+                   class="competition-quick-btn btn-ffvb" title="Feuille de résultats officielle FFVB">
                     <i data-lucide="trophy" class="w-3.5 h-3.5"></i>
                     Classement FFVB
                 </a>
                 {% endif %}
-                <a href="{{ path_for_entity('competition', competition.id) }}" class="competition-quick-btn btn-ffvb">
+                <a href="{{ path_for_entity('competition', competition) }}" class="competition-quick-btn btn-ffvb">
                     <i data-lucide="trophy" class="w-3.5 h-3.5"></i>
                     Compétition parente
                 </a>
@@ -105,7 +104,7 @@
             <i data-lucide="grid-2x2" class="w-3.5 h-3.5 text-accent-primary"></i> Autres poules :
         </span>
         {% for sp in sibling_poules %}
-        <a href="{{ path_for_entity('poule', sp.id) }}" class="poule-subtab-btn hover:text-white">
+        <a href="{{ path_for_entity('poule', sp) }}" class="poule-subtab-btn hover:text-white">
             {{ sp.nom or sp.code }}
         </a>
         {% endfor %}
@@ -338,7 +337,7 @@
                                 </td>
                                 <td class="text-right">
                                     <div class="flex items-center justify-end gap-1.5">
-                                        <a href="{{ path_for_entity('match', m.id) }}" class="btn-secondary py-1 px-2.5 text-xs">
+                                        <a href="{{ path_for_entity('match', m) }}" class="btn-secondary py-1 px-2.5 text-xs">
                                             Détail
                                         </a>
                                         {% if m.competition and m.competition.entite and m.saison %}

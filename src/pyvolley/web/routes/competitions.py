@@ -66,76 +66,96 @@ def _build_poule_links(poule) -> dict[str, Optional[str]]:
     }
 
 
+from pyvolley.web.services.competition_view_service import CompetitionViewService
+
+
 @router.get("/competitions", response_class=HTMLResponse)
 def competitions_list(
     request: Request,
     saison_id: Optional[str] = Query(None),
     genre: Optional[str] = None,
     categorie: Optional[str] = None,
+    echelon: Optional[str] = None,
+    view: Optional[str] = Query("grid"),
     q: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     repo: CompetitionRepository = Depends(get_competition_repo),
     saison_repo: SaisonRepository = Depends(get_saison_repo),
 ):
-    saison_id_int = parse_optional_int(saison_id)
-
-    limit = 50
-    offset = (page - 1) * limit
-    competitions = repo.get_all(
-        limit=limit,
-        offset=offset,
-        saison_id=saison_id_int,
-        genre=genre,
-        categorie=categorie,
-        q=q,
-        exclude_code_only=True,
-    )
-    total = repo.count_filtered(
-        saison_id=saison_id_int,
-        genre=genre,
-        categorie=categorie,
-        q=q,
-        exclude_code_only=True,
-    )
     saisons = saison_repo.get_all(limit=20)
+
+    # Résolution de la saison par défaut : si non précisée, prendre la première (la plus récente)
+    if saison_id == "all":
+        saison_id_int = None
+    elif saison_id is not None:
+        saison_id_int = parse_optional_int(saison_id)
+    else:
+        saison_id_int = saisons[0].id if saisons else None
+
+    # Récupération complète pour la présentation structurée
+    competitions = repo.get_for_presentation(
+        saison_id=saison_id_int,
+        genre=genre,
+        categorie=categorie,
+        q=q,
+        exclude_code_only=True,
+    )
+
+    page_data = CompetitionViewService.prepare_competitions_page(
+        competitions=competitions,
+        saisons=saisons,
+        current_saison_id=saison_id_int,
+        active_echelon=echelon,
+        active_genre=genre,
+        active_categorie=categorie,
+        active_q=q,
+        active_view=view or "grid",
+    )
+
     genres = repo.get_distinct_genres()
     categories = repo.get_distinct_categories()
+
     return templates.TemplateResponse(
         "competitions/list.html",
         {
             "request": request,
-            "competitions": competitions,
-            "total": total,
+            "page_data": page_data,
+            "competitions": page_data.all_competitions,
+            "total": page_data.total_competitions,
             "page": page,
-            "has_next": offset + limit < total,
-            "has_prev": page > 1,
+            "has_next": False,
+            "has_prev": False,
             "saisons": saisons,
             "current_saison_id": saison_id_int,
             "genre": genre or "",
             "genres": genres,
             "categorie": categorie or "",
             "categories": categories,
+            "echelon": echelon or "",
+            "view": view or "grid",
             "q": q or "",
         },
     )
 
 
-@router.get("/competitions/{competition_id}", response_class=HTMLResponse)
+@router.get("/competitions/{identifier}", response_class=HTMLResponse)
 def competition_detail(
     request: Request,
-    competition_id: int,
+    identifier: str,
     competition_repo: CompetitionRepository = Depends(get_competition_repo),
     match_repo: MatchRepository = Depends(get_match_repo),
     equipe_repo: EquipeRepository = Depends(get_equipe_repo),
 ):
     """Page de détail d'une compétition avec classement, évolution et matrice."""
-    competition = competition_repo.get_with_details(competition_id)
+    competition = competition_repo.get_with_details(identifier)
     if not competition:
         return templates.TemplateResponse(
             "error.html",
             {"request": request, "message": "Compétition non trouvée"},
             status_code=404,
         )
+
+    competition_id = competition.id
 
     # Detect youth competition
     from pyvolley.scrapers.ffvb.jeunes import is_youth_competition

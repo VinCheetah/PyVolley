@@ -557,7 +557,7 @@ document.addEventListener('DOMContentLoaded', function() {
             resultat: m.resultat || '',
             date_iso: m.date || '',
             date_display: formattedDates[idx],
-            match_url: m.match_url || (m.match_id ? `/matchs/${m.match_id}` : null),
+            match_url: m.match_url || (m.code_match ? `/matchs/${m.code_match}` : (m.match_id ? `/matchs/${m.match_id}` : null)),
         };
 
         bars[idx] = isWin ? [0, scoreLevel] : [scoreLevel, topAnchor];

@@ -234,7 +234,8 @@ def build_match_score_evolution(matchs, equipe) -> list[dict[str, Any]]:
                 "sets_for": int(sets_for),
                 "sets_against": int(sets_against),
                 "match_id": int(m.id),
-                "match_url": f"/matchs/{m.id}",
+                "code_match": getattr(m, "code_match", None),
+                "match_url": f"/matchs/{getattr(m, 'code_match', None) or m.id}",
                 "competition": m.competition.nom if m.competition else "",
             }
         )

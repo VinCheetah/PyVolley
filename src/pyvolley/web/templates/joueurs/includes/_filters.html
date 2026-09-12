@@ -14,7 +14,7 @@
         <span class="text-xs text-muted" x-text="filtersOpen ? 'Masquer' : 'Afficher'"></span>
     </button>
 
-    <form method="get" action="/joueurs/{{ joueur.id }}" class="p-4 space-y-4" x-show="filtersOpen" x-transition x-cloak>
+    <form method="get" action="/joueurs/{{ joueur.licence }}" class="p-4 space-y-4" x-show="filtersOpen" x-transition x-cloak>
         <input type="hidden" name="tab" :value="activeTab">
 
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -104,7 +104,7 @@
 
         <div class="flex flex-wrap items-center gap-2">
             <button type="submit" class="pagination-btn bg-accent-blue text-white border-accent-blue">Appliquer</button>
-            <a :href="'/joueurs/{{ joueur.id }}?tab=' + activeTab" class="pagination-btn">Réinitialiser</a>
+            <a :href="'/joueurs/{{ joueur.licence }}?tab=' + activeTab" class="pagination-btn">Réinitialiser</a>
             <span class="text-xs ml-2 text-muted">{{ stats.matchs_joues }} / {{ base_match_count }} matchs joués sélectionnés</span>
         </div>
     </form>

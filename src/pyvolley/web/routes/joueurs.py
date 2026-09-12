@@ -105,10 +105,10 @@ def joueurs_list(
     )
 
 
-@router.get("/joueurs/{joueur_id}", response_class=HTMLResponse)
+@router.get("/joueurs/{identifier}", response_class=HTMLResponse)
 def joueur_detail(
     request: Request,
-    joueur_id: int,
+    identifier: str,
     tab: Optional[str] = Query("resume"),
     saison_id: Optional[int] = Query(None),
     saison_ids: Optional[list[int]] = Query(None),
@@ -122,9 +122,9 @@ def joueur_detail(
     domicile_exterieur: Optional[str] = Query(None),
     session: Session = Depends(get_session),
 ):
-    """Fiche joueur détaillée avec timeline de niveau, statistiques avancées et maillots."""
+    """Fiche joueur détaillée avec timeline de niveau, statistiques avancées et maillots (identifié par licence FFVB)."""
     context = JoueurViewService.build_detail_context(
-        joueur_id=joueur_id,
+        joueur_id=identifier,
         session=session,
         tab=tab,
         saison_id=saison_id,

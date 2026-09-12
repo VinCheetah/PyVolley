@@ -19,7 +19,7 @@
             <div class="flex justify-between items-center py-1" style="border-bottom: 1px solid var(--border-color-subtle);">
                 <dt style="color: var(--text-secondary);">Compétition</dt>
                 <dd class="font-medium text-right max-w-xs">
-                    <a href="{{ path_for_entity('competition', match.competition.id) }}" class="hover:text-white transition" style="color: var(--text-primary);">{{ match.competition.nom }}</a>
+                    <a href="{{ path_for_entity('competition', match.competition) }}" class="hover:text-white transition" style="color: var(--text-primary);">{{ match.competition.nom }}</a>
                 </dd>
             </div>
             {% endif %}

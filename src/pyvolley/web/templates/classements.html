@@ -209,7 +209,7 @@
                         <td class="py-3 px-4">
                             <div class="font-semibold text-white text-base">
                                 {% if filters.entity_type == 'joueurs' %}
-                                <a href="/joueurs/{{ item.entity_id }}" class="hover:text-primary transition-colors">
+                                <a href="/joueurs/{{ item.canonical_id }}" class="hover:text-primary transition-colors">
                                     {{ item.nom }}
                                 </a>
                                 {% elif filters.entity_type == 'equipes' %}
@@ -217,7 +217,7 @@
                                     {{ item.nom }}
                                 </a>
                                 {% else %}
-                                <a href="/clubs/{{ item.entity_id }}" class="hover:text-primary transition-colors">
+                                <a href="/clubs/{{ item.canonical_id }}" class="hover:text-primary transition-colors">
                                     {{ item.nom }}
                                 </a>
                                 {% endif %}
@@ -255,7 +255,7 @@
                         <!-- Action / Lien -->
                         <td class="py-3 px-4 text-center">
                             {% if filters.entity_type == 'joueurs' %}
-                            <a href="/joueurs/{{ item.entity_id }}" class="p-1.5 rounded-lg hover:bg-surface-3 text-muted hover:text-white transition-colors inline-block" title="Voir le profil">
+                            <a href="/joueurs/{{ item.canonical_id }}" class="p-1.5 rounded-lg hover:bg-surface-3 text-muted hover:text-white transition-colors inline-block" title="Voir le profil">
                                 <i data-lucide="chevron-right" class="w-4 h-4"></i>
                             </a>
                             {% elif filters.entity_type == 'equipes' %}
@@ -263,7 +263,7 @@
                                 <i data-lucide="chevron-right" class="w-4 h-4"></i>
                             </a>
                             {% else %}
-                            <a href="/clubs/{{ item.entity_id }}" class="p-1.5 rounded-lg hover:bg-surface-3 text-muted hover:text-white transition-colors inline-block" title="Voir le club">
+                            <a href="/clubs/{{ item.canonical_id }}" class="p-1.5 rounded-lg hover:bg-surface-3 text-muted hover:text-white transition-colors inline-block" title="Voir le club">
                                 <i data-lucide="chevron-right" class="w-4 h-4"></i>
                             </a>
                             {% endif %}

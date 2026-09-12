@@ -91,7 +91,7 @@
                     {% for saison in current_club.saisons[:3] %}
                     <span class="badge">{{ saison }}</span>
                     {% endfor %}
-                    <a href="/joueurs/{{ joueur.id }}?tab=matchs&club_ids={{ current_club.id }}" class="badge badge-blue">Voir ses matchs club</a>
+                    <a href="/joueurs/{{ joueur.licence }}?tab=matchs&club_ids={{ current_club.id }}" class="badge badge-blue">Voir ses matchs club</a>
                 </div>
                 {% else %}
                 <p class="text-sm mt-1" style="color: var(--text-muted);">Non déterminé.</p>
@@ -111,7 +111,7 @@
                             {% for saison in club.saisons[:2] %}
                             <span class="badge">{{ saison }}</span>
                             {% endfor %}
-                            <a href="/joueurs/{{ joueur.id }}?tab=matchs&club_ids={{ club.id }}" class="badge badge-blue">Matchs</a>
+                            <a href="/joueurs/{{ joueur.licence }}?tab=matchs&club_ids={{ club.id }}" class="badge badge-blue">Matchs</a>
                         </div>
                     </div>
                     {% else %}
@@ -225,7 +225,7 @@
                         <span class="badge badge-green">Club actuel</span>
                         {% endif %}
                         {% if featured_jersey.club_id %}
-                        <a href="/joueurs/{{ joueur.id }}?tab=matchs&club_ids={{ featured_jersey.club_id }}" class="badge badge-blue">Matchs de ce club</a>
+                        <a href="/joueurs/{{ joueur.licence }}?tab=matchs&club_ids={{ featured_jersey.club_id }}" class="badge badge-blue">Matchs de ce club</a>
                         {% endif %}
                     </div>
                 </div>

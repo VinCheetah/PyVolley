@@ -8,6 +8,8 @@ pour assurer la compatibilité et l'accès direct par les templates Jinja2.
 from pyvolley.shared.niveau import (
     LEVEL_SORT_ORDER,
     RANK_REFERENCE_LABELS,
+    ECHELON_METADATA,
+    resolve_competition_echelon,
     niveau_sort_rank,
     niveau_sort_key,
     niveau_reference_labels,
@@ -18,6 +20,8 @@ from pyvolley.shared.niveau import (
 __all__ = [
     "LEVEL_SORT_ORDER",
     "RANK_REFERENCE_LABELS",
+    "ECHELON_METADATA",
+    "resolve_competition_echelon",
     "niveau_sort_rank",
     "niveau_sort_key",
     "niveau_reference_labels",

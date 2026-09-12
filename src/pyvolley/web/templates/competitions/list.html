@@ -1,44 +1,129 @@
 {% extends "base.html" %}
-{% from "macros/ui.html" import pagination %}
 {% block title %}Compétitions - PyVolley{% endblock %}
 
 {% block content %}
 <div class="space-y-6">
 
-    <!-- Header -->
-    <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+    <!-- ── En-tête & Sélecteur de Saison ── -->
+    <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
             <h1 class="text-2xl font-bold flex items-center gap-2.5">
                 <i data-lucide="trophy" class="w-6 h-6 text-accent-gold"></i>
-                Compétitions
+                Compétitions FFVB
             </h1>
-            <p class="text-muted text-sm mt-0.5">{{ total }} compétition{% if total > 1 %}s{% endif %} enregistrée{% if total > 1 %}s{% endif %}</p>
+            <p class="text-muted text-sm mt-0.5">
+                Organisation hiérarchique par échelon territorial et triée par niveau sportif.
+                {% if page_data.current_saison_code %}
+                Saison active : <span class="font-semibold text-white">{{ page_data.current_saison_code }}</span>
+                {% else %}
+                <span class="font-semibold text-white">Toutes les saisons</span>
+                {% endif %}
+            </p>
+        </div>
+
+        <!-- Sélecteur de Saison (Pills rapides) -->
+        <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-xs uppercase font-semibold text-muted tracking-wide flex items-center gap-1 mr-1">
+                <i data-lucide="calendar" class="w-3.5 h-3.5"></i> Saison :
+            </span>
+            <div class="season-selector-bar">
+                {% for s in page_data.saisons %}
+                <a href="/competitions?saison_id={{ s.id }}{% if echelon %}&echelon={{ echelon }}{% endif %}{% if genre %}&genre={{ genre }}{% endif %}{% if categorie %}&categorie={{ categorie }}{% endif %}{% if view %}&view={{ view }}{% endif %}{% if q %}&q={{ q }}{% endif %}"
+                   class="season-pill {% if s.is_active %}active{% endif %}">
+                    {{ s.code }}
+                </a>
+                {% endfor %}
+                <a href="/competitions?saison_id=all{% if echelon %}&echelon={{ echelon }}{% endif %}{% if genre %}&genre={{ genre }}{% endif %}{% if categorie %}&categorie={{ categorie }}{% endif %}{% if view %}&view={{ view }}{% endif %}{% if q %}&q={{ q }}{% endif %}"
+                   class="season-pill {% if page_data.current_saison_id is none %}active{% endif %}">
+                    Toutes
+                </a>
+            </div>
+
+            <!-- Toggle Vue (Grille vs Table) -->
+            <div class="flex items-center bg-card border border-color rounded p-0.5 ml-2">
+                <a href="/competitions?view=grid{% if page_data.current_saison_id %}&saison_id={{ page_data.current_saison_id }}{% elif current_saison_id is none %}&saison_id=all{% endif %}{% if echelon %}&echelon={{ echelon }}{% endif %}{% if genre %}&genre={{ genre }}{% endif %}{% if categorie %}&categorie={{ categorie }}{% endif %}{% if q %}&q={{ q }}{% endif %}"
+                   class="px-2.5 py-1 rounded-sm text-xs font-semibold flex items-center gap-1 transition {% if view != 'table' %}bg-accent-primary text-black{% else %}text-muted hover:text-white{% endif %}"
+                   title="Vue Grille Hiérarchique">
+                    <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i> Grille
+                </a>
+                <a href="/competitions?view=table{% if page_data.current_saison_id %}&saison_id={{ page_data.current_saison_id }}{% elif current_saison_id is none %}&saison_id=all{% endif %}{% if echelon %}&echelon={{ echelon }}{% endif %}{% if genre %}&genre={{ genre }}{% endif %}{% if categorie %}&categorie={{ categorie }}{% endif %}{% if q %}&q={{ q }}{% endif %}"
+                   class="px-2.5 py-1 rounded-sm text-xs font-semibold flex items-center gap-1 transition {% if view == 'table' %}bg-accent-primary text-black{% else %}text-muted hover:text-white{% endif %}"
+                   title="Vue Synthétique">
+                    <i data-lucide="list" class="w-3.5 h-3.5"></i> Table
+                </a>
+            </div>
         </div>
     </div>
 
-    <!-- Filters & Search Bar -->
+    <!-- ── Synthèse des Métriques (KPIs) ── -->
+    <div class="competitions-kpi-grid">
+        <div class="kpi-stat-card">
+            <div class="kpi-icon-box national">
+                <i data-lucide="trophy" class="w-4 h-4"></i>
+            </div>
+            <div>
+                <div class="text-xs text-muted uppercase font-bold tracking-wider">National</div>
+                <div class="text-lg font-extrabold text-white leading-tight">{{ page_data.total_national }}</div>
+            </div>
+        </div>
+        <div class="kpi-stat-card">
+            <div class="kpi-icon-box regional">
+                <i data-lucide="map" class="w-4 h-4"></i>
+            </div>
+            <div>
+                <div class="text-xs text-muted uppercase font-bold tracking-wider">Régional</div>
+                <div class="text-lg font-extrabold text-white leading-tight">{{ page_data.total_regional }}</div>
+            </div>
+        </div>
+        <div class="kpi-stat-card">
+            <div class="kpi-icon-box departemental">
+                <i data-lucide="map-pin" class="w-4 h-4"></i>
+            </div>
+            <div>
+                <div class="text-xs text-muted uppercase font-bold tracking-wider">Départemental</div>
+                <div class="text-lg font-extrabold text-white leading-tight">{{ page_data.total_departemental }}</div>
+            </div>
+        </div>
+        <div class="kpi-stat-card">
+            <div class="kpi-icon-box coupe">
+                <i data-lucide="award" class="w-4 h-4"></i>
+            </div>
+            <div>
+                <div class="text-xs text-muted uppercase font-bold tracking-wider">Coupes</div>
+                <div class="text-lg font-extrabold text-white leading-tight">{{ page_data.total_coupes }}</div>
+            </div>
+        </div>
+        <div class="kpi-stat-card">
+            <div class="kpi-icon-box matches">
+                <i data-lucide="activity" class="w-4 h-4"></i>
+            </div>
+            <div>
+                <div class="text-xs text-muted uppercase font-bold tracking-wider">Total Matchs</div>
+                <div class="text-lg font-extrabold text-accent-green leading-tight">{{ page_data.total_matches }}</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Barre de Filtres & Recherche ── -->
     <form action="/competitions" method="get" class="card p-4 space-y-3">
+        <input type="hidden" name="saison_id" value="{% if page_data.current_saison_id %}{{ page_data.current_saison_id }}{% elif current_saison_id is none %}all{% endif %}">
+        <input type="hidden" name="view" value="{{ view }}">
+        {% if echelon %}
+        <input type="hidden" name="echelon" value="{{ echelon }}">
+        {% endif %}
+
         <div class="flex flex-col md:flex-row gap-3">
-            <!-- Search input -->
+            <!-- Recherche textuelle -->
             <div class="relative flex-1">
                 <i data-lucide="search" class="w-4 h-4 text-muted absolute left-3 top-1/2 -translate-y-1/2"></i>
                 <input type="text" name="q" value="{{ q }}"
-                       placeholder="Rechercher par nom ou code (ex: Nationale, Régionale, PFA...)"
+                       placeholder="Rechercher par nom, niveau, code (ex: Elite, N2, Prénat, PFAA, LIRA...)"
                        class="search-input text-sm pl-9"
                        autocomplete="off">
             </div>
 
-            <!-- Select filters -->
+            <!-- Filtres Genre & Catégorie -->
             <div class="flex flex-wrap gap-2.5 items-center">
-                <select name="saison_id" onchange="this.form.submit()" class="filter-select">
-                    <option value="">Saison : Toutes</option>
-                    {% for s in saisons %}
-                    <option value="{{ s.id }}" {% if current_saison_id == s.id %}selected{% endif %}>
-                        {{ s.code }}
-                    </option>
-                    {% endfor %}
-                </select>
-
                 <select name="genre" class="filter-select" onchange="this.form.submit()">
                     <option value="">Genre : Tous</option>
                     {% for g in genres %}
@@ -57,91 +142,183 @@
                     <i data-lucide="filter" class="w-3.5 h-3.5"></i> Filtrer
                 </button>
 
-                {% if genre or categorie or current_saison_id or q %}
-                <a href="/competitions" class="pagination-btn text-muted hover:text-white" title="Effacer tous les filtres">
+                {% if page_data.filter_applied %}
+                <a href="/competitions?saison_id={% if page_data.current_saison_id %}{{ page_data.current_saison_id }}{% else %}all{% endif %}&view={{ view }}"
+                   class="pagination-btn text-muted hover:text-white" title="Effacer tous les filtres">
                     <i data-lucide="x" class="w-4 h-4"></i> Réinitialiser
                 </a>
                 {% endif %}
             </div>
         </div>
 
-        <!-- Active Filter Badges -->
-        {% if genre or categorie or current_saison_id or q %}
-        <div class="flex flex-wrap gap-2 items-center pt-2 border-t border-color-subtle">
-            <span class="text-xs font-semibold uppercase text-muted">Filtres actifs :</span>
-            {% if q %}
-            <span class="badge badge-gold">
-                <i data-lucide="search" class="w-3 h-3"></i> « {{ q }} »
-            </span>
+        <!-- Onglets Échelons (Filtrage rapide) -->
+        <div class="echelon-nav-tabs pt-2">
+            <a href="/competitions?saison_id={% if page_data.current_saison_id %}{{ page_data.current_saison_id }}{% else %}all{% endif %}&view={{ view }}{% if genre %}&genre={{ genre }}{% endif %}{% if categorie %}&categorie={{ categorie }}{% endif %}{% if q %}&q={{ q }}{% endif %}"
+               class="echelon-nav-tab {% if not echelon or echelon == 'all' %}active{% endif %}">
+                <i data-lucide="layers" class="w-3.5 h-3.5"></i> Tous les échelons
+                <span class="badge badge-purple text-xs ml-1">{{ page_data.total_competitions }}</span>
+            </a>
+            <a href="/competitions?echelon=national&saison_id={% if page_data.current_saison_id %}{{ page_data.current_saison_id }}{% else %}all{% endif %}&view={{ view }}{% if genre %}&genre={{ genre }}{% endif %}{% if categorie %}&categorie={{ categorie }}{% endif %}{% if q %}&q={{ q }}{% endif %}"
+               class="echelon-nav-tab {% if echelon == 'national' %}active{% endif %}">
+                <i data-lucide="trophy" class="w-3.5 h-3.5 text-accent-gold"></i> National
+                <span class="badge badge-gold text-xs ml-1">{{ page_data.total_national }}</span>
+            </a>
+            <a href="/competitions?echelon=regional&saison_id={% if page_data.current_saison_id %}{{ page_data.current_saison_id }}{% else %}all{% endif %}&view={{ view }}{% if genre %}&genre={{ genre }}{% endif %}{% if categorie %}&categorie={{ categorie }}{% endif %}{% if q %}&q={{ q }}{% endif %}"
+               class="echelon-nav-tab {% if echelon == 'regional' %}active{% endif %}">
+                <i data-lucide="map" class="w-3.5 h-3.5 text-accent-blue-light"></i> Régional
+                <span class="badge badge-blue text-xs ml-1">{{ page_data.total_regional }}</span>
+            </a>
+            <a href="/competitions?echelon=departemental&saison_id={% if page_data.current_saison_id %}{{ page_data.current_saison_id }}{% else %}all{% endif %}&view={{ view }}{% if genre %}&genre={{ genre }}{% endif %}{% if categorie %}&categorie={{ categorie }}{% endif %}{% if q %}&q={{ q }}{% endif %}"
+               class="echelon-nav-tab {% if echelon == 'departemental' %}active{% endif %}">
+                <i data-lucide="map-pin" class="w-3.5 h-3.5 text-accent-teal"></i> Départemental
+                <span class="badge badge-teal text-xs ml-1">{{ page_data.total_departemental }}</span>
+            </a>
+            {% if page_data.total_coupes > 0 or echelon == 'coupe_de_france' %}
+            <a href="/competitions?echelon=coupe_de_france&saison_id={% if page_data.current_saison_id %}{{ page_data.current_saison_id }}{% else %}all{% endif %}&view={{ view }}{% if genre %}&genre={{ genre }}{% endif %}{% if categorie %}&categorie={{ categorie }}{% endif %}{% if q %}&q={{ q }}{% endif %}"
+               class="echelon-nav-tab {% if echelon == 'coupe_de_france' %}active{% endif %}">
+                <i data-lucide="award" class="w-3.5 h-3.5 text-accent-purple"></i> Coupe de France
+                <span class="badge badge-purple text-xs ml-1">{{ page_data.total_coupes }}</span>
+            </a>
             {% endif %}
-            {% if genre %}
-            <span class="badge {% if genre == 'MASCULIN' %}badge-blue{% elif genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %}">
-                {% if genre == 'MASCULIN' %}♂{% elif genre == 'FEMININ' %}♀{% else %}⚥{% endif %} {{ genre }}
-            </span>
-            {% endif %}
-            {% if categorie %}
-            <span class="badge badge-yellow">{{ categorie }}</span>
-            {% endif %}
-            {% if current_saison_id %}
-            {% for s in saisons %}{% if s.id == current_saison_id %}
-            <span class="badge badge-purple">{{ s.code }}</span>
-            {% endif %}{% endfor %}
+            {% if page_data.total_loisir > 0 or echelon == 'loisir' %}
+            <a href="/competitions?echelon=loisir&saison_id={% if page_data.current_saison_id %}{{ page_data.current_saison_id }}{% else %}all{% endif %}&view={{ view }}{% if genre %}&genre={{ genre }}{% endif %}{% if categorie %}&categorie={{ categorie }}{% endif %}{% if q %}&q={{ q }}{% endif %}"
+               class="echelon-nav-tab {% if echelon == 'loisir' %}active{% endif %}">
+                <i data-lucide="smile" class="w-3.5 h-3.5 text-accent-yellow"></i> Loisir
+                <span class="badge badge-yellow text-xs ml-1">{{ page_data.total_loisir }}</span>
+            </a>
             {% endif %}
         </div>
-        {% endif %}
     </form>
 
-    <!-- Grid -->
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {% for c in competitions %}
-        <a href="{{ path_for_entity('competition', c.id) }}" class="card card-interactive p-5 block">
-            <div class="flex items-start gap-3.5">
-                <div class="competition-hero-icon-box {% if c.genre == 'MASCULIN' %}masculin{% elif c.genre == 'FEMININ' %}feminin{% else %}mixte{% endif %}" style="width: 44px; height: 44px; border-radius: var(--radius-sm);">
-                    {% if c.genre == 'MASCULIN' %}
-                    <i data-lucide="trophy" class="w-5 h-5 text-accent-blue"></i>
-                    {% elif c.genre == 'FEMININ' %}
-                    <i data-lucide="trophy" class="w-5 h-5 text-accent-red-light"></i>
-                    {% else %}
-                    <i data-lucide="trophy" class="w-5 h-5 text-accent-gold"></i>
-                    {% endif %}
+    <!-- ═══════════════════════════════════════════════════════════════
+         VUE GRILLE HIÉRARCHIQUE (Par Échelon puis triée par Niveau)
+         ═══════════════════════════════════════════════════════════════ -->
+    {% if view != 'table' %}
+    <div class="space-y-8">
+        {% for ech in page_data.echelons %}
+        <section class="echelon-section-container" id="echelon-{{ ech.key }}">
+
+            <!-- Bannière d'Échelon -->
+            <div class="echelon-header-banner">
+                <div class="echelon-title-group">
+                    <div class="echelon-icon-badge {{ ech.key }}">
+                        <i data-lucide="{{ ech.icon }}" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2.5">
+                            <h2 class="text-xl font-bold text-white tracking-tight">
+                                Échelon {{ ech.label }}
+                            </h2>
+                            <span class="badge {{ ech.badge_css }} text-xs font-semibold">
+                                {{ ech.total_competitions }} compétition{% if ech.total_competitions > 1 %}s{% endif %}
+                            </span>
+                        </div>
+                        <p class="text-xs text-muted mt-0.5">{{ ech.description }}</p>
+                    </div>
                 </div>
-                <div class="flex-1 min-w-0">
-                    <h3 class="font-semibold text-white text-sm leading-tight mb-2 truncate" title="{{ c.nom }}">
-                        {{ c.nom }}
-                    </h3>
-                    {% set niveau_badge = resolve_niveau_badge(c.niveau, c.nom, c.categorie, c.division) %}
-                    <div class="flex flex-wrap gap-1">
-                        {% if c.saison %}
-                        <span class="badge badge-purple text-xs">{{ c.saison.code }}</span>
-                        {% endif %}
-                        {% if c.genre %}
-                        <span class="badge {% if c.genre == 'MASCULIN' %}badge-blue{% elif c.genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %} text-xs">
-                            {% if c.genre == 'MASCULIN' %}♂{% elif c.genre == 'FEMININ' %}♀{% else %}⚥{% endif %} {{ c.genre }}
-                        </span>
-                        {% endif %}
-                        {% if c.categorie %}
-                        <span class="badge badge-yellow text-xs">{{ c.categorie }}</span>
-                        {% endif %}
-                        {% if niveau_badge %}
-                        <span class="badge {{ niveau_badge.css_class }} text-xs">{{ niveau_badge.label }}</span>
-                        {% endif %}
-                        {% if c.division %}
-                        <span class="badge text-xs">Div. {{ c.division }}</span>
-                        {% endif %}
-                    </div>
-                    {% if c.code_competition %}
-                    <div class="mt-2.5 flex items-center justify-between text-xs text-muted">
-                        <span class="font-mono">{{ c.code_competition }}</span>
-                        <span class="text-accent-primary flex items-center gap-1 font-medium hover:underline">
-                            Voir le détail <i data-lucide="arrow-right" class="w-3 h-3"></i>
-                        </span>
-                    </div>
-                    {% endif %}
+                <div class="flex items-center gap-3 text-xs text-muted">
+                    <span class="flex items-center gap-1 font-mono">
+                        <i data-lucide="calendar" class="w-3.5 h-3.5 text-accent-primary"></i>
+                        {{ ech.total_matches }} match{% if ech.total_matches > 1 %}s{% endif %}
+                    </span>
+                    <span class="text-color-subtle">|</span>
+                    <span class="flex items-center gap-1 font-mono">
+                        <i data-lucide="layers" class="w-3.5 h-3.5 text-accent-blue"></i>
+                        {{ ech.total_poules }} poule{% if ech.total_poules > 1 %}s{% endif %}
+                    </span>
                 </div>
             </div>
-        </a>
+
+            <!-- Sous-groupes par Niveau (Ex: Elite, N2, N3 ou Prénat, R1, R2...) -->
+            <div class="space-y-6">
+                {% for lvl in ech.level_groups %}
+                <div class="level-subgroup">
+                    <!-- En-tête de Niveau avec badge ordonné -->
+                    <div class="level-subgroup-header">
+                        <div class="flex items-center gap-2">
+                            <span class="badge {{ lvl.level_css }} font-bold text-xs">
+                                {{ lvl.level_label }}
+                            </span>
+                            <span class="text-sm font-semibold text-white">
+                                {{ lvl.level_label }}
+                            </span>
+                        </div>
+                        <div class="text-xs text-muted font-medium">
+                            {{ lvl.count }} compétition{% if lvl.count > 1 %}s{% endif %}
+                            {% if lvl.total_matches > 0 %} · {{ lvl.total_matches }} match(s){% endif %}
+                        </div>
+                    </div>
+
+                    <!-- Grille des cartes du niveau -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {% for c in lvl.competitions %}
+                        <a href="{{ path_for_entity('competition', c.id) }}" class="comp-card-v2">
+                            <div>
+                                <!-- Top Bar : Code & Niveau Badge -->
+                                <div class="flex items-center justify-between gap-2 mb-2.5">
+                                    <span class="badge {{ c.level_css }} text-xs font-bold">
+                                        {{ c.level_label }}
+                                    </span>
+                                    {% if c.code_competition %}
+                                    <span class="font-mono text-xs px-2 py-0.5 rounded bg-white/5 text-muted border border-color-subtle">
+                                        {{ c.code_competition }}
+                                    </span>
+                                    {% endif %}
+                                </div>
+
+                                <!-- Titre de la compétition -->
+                                <h3 class="font-bold text-white text-sm leading-snug mb-2 hover:text-accent-primary transition" title="{{ c.nom }}">
+                                    {{ c.nom }}
+                                </h3>
+
+                                <!-- Badges descriptifs -->
+                                <div class="flex flex-wrap gap-1.5 mb-2">
+                                    {% if c.saison_code %}
+                                    <span class="badge badge-purple text-xs">{{ c.saison_code }}</span>
+                                    {% endif %}
+
+                                    {% if c.genre %}
+                                    <span class="badge {% if c.genre == 'MASCULIN' %}badge-blue{% elif c.genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %} text-xs">
+                                        {% if c.genre == 'MASCULIN' %}♂{% elif c.genre == 'FEMININ' %}♀{% else %}⚥{% endif %} {{ c.genre }}
+                                    </span>
+                                    {% endif %}
+
+                                    {% if c.categorie %}
+                                    <span class="badge badge-yellow text-xs">{{ c.categorie }}</span>
+                                    {% endif %}
+
+                                    {% if c.division %}
+                                    <span class="badge text-xs">Div. {{ c.division }}</span>
+                                    {% endif %}
+
+                                    {% if c.entite_code %}
+                                    <span class="badge text-xs text-muted border border-color-subtle" title="{{ c.entite_nom or c.entite_code }}">
+                                        {{ c.entite_code }}
+                                    </span>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <!-- Footer de la carte -->
+                            <div class="pt-2.5 border-t border-color-subtle flex items-center justify-between text-xs text-muted mt-auto">
+                                <div class="flex items-center gap-2">
+                                    <span>{{ c.poules_count }} poule{% if c.poules_count > 1 %}s{% endif %}</span>
+                                    <span>·</span>
+                                    <span>{{ c.matchs_count }} match{% if c.matchs_count > 1 %}s{% endif %}</span>
+                                </div>
+                                <span class="text-accent-primary flex items-center gap-1 font-semibold hover:underline">
+                                    Détails <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
+                                </span>
+                            </div>
+                        </a>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
         {% else %}
-        <div class="col-span-full card p-12 text-center text-muted">
+        <div class="card p-12 text-center text-muted">
             <i data-lucide="trophy" class="w-12 h-12 mx-auto mb-3 opacity-30"></i>
             <p class="text-base font-semibold mb-1 text-primary">Aucune compétition trouvée</p>
             <p class="text-xs">Modifiez vos critères de recherche ou réinitialisez les filtres.</p>
@@ -149,8 +326,90 @@
         {% endfor %}
     </div>
 
-    <!-- Pagination -->
-    {{ pagination(page, has_prev, has_next, '/competitions', total_count=total) }}
+    <!-- ═══════════════════════════════════════════════════════════════
+         VUE TABLE SYNTHÉTIQUE (Triée hiérarchiquement)
+         ═══════════════════════════════════════════════════════════════ -->
+    {% else %}
+    <div class="card overflow-hidden">
+        <div class="table-responsive">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Échelon</th>
+                        <th>Niveau</th>
+                        <th>Code</th>
+                        <th>Compétition</th>
+                        <th class="text-center">Genre</th>
+                        <th class="text-center">Catégorie</th>
+                        <th>Entité</th>
+                        <th class="text-center">Poules</th>
+                        <th class="text-center">Matchs</th>
+                        <th class="text-right">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in page_data.all_competitions %}
+                    <tr class="hover:bg-white/5 transition">
+                        <td>
+                            <span class="badge text-xs font-semibold
+                                {% if c.echelon_key == 'national' %}badge-gold
+                                {% elif c.echelon_key == 'regional' %}badge-blue
+                                {% elif c.echelon_key == 'departemental' %}badge-teal
+                                {% elif c.echelon_key == 'coupe_de_france' %}badge-purple
+                                {% else %}badge-yellow{% endif %}">
+                                {{ c.echelon_label }}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge {{ c.level_css }} text-xs font-bold">
+                                {{ c.level_label }}
+                            </span>
+                        </td>
+                        <td class="font-mono text-xs text-accent-primary">
+                            {{ c.code_competition or "—" }}
+                        </td>
+                        <td class="font-medium text-white">
+                            <a href="{{ path_for_entity('competition', c.id) }}" class="hover:underline">
+                                {{ c.nom }}
+                            </a>
+                        </td>
+                        <td class="text-center">
+                            {% if c.genre %}
+                            <span class="badge {% if c.genre == 'MASCULIN' %}badge-blue{% elif c.genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %} text-xs">
+                                {% if c.genre == 'MASCULIN' %}♂{% elif c.genre == 'FEMININ' %}♀{% else %}⚥{% endif %}
+                            </span>
+                            {% else %}—{% endif %}
+                        </td>
+                        <td class="text-center text-xs">
+                            {{ c.categorie or "SENIOR" }}
+                        </td>
+                        <td class="text-xs text-muted">
+                            {{ c.entite_code or c.entite_nom or "—" }}
+                        </td>
+                        <td class="text-center font-mono text-xs">
+                            {{ c.poules_count }}
+                        </td>
+                        <td class="text-center font-mono text-xs text-accent-green">
+                            {{ c.matchs_count }}
+                        </td>
+                        <td class="text-right">
+                            <a href="{{ path_for_entity('competition', c.id) }}" class="badge badge-purple text-xs hover:opacity-80 transition">
+                                Voir
+                            </a>
+                        </td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="10" class="p-8 text-center text-muted">
+                            Aucune compétition trouvée selon ces critères.
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% endif %}
 
 </div>
 {% endblock %}

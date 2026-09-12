@@ -16,13 +16,13 @@
         <div class="flex flex-wrap items-center gap-2 sm:gap-3">
             {% if match.competition %}
                 {{ niveau_badge(match.competition.niveau, match.competition.nom, match.competition.categorie, match.competition.division, size='sm') }}
-                <a href="/competitions/{{ match.competition.id }}" class="font-medium hover:text-white transition" style="color: var(--text-primary);">
+                <a href="{{ path_for_entity('competition', match.competition) }}" class="font-medium hover:text-white transition" style="color: var(--text-primary);">
                     {{ match.competition.nom }}
                 </a>
             {% endif %}
             {% if match.poule %}
                 <span style="color: var(--text-muted);">•</span>
-                <a href="/poules/{{ match.poule.id }}" class="hover:text-white transition" style="color: var(--text-secondary);">
+                <a href="{{ path_for_entity('poule', match.poule) }}" class="hover:text-white transition" style="color: var(--text-secondary);">
                     Poule {{ match.poule.nom or match.poule.code }}
                 </a>
             {% endif %}
@@ -69,7 +69,7 @@
                 </h2>
                 {% if match.equipe_a and match.equipe_a.club %}
                 <p class="text-xs mt-0.5" style="color: var(--text-muted);">
-                    <a href="/clubs/{{ match.equipe_a.club.id }}" class="hover:text-white transition">
+                    <a href="{{ path_for_entity('club', match.equipe_a.club) }}" class="hover:text-white transition">
                         {{ match.equipe_a.club.nom }}
                     </a>
                 </p>
@@ -124,7 +124,7 @@
                 </h2>
                 {% if match.equipe_b and match.equipe_b.club %}
                 <p class="text-xs mt-0.5" style="color: var(--text-muted);">
-                    <a href="/clubs/{{ match.equipe_b.club.id }}" class="hover:text-white transition">
+                    <a href="{{ path_for_entity('club', match.equipe_b.club) }}" class="hover:text-white transition">
                         {{ match.equipe_b.club.nom }}
                     </a>
                 </p>
@@ -150,7 +150,7 @@
             {% if arb %}
             <span class="inline-flex items-center gap-1">
                 <span style="color: var(--text-muted);">[{{ arb_rel.role or 'Arb' }}]</span>
-                <a href="/arbitres/{{ arb.id }}" class="hover:text-white transition font-medium" style="color: var(--text-secondary);">
+                <a href="{{ path_for_entity('arbitre', arb) }}" class="hover:text-white transition font-medium" style="color: var(--text-secondary);">
                     {{ arb.nom_complet }}
                 </a>
             </span>

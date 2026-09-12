@@ -83,24 +83,71 @@ templates.env.filters["truncate_name"] = truncate_name
 # ═══════════════════════════════════════════════════════════════════
 
 def path_for_entity(
-    entity_type: str, entity_id: int | None, fallback: str = "#"
+    entity_type: str, entity: Any, fallback: str = "#"
 ) -> str:
-    """Génère l'URL pour une entité donnée."""
-    if not entity_id:
+    """Génère l'URL canonique pour une entité en privilégiant les identifiants FFVB."""
+    if not entity:
         return fallback
-    mapping = {
-        "home": "/",
-        "search": "/search",
-        "match": f"/matchs/{entity_id}",
-        "joueur": f"/joueurs/{entity_id}",
-        "equipe": f"/equipes/{entity_id}",
-        "club": f"/clubs/{entity_id}",
-        "arbitre": f"/arbitres/{entity_id}",
-        "entraineur": f"/entraineurs/{entity_id}",
-        "competition": f"/competitions/{entity_id}",
-        "poule": f"/poules/{entity_id}",
-    }
-    return mapping.get(entity_type, fallback)
+
+    if entity_type == "home":
+        return "/"
+    if entity_type == "search":
+        return "/search"
+
+    if entity_type == "joueur":
+        licence = getattr(entity, "licence", None)
+        if not licence and isinstance(entity, dict):
+            licence = entity.get("licence")
+        val = licence or getattr(entity, "id", None) or entity
+        return f"/joueurs/{val}"
+
+    if entity_type == "club":
+        code_ffvb = getattr(entity, "code_ffvb", None)
+        if not code_ffvb and isinstance(entity, dict):
+            code_ffvb = entity.get("code_ffvb")
+        val = code_ffvb or getattr(entity, "id", None) or entity
+        return f"/clubs/{val}"
+
+    if entity_type == "match":
+        code_match = getattr(entity, "code_match", None)
+        if not code_match and isinstance(entity, dict):
+            code_match = entity.get("code_match")
+        val = code_match or getattr(entity, "id", None) or entity
+        return f"/matchs/{val}"
+
+    if entity_type == "arbitre":
+        licence = getattr(entity, "licence", None)
+        if not licence and isinstance(entity, dict):
+            licence = entity.get("licence")
+        val = licence or getattr(entity, "id", None) or entity
+        return f"/arbitres/{val}"
+
+    if entity_type == "competition":
+        code = getattr(entity, "code_competition", None)
+        if not code and isinstance(entity, dict):
+            code = entity.get("code_competition")
+        val = code or getattr(entity, "id", None) or entity
+        return f"/competitions/{val}"
+
+    if entity_type == "poule":
+        code = getattr(entity, "code", None)
+        if not code and isinstance(entity, dict):
+            code = entity.get("code")
+        val = code or getattr(entity, "id", None) or entity
+        return f"/poules/{val}"
+
+    if entity_type == "equipe":
+        val = getattr(entity, "id", None) or entity
+        return f"/equipes/{val}"
+
+    if entity_type == "entraineur":
+        licence = getattr(entity, "licence", None)
+        if not licence and isinstance(entity, dict):
+            licence = entity.get("licence")
+        val = licence or getattr(entity, "id", None) or entity
+        return f"/entraineurs/{val}"
+
+    return fallback
 
 
 def competition_url_for_equipe(equipe, fallback: str = "#") -> str:
@@ -109,8 +156,10 @@ def competition_url_for_equipe(equipe, fallback: str = "#") -> str:
         return fallback
 
     competition = getattr(equipe, "competition", None)
-    if competition is not None and getattr(competition, "id", None):
-        return f"/competitions/{competition.id}"
+    if competition is not None:
+        target = getattr(competition, "code_competition", None) or getattr(competition, "id", None)
+        if target:
+            return f"/competitions/{target}"
 
     competition_id = getattr(equipe, "competition_id", None)
     if competition_id:

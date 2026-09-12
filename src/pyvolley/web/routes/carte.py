@@ -35,16 +35,7 @@ def carte_page(
     if entity_type == "match" or not entity_type:
         entity_type = "club"
 
-    # 1. Saisons disponibles
-    saisons = list(
-        session.scalars(
-            select(SaisonDB).order_by(SaisonDB.date_debut.desc().nulls_last(), SaisonDB.id.desc())
-        )
-    )
-    if saison_id is None and saisons:
-        saison_id = saisons[0].id
-
-    # 2. Ligues régionales distinctes (triées alphabétiquement)
+    # 1. Ligues régionales distinctes (triées alphabétiquement)
     raw_ligues = session.scalars(
         select(distinct(ClubDB.ligue))
         .where(ClubDB.ligue.is_not(None), ClubDB.ligue != "")
@@ -52,11 +43,13 @@ def carte_page(
     ).all()
     ligues = [l.strip() for l in raw_ligues if l and l.strip()]
 
-    # 3. Départements distincts (triés naturellement)
+    # 2. Départements distincts (triés naturellement)
     raw_depts = session.scalars(
         select(distinct(ClubDB.departement))
         .where(ClubDB.departement.is_not(None), ClubDB.departement != "")
     ).all()
+
+    from pyvolley.core.geo_data import DEPARTMENT_NAMES
 
     def _dept_sort_key(d: str):
         cleaned = d.strip().upper()
@@ -64,15 +57,19 @@ def carte_page(
             return (0, int(cleaned), cleaned)
         return (1, 0, cleaned)
 
-    departements = sorted([d.strip().upper() for d in raw_depts if d and d.strip()], key=_dept_sort_key)
+    sorted_dept_codes = sorted([d.strip().upper() for d in raw_depts if d and d.strip()], key=_dept_sort_key)
+    departements = [
+        {"code": d, "nom": DEPARTMENT_NAMES.get(d, "")}
+        for d in sorted_dept_codes
+    ]
 
-    # 4. Compétitions pour la saison sélectionnée (ou récentes)
+    # 3. Compétitions (toutes saisons confondues)
     comp_stmt = select(CompetitionDB).order_by(CompetitionDB.nom)
-    if saison_id:
-        comp_stmt = comp_stmt.where(CompetitionDB.saison_id == saison_id)
+    if competition_id:
+        comp_stmt = comp_stmt.where(CompetitionDB.id == competition_id)
     competitions = list(session.scalars(comp_stmt.limit(200)))
 
-    # 5. Clubs référencés pour la sélection rapide
+    # 4. Clubs référencés pour la sélection rapide
     club_stmt = select(ClubDB.id, ClubDB.nom, ClubDB.ville, ClubDB.departement).order_by(ClubDB.nom)
     if ligue:
         club_stmt = club_stmt.where(ClubDB.ligue == ligue)
@@ -92,8 +89,6 @@ def carte_page(
         "carte.html",
         {
             "request": request,
-            "saisons": saisons,
-            "current_saison_id": saison_id,
             "ligues": ligues,
             "departements": departements,
             "competitions": competitions,
@@ -107,3 +102,4 @@ def carte_page(
             "search_query": q or "",
         },
     )
+

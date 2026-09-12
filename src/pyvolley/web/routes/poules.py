@@ -29,16 +29,16 @@ def _to_ffvb_saison(saison_code: str | None) -> str | None:
     return saison_code.replace("-", "/")
 
 
-@router.get("/poules/{poule_id}", response_class=HTMLResponse)
+@router.get("/poules/{identifier}", response_class=HTMLResponse)
 def poule_detail(
     request: Request,
-    poule_id: int,
+    identifier: str,
     poule_repo: PouleRepository = Depends(get_poule_repo),
     competition_repo: CompetitionRepository = Depends(get_competition_repo),
     match_repo: MatchRepository = Depends(get_match_repo),
 ):
     """Page de détail d'une poule, vue comme compétition à part entière."""
-    poule = poule_repo.get_with_details(poule_id)
+    poule = poule_repo.get_with_details(identifier)
     if not poule:
         return templates.TemplateResponse(
             "error.html",
@@ -46,6 +46,7 @@ def poule_detail(
             status_code=404,
         )
 
+    poule_id = poule.id
     competition = poule.competition
 
     # Liens FFVB reconstruits à la volée (non persistés en base)

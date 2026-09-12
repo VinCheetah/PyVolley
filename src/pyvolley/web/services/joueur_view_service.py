@@ -269,7 +269,7 @@ class JoueurViewService:
     @classmethod
     def build_detail_context(
         cls,
-        joueur_id: int,
+        joueur_id: int | str,
         session: Session,
         tab: Optional[str] = "resume",
         saison_id: Optional[int] = None,
@@ -285,16 +285,19 @@ class JoueurViewService:
     ) -> Optional[dict[str, Any]]:
         """Construit l'ensemble des données nécessaires pour la fiche joueur."""
         joueur_repo = JoueurRepository(session)
-        joueur = joueur_repo.get(joueur_id)
+        joueur = joueur_repo.get_by_licence_or_id(joueur_id)
         if not joueur:
             return None
 
+        # Toujours utiliser la clé primaire entière pour les requêtes de base de données
+        joueur_id_int = joueur.id
+
         match_repo = MatchRepository(session)
-        matchs_all = match_repo.get_by_joueur(joueur_id, limit=1200)
+        matchs_all = match_repo.get_by_joueur(joueur_id_int, limit=1200)
         participations = list(
             session.scalars(
                 select(ParticipationMatchDB)
-                .where(ParticipationMatchDB.joueur_id == joueur_id)
+                .where(ParticipationMatchDB.joueur_id == joueur_id_int)
             )
         )
         participation_by_match_id = {p.match_id: p for p in participations}
@@ -924,7 +927,7 @@ class JoueurViewService:
                     "label": f"{row['equipe_joueur'].nom if row['equipe_joueur'] else '?'} vs {row['adversaire'].nom if row['adversaire'] else '?'}",
                     "color": color,
                     "popup_html": (
-                        f"<strong><a href='/matchs/{match.id}'>"
+                        f"<strong><a href='/matchs/{match.code_match or match.id}'>"
                         f"{row['equipe_joueur'].nom if row['equipe_joueur'] else '?'} vs {row['adversaire'].nom if row['adversaire'] else '?'}"
                         f"</a></strong><br>"
                         f"{match.date_match.strftime('%d/%m/%Y') if match.date_match else 'Date inconnue'}"

@@ -10,7 +10,7 @@
     </h3>
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {% for am in match.arbitrages %}
-        <a href="{{ path_for_entity('arbitre', am.arbitre.id) }}" class="card card-interactive p-4 flex items-center gap-3 no-underline">
+        <a href="{{ path_for_entity('arbitre', am.arbitre) }}" class="card card-interactive p-4 flex items-center gap-3 no-underline">
             <div class="w-10 h-10 rounded-full flex items-center justify-center"
                  style="background: rgba(168,85,247,0.15);">
                 <i data-lucide="shield" class="w-5 h-5" style="color: var(--accent-purple);"></i>
