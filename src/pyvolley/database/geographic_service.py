@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from pyvolley.database.models import (
     ClubDB, EquipeDB, CompetitionDB, MatchDB, JoueurDB,
-    ParticipationMatchDB, GeoStatsDB, SaisonDB,
+    ParticipationMatchDB, GeoStatsDB, SaisonDB, LigueDB, ComiteDB,
 )
 from pyvolley.database.repositories import GeoStatsRepository
 
@@ -32,6 +32,8 @@ class TerritoireSummary:
     repartition_genre: Dict[str, int] = field(default_factory=dict)
     repartition_categories: Dict[str, int] = field(default_factory=dict)
     repartition_niveaux: Dict[str, int] = field(default_factory=dict)
+    ligue_id: Optional[int] = None
+    comite_id: Optional[int] = None
 
 
 class GeographicStatsService:
@@ -52,6 +54,8 @@ class GeographicStatsService:
             "echelon": "national",
             "code_territoire": "FR",
             "nom_territoire": "France entière",
+            "ligue_id": None,
+            "comite_id": None,
             "nb_clubs": national_stats["nb_clubs"],
             "nb_equipes": national_stats["nb_equipes"],
             "nb_joueurs_actifs": national_stats["nb_joueurs"],
@@ -62,53 +66,100 @@ class GeographicStatsService:
         })
         count += 1
 
-        # 2. Échelon Régional (par ligue renseignée sur ClubDB)
-        ligues = list(
-            self.session.scalars(
-                select(distinct(ClubDB.ligue)).where(ClubDB.ligue.is_not(None), ClubDB.ligue != "")
-            )
-        )
-        for ligue in ligues:
-            l_stats = self._aggregate_scope(saison_id=saison_id, ligue=ligue)
-            self.repo.upsert({
-                "saison_id": saison_id,
-                "echelon": "region",
-                "code_territoire": ligue,
-                "nom_territoire": ligue,
-                "nb_clubs": l_stats["nb_clubs"],
-                "nb_equipes": l_stats["nb_equipes"],
-                "nb_joueurs_actifs": l_stats["nb_joueurs"],
-                "nb_matchs_joues": l_stats["nb_matchs"],
-                "repartition_genre": l_stats["genres"],
-                "repartition_categories": l_stats["categories"],
-                "repartition_niveaux": l_stats["niveaux"],
-            })
-            count += 1
-
-        # 3. Échelon Départemental (par code département sur ClubDB)
-        departements = list(
-            self.session.scalars(
-                select(distinct(ClubDB.departement)).where(
-                    ClubDB.departement.is_not(None), ClubDB.departement != ""
+        # 2. Échelon Régional : basé sur les entités LigueDB
+        ligues_db = list(self.session.scalars(select(LigueDB).order_by(LigueDB.nom)))
+        if ligues_db:
+            for ligue in ligues_db:
+                l_stats = self._aggregate_scope(saison_id=saison_id, ligue_id=ligue.id, ligue=ligue.nom)
+                self.repo.upsert({
+                    "saison_id": saison_id,
+                    "echelon": "region",
+                    "code_territoire": ligue.code,
+                    "nom_territoire": ligue.nom,
+                    "ligue_id": ligue.id,
+                    "comite_id": None,
+                    "nb_clubs": l_stats["nb_clubs"],
+                    "nb_equipes": l_stats["nb_equipes"],
+                    "nb_joueurs_actifs": l_stats["nb_joueurs"],
+                    "nb_matchs_joues": l_stats["nb_matchs"],
+                    "repartition_genre": l_stats["genres"],
+                    "repartition_categories": l_stats["categories"],
+                    "repartition_niveaux": l_stats["niveaux"],
+                })
+                count += 1
+        else:
+            # Fallback rétrocompatible si les tables ligues ne sont pas encore peuplées
+            ligues = list(
+                self.session.scalars(
+                    select(distinct(ClubDB.ligue)).where(ClubDB.ligue.is_not(None), ClubDB.ligue != "")
                 )
             )
-        )
-        for dept in departements:
-            d_stats = self._aggregate_scope(saison_id=saison_id, departement=dept)
-            self.repo.upsert({
-                "saison_id": saison_id,
-                "echelon": "departement",
-                "code_territoire": dept,
-                "nom_territoire": f"Département {dept}",
-                "nb_clubs": d_stats["nb_clubs"],
-                "nb_equipes": d_stats["nb_equipes"],
-                "nb_joueurs_actifs": d_stats["nb_joueurs"],
-                "nb_matchs_joues": d_stats["nb_matchs"],
-                "repartition_genre": d_stats["genres"],
-                "repartition_categories": d_stats["categories"],
-                "repartition_niveaux": d_stats["niveaux"],
-            })
-            count += 1
+            for ligue_str in ligues:
+                l_stats = self._aggregate_scope(saison_id=saison_id, ligue=ligue_str)
+                self.repo.upsert({
+                    "saison_id": saison_id,
+                    "echelon": "region",
+                    "code_territoire": ligue_str,
+                    "nom_territoire": ligue_str,
+                    "nb_clubs": l_stats["nb_clubs"],
+                    "nb_equipes": l_stats["nb_equipes"],
+                    "nb_joueurs_actifs": l_stats["nb_joueurs"],
+                    "nb_matchs_joues": l_stats["nb_matchs"],
+                    "repartition_genre": l_stats["genres"],
+                    "repartition_categories": l_stats["categories"],
+                    "repartition_niveaux": l_stats["niveaux"],
+                })
+                count += 1
+
+        # 3. Échelon Départemental : basé sur les entités ComiteDB
+        comites_db = list(self.session.scalars(select(ComiteDB).order_by(ComiteDB.nom)))
+        if comites_db:
+            for comite in comites_db:
+                d_stats = self._aggregate_scope(
+                    saison_id=saison_id, comite_id=comite.id, departement=comite.numero_departement
+                )
+                dept_code = comite.numero_departement or comite.code
+                self.repo.upsert({
+                    "saison_id": saison_id,
+                    "echelon": "departement",
+                    "code_territoire": dept_code,
+                    "nom_territoire": f"{comite.nom} ({dept_code})",
+                    "ligue_id": comite.ligue_id,
+                    "comite_id": comite.id,
+                    "nb_clubs": d_stats["nb_clubs"],
+                    "nb_equipes": d_stats["nb_equipes"],
+                    "nb_joueurs_actifs": d_stats["nb_joueurs"],
+                    "nb_matchs_joues": d_stats["nb_matchs"],
+                    "repartition_genre": d_stats["genres"],
+                    "repartition_categories": d_stats["categories"],
+                    "repartition_niveaux": d_stats["niveaux"],
+                })
+                count += 1
+        else:
+            # Fallback rétrocompatible
+            departements = list(
+                self.session.scalars(
+                    select(distinct(ClubDB.departement)).where(
+                        ClubDB.departement.is_not(None), ClubDB.departement != ""
+                    )
+                )
+            )
+            for dept in departements:
+                d_stats = self._aggregate_scope(saison_id=saison_id, departement=dept)
+                self.repo.upsert({
+                    "saison_id": saison_id,
+                    "echelon": "departement",
+                    "code_territoire": dept,
+                    "nom_territoire": f"Département {dept}",
+                    "nb_clubs": d_stats["nb_clubs"],
+                    "nb_equipes": d_stats["nb_equipes"],
+                    "nb_joueurs_actifs": d_stats["nb_joueurs"],
+                    "nb_matchs_joues": d_stats["nb_matchs"],
+                    "repartition_genre": d_stats["genres"],
+                    "repartition_categories": d_stats["categories"],
+                    "repartition_niveaux": d_stats["niveaux"],
+                })
+                count += 1
 
         self.session.commit()
         return count
@@ -117,14 +168,27 @@ class GeographicStatsService:
         self,
         saison_id: Optional[int] = None,
         ligue: Optional[str] = None,
+        ligue_id: Optional[int] = None,
         departement: Optional[str] = None,
+        comite_id: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Agrège les métriques pour un périmètre donné."""
+        """Agrège les métriques pour un périmètre donné (ligue_id/comite_id ou texte)."""
         # Filtre clubs
         club_q = select(ClubDB.id)
-        if ligue:
+        if ligue_id is not None:
+            if ligue:
+                club_q = club_q.where(or_(ClubDB.ligue_id == ligue_id, ClubDB.ligue == ligue))
+            else:
+                club_q = club_q.where(ClubDB.ligue_id == ligue_id)
+        elif ligue:
             club_q = club_q.where(ClubDB.ligue == ligue)
-        if departement:
+
+        if comite_id is not None:
+            if departement:
+                club_q = club_q.where(or_(ClubDB.comite_id == comite_id, ClubDB.departement == departement))
+            else:
+                club_q = club_q.where(ClubDB.comite_id == comite_id)
+        elif departement:
             club_q = club_q.where(ClubDB.departement == departement)
 
         nb_clubs = self.session.scalar(select(func.count()).select_from(club_q.subquery())) or 0
@@ -251,6 +315,8 @@ class GeographicStatsService:
                 repartition_genre=r.repartition_genre or {},
                 repartition_categories=r.repartition_categories or {},
                 repartition_niveaux=r.repartition_niveaux or {},
+                ligue_id=r.ligue_id,
+                comite_id=r.comite_id,
             )
             for r in rows
         ]
@@ -262,9 +328,20 @@ class GeographicStatsService:
             GeoStatsDB.saison_id == saison_id,
         )
         if ligue:
-            # Récupère les départements des clubs appartenant à cette ligue
-            dept_in_ligue = select(distinct(ClubDB.departement)).where(ClubDB.ligue == ligue)
-            stmt = stmt.where(GeoStatsDB.code_territoire.in_(dept_in_ligue))
+            # Chercher si ligue correspond à un code ou nom de LigueDB
+            ligue_obj = self.session.scalars(
+                select(LigueDB).where(or_(LigueDB.nom == ligue, LigueDB.code == ligue))
+            ).first()
+            if ligue_obj:
+                stmt = stmt.where(or_(
+                    GeoStatsDB.ligue_id == ligue_obj.id,
+                    GeoStatsDB.code_territoire.in_(
+                        select(distinct(ClubDB.departement)).where(or_(ClubDB.ligue_id == ligue_obj.id, ClubDB.ligue == ligue))
+                    ),
+                ))
+            else:
+                dept_in_ligue = select(distinct(ClubDB.departement)).where(ClubDB.ligue == ligue)
+                stmt = stmt.where(GeoStatsDB.code_territoire.in_(dept_in_ligue))
 
         stmt = stmt.order_by(desc(GeoStatsDB.nb_clubs))
         rows = list(self.session.scalars(stmt))
@@ -281,6 +358,8 @@ class GeographicStatsService:
                 repartition_genre=r.repartition_genre or {},
                 repartition_categories=r.repartition_categories or {},
                 repartition_niveaux=r.repartition_niveaux or {},
+                ligue_id=r.ligue_id,
+                comite_id=r.comite_id,
             )
             for r in rows
         ]

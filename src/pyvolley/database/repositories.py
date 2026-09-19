@@ -506,13 +506,15 @@ class ClubRepository(BaseRepository[ClubDB]):
         return self.session.scalar(select(ClubDB).where(ClubDB.code_ffvb == code_ffvb))
 
     def get_with_details(self, club_id_or_code: int | str) -> Optional[ClubDB]:
-        """Récupère un club avec ses salles et aliases (eager loading) par code FFVB ou ID."""
+        """Récupère un club avec ses salles, aliases, ligue et comité (eager loading) par code FFVB ou ID."""
         identifier = str(club_id_or_code).strip()
         stmt = (
             select(ClubDB)
             .options(
                 joinedload(ClubDB.salles),
                 joinedload(ClubDB.aliases),
+                joinedload(ClubDB.ligue_rel),
+                joinedload(ClubDB.comite_rel),
             )
         )
         club = self.session.scalar(stmt.where(ClubDB.code_ffvb == identifier))
@@ -870,7 +872,9 @@ class MatchRepository(BaseRepository[MatchDB]):
             .where(ParticipationMatchDB.joueur_id == joueur_id)
             .options(
                 joinedload(MatchDB.equipe_a), joinedload(MatchDB.equipe_b),
-                joinedload(MatchDB.saison), joinedload(MatchDB.competition),
+                joinedload(MatchDB.saison),
+                joinedload(MatchDB.competition).joinedload(CompetitionDB.entite),
+                joinedload(MatchDB.poule),
             )
             .order_by(MatchDB.date_match.desc())
             .limit(limit)
@@ -887,6 +891,7 @@ class MatchRepository(BaseRepository[MatchDB]):
                 joinedload(MatchDB.equipe_a), joinedload(MatchDB.equipe_b),
                 joinedload(MatchDB.saison),
                 joinedload(MatchDB.competition).joinedload(CompetitionDB.entite),
+                joinedload(MatchDB.poule),
             )
             .order_by(MatchDB.date_match.desc())
             .limit(limit)
@@ -1183,9 +1188,13 @@ class CompetitionRepository(BaseRepository[CompetitionDB]):
             if not m.equipe_a or not m.equipe_b:
                 continue
 
-            # Calculer les points totaux à partir des sets
-            points_a = sum(s.score_a or 0 for s in m.sets)
-            points_b = sum(s.score_b or 0 for s in m.sets)
+            # Calculer les points totaux à partir des sets (priorité au scraper si sets_detail_export présent)
+            if getattr(m, "sets_detail_export", None):
+                points_a = sum(int(s.get("score_a") or 0) for s in m.sets_detail_export)
+                points_b = sum(int(s.get("score_b") or 0) for s in m.sets_detail_export)
+            else:
+                points_a = sum(s.score_a or 0 for s in m.sets)
+                points_b = sum(s.score_b or 0 for s in m.sets)
 
             result.append(MatchData(
                 match_id=m.id,
@@ -1625,6 +1634,10 @@ class StatsCacheRepository(BaseRepository[StatsCacheDB]):
         self.session.flush()
         return result.rowcount
 
+    def clear(self) -> int:
+        """Supprime toutes les entrées de cache (alias de delete_all)."""
+        return self.delete_all()
+
     def list_all(self) -> list:
         """Retourne toutes les entrées de cache, triées par date de calcul décroissante."""
         return list(self.session.scalars(
@@ -1708,6 +1721,8 @@ class JoueurMatchStatsRepository(BaseRepository[JoueurMatchStatsDB]):
             stats = row.get("stats")
             if stats is None and "stats_data" in row:
                 stats = row["stats_data"]
+            if stats is None:
+                stats = row
 
             if hasattr(stats, "model_dump"):
                 d = stats.model_dump(mode="python")
@@ -1734,16 +1749,40 @@ class JoueurMatchStatsRepository(BaseRepository[JoueurMatchStatsDB]):
                 ratio_points_gagnes=float(d.get("ratio_points_gagnes") or 0.0),
                 break_point_ratio=float(d.get("break_point_ratio") or 0.0),
                 sideout_contribution_ratio=float(d.get("sideout_contribution_ratio") or 0.0),
+                sideout_win_rate=float(d.get("sideout_win_rate") or 0.0),
+                plus_minus=int(d.get("plus_minus") or 0),
+                differentiel_points_gagnes=float(d["differentiel_points_gagnes"]) if d.get("differentiel_points_gagnes") is not None else None,
                 services=int(d.get("services") or d.get("nb_services") or 0),
                 series=int(d.get("serie") or d.get("series") or 0),
                 max_serie=int(d.get("max_serie") or d.get("meilleure_serie") or 0),
+                max_services_set=int(d.get("max_services_set") or 0),
                 moyenne_services_par_serie=float(d.get("moyenne_services_par_serie") or 0.0),
                 temps_morts_provoques=int(d.get("temps_morts_provoques") or 0),
                 sets_joues=int(d.get("sets_joues") or 0),
+                sets_gagnes=int(d.get("sets_gagnes") or 0),
+                sets_perdus=int(d.get("sets_perdus") or 0),
+                sets_commences=int(d.get("sets_commences") or 0),
                 sets_titulaire=int(d.get("sets_titulaire") or 0),
+                sets_termines=int(d.get("sets_termines") or 0),
+                titulaire_set_1=bool(d.get("titulaire_set_1")),
+                match_complet=bool(d.get("match_complet")),
+                match_non_joue=bool(d.get("match_non_joue")),
+                presence_relative=float(d.get("presence_relative") or 0.0),
                 temps_jeu_estime=float(d["temps_jeu_estime"]) if d.get("temps_jeu_estime") is not None else None,
                 nb_entrees=int(d.get("nb_entrees") or 0),
                 nb_sorties=int(d.get("nb_sorties") or 0),
+                nb_entrees_sorties=int(d.get("nb_entrees_sorties") or 0),
+                nb_sorties_entrees=int(d.get("nb_sorties_entrees") or 0),
+                stats_rotations=(
+                    d.get("rotations").model_dump(mode="python")
+                    if hasattr(d.get("rotations"), "model_dump")
+                    else (d.get("rotations") or d.get("stats_rotations"))
+                ),
+                stats_clutch=(
+                    d.get("clutch").model_dump(mode="python")
+                    if hasattr(d.get("clutch"), "model_dump")
+                    else (d.get("clutch") or d.get("stats_clutch"))
+                ),
                 role_principal=d.get("role_principal"),
                 role_confiance=float(d.get("role_confiance") or 0.0),
                 roles_possibles=d.get("roles_possibles"),

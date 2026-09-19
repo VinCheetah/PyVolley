@@ -1,27 +1,30 @@
 {# ═══════════════════════════════════════════════════════════════
-   Joueur Detail — Filters Panel
-   Collapsible filter form for seasons, dates, results, clubs, competitions & levels
+   Joueur Detail — Filters Panel (glassmorphic)
    ═══════════════════════════════════════════════════════════════ #}
 
-<div class="card overflow-hidden player-filter-card">
+<div class="card player-filter-card overflow-hidden stagger-2">
     <button type="button"
-            class="w-full p-4 flex items-center justify-between border-b"
+            class="w-full p-4 flex items-center justify-between"
+            style="background: transparent; border: none; border-bottom: 1px solid var(--border-color); cursor: pointer;"
             @click="filtersOpen = !filtersOpen">
-        <span class="text-sm font-semibold uppercase tracking-wider text-accent-cyan">
-            <i data-lucide="sliders-horizontal" class="w-4 h-4 inline-block mr-1"></i>
-            Filtres des matchs sélectionnés
+        <span class="flex items-center gap-2" style="font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent-primary-light);">
+            <i data-lucide="sliders-horizontal" class="w-4 h-4"></i>
+            Filtres
+            {% if active_filter_count > 0 %}
+            <span class="badge badge-orange" style="font-size: 0.55rem; padding: 1px 6px;">{{ active_filter_count }} actif{{ 's' if active_filter_count > 1 }}</span>
+            {% endif %}
         </span>
-        <span class="text-xs text-muted" x-text="filtersOpen ? 'Masquer' : 'Afficher'"></span>
+        <span class="text-xs" style="color: var(--text-muted);" x-text="filtersOpen ? 'Masquer' : 'Afficher'"></span>
     </button>
 
-    <form method="get" action="/joueurs/{{ joueur.licence }}" class="p-4 space-y-4" x-show="filtersOpen" x-transition x-cloak>
+    <form method="get" action="{{ path_for_entity('joueur', joueur) }}" class="p-4 space-y-4" x-show="filtersOpen" x-transition x-cloak>
         <input type="hidden" name="tab" :value="activeTab">
 
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
             {% if not hide_filters.saisons %}
             <div>
-                <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Saisons</label>
-                <select name="saison_ids" class="filter-select" multiple size="4">
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Saisons</label>
+                <select name="saison_ids" class="filter-select w-full" multiple size="4">
                     {% for s in filter_options.saisons %}
                     <option value="{{ s.id }}" {% if s.id in filter_state.saison_ids %}selected{% endif %}>{{ s.label }}</option>
                     {% endfor %}
@@ -30,18 +33,18 @@
             {% endif %}
 
             <div>
-                <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Date de début</label>
-                <input type="date" name="date_from" value="{{ filter_state.date_from }}" class="filter-select filter-date-input" lang="fr">
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Date de début</label>
+                <input type="date" name="date_from" value="{{ filter_state.date_from }}" class="filter-select filter-date-input w-full" lang="fr">
             </div>
 
             <div>
-                <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Date de fin</label>
-                <input type="date" name="date_to" value="{{ filter_state.date_to }}" class="filter-select filter-date-input" lang="fr">
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Date de fin</label>
+                <input type="date" name="date_to" value="{{ filter_state.date_to }}" class="filter-select filter-date-input w-full" lang="fr">
             </div>
 
             <div>
-                <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Résultat</label>
-                <select name="resultat" class="filter-select">
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Résultat</label>
+                <select name="resultat" class="filter-select w-full">
                     <option value="" {% if not filter_state.resultat %}selected{% endif %}>Tous</option>
                     <option value="victoire" {% if filter_state.resultat == 'victoire' %}selected{% endif %}>Victoires</option>
                     <option value="defaite" {% if filter_state.resultat == 'defaite' %}selected{% endif %}>Défaites</option>
@@ -49,8 +52,8 @@
             </div>
 
             <div>
-                <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Domicile / Extérieur</label>
-                <select name="domicile_exterieur" class="filter-select">
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Domicile / Extérieur</label>
+                <select name="domicile_exterieur" class="filter-select w-full">
                     <option value="" {% if not filter_state.domicile_exterieur %}selected{% endif %}>Tous</option>
                     <option value="domicile" {% if filter_state.domicile_exterieur == 'domicile' %}selected{% endif %}>Domicile</option>
                     <option value="exterieur" {% if filter_state.domicile_exterieur == 'exterieur' %}selected{% endif %}>Extérieur</option>
@@ -59,8 +62,8 @@
 
             {% if not hide_filters.equipes %}
             <div>
-                <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Équipes du joueur</label>
-                <select name="equipe_ids" class="filter-select" multiple size="4">
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Équipes du joueur</label>
+                <select name="equipe_ids" class="filter-select w-full" multiple size="4">
                     {% for e in filter_options.equipes %}
                     <option value="{{ e.id }}" {% if e.id in filter_state.equipe_ids %}selected{% endif %}>{{ e.label }}</option>
                     {% endfor %}
@@ -70,8 +73,8 @@
 
             {% if not hide_filters.clubs %}
             <div>
-                <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Clubs</label>
-                <select name="club_ids" class="filter-select" multiple size="4">
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Clubs</label>
+                <select name="club_ids" class="filter-select w-full" multiple size="4">
                     {% for c in filter_options.clubs %}
                     <option value="{{ c.id }}" {% if c.id in filter_state.club_ids %}selected{% endif %}>{{ c.label }}</option>
                     {% endfor %}
@@ -81,8 +84,8 @@
 
             {% if not hide_filters.competitions %}
             <div>
-                <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Compétitions</label>
-                <select name="competition_ids" class="filter-select" multiple size="4">
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Compétitions</label>
+                <select name="competition_ids" class="filter-select w-full" multiple size="4">
                     {% for c in filter_options.competitions %}
                     <option value="{{ c.id }}" {% if c.id in filter_state.competition_ids %}selected{% endif %}>{{ c.label }}</option>
                     {% endfor %}
@@ -92,8 +95,8 @@
 
             {% if not hide_filters.niveaux %}
             <div>
-                <label class="text-xs font-semibold uppercase tracking-wider block mb-1 text-muted">Niveaux</label>
-                <select name="niveaux" class="filter-select" multiple size="4">
+                <label class="text-xs font-semibold uppercase tracking-wider block mb-1" style="color: var(--text-muted);">Niveaux</label>
+                <select name="niveaux" class="filter-select w-full" multiple size="4">
                     {% for n in filter_options.niveaux %}
                     <option value="{{ n }}" {% if n in filter_state.niveaux %}selected{% endif %}>{{ n }}</option>
                     {% endfor %}
@@ -102,10 +105,18 @@
             {% endif %}
         </div>
 
-        <div class="flex flex-wrap items-center gap-2">
-            <button type="submit" class="pagination-btn bg-accent-blue text-white border-accent-blue">Appliquer</button>
-            <a :href="'/joueurs/{{ joueur.licence }}?tab=' + activeTab" class="pagination-btn">Réinitialiser</a>
-            <span class="text-xs ml-2 text-muted">{{ stats.matchs_joues }} / {{ base_match_count }} matchs joués sélectionnés</span>
+        <div class="flex flex-wrap items-center gap-3">
+            <button type="submit" class="btn-primary">
+                <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                Appliquer
+            </button>
+            <a :href="'{{ path_for_entity('joueur', joueur) }}?tab=' + activeTab" class="btn-secondary">
+                <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i>
+                Réinitialiser
+            </a>
+            <span class="text-xs ml-1" style="color: var(--text-muted);">
+                {{ stats.matchs_joues }} / {{ base_match_count }} matchs sélectionnés
+            </span>
         </div>
     </form>
 </div>

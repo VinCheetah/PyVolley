@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional, List
 
 import typer
+from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -27,6 +28,7 @@ from pyvolley.cli.helpers import (
     add_saison_filter,
     add_entity_filter,
     make_progress,
+    render_step_rule,
     format_entities_display,
     configure_parser_plausibility,
     PipelineTimer,
@@ -148,6 +150,10 @@ def import_data(
     force_club_enrichment: bool = typer.Option(
         False, "--force-club-enrichment",
         help="Ré-enrichir les clubs même s'ils ont déjà des données adressier.",
+    ),
+    init_clubs: bool = typer.Option(
+        True, "--init-clubs/--no-init-clubs",
+        help="Initialiser automatiquement l'annuaire des clubs et ligues s'il n'est pas encore synchronisé (défaut: activé).",
     ),
     enrich_clubs: bool = typer.Option(
         True, "--enrich-clubs/--no-enrich-clubs",
@@ -275,16 +281,47 @@ def import_data(
     entities_display = format_entities_display(entities_to_process)
     saisons_display = ", ".join(format_saison_short(s) for s in saisons)
 
+    config_grid = Table.grid(padding=(0, 2))
+    config_grid.add_column(style="bold cyan", justify="right")
+    config_grid.add_column(style="white")
+    config_grid.add_column(style="bold cyan", justify="right")
+    config_grid.add_column(style="white")
+
+    pipeline_steps_display = "  →  ".join(
+        f"[bold cyan]{s.upper()}[/bold cyan]" if s in steps else f"[dim]{s.upper()}[/dim]"
+        for s in ["scrape", "download", "parse"]
+    )
+    config_grid.add_row(
+        "Pipeline :", pipeline_steps_display,
+        "Mode :", f"[yellow]Aperçu (dry-run)[/yellow]" if dry_run else "[bold green]Exécution[/bold green]",
+    )
+    config_grid.add_row(
+        "Saison(s) :", f"[cyan]{saisons_display}[/cyan]",
+        "Limite :", f"[cyan]{limit or 'aucune'}[/cyan]",
+    )
+    config_grid.add_row(
+        "Entité(s) :", f"[cyan]{entities_display or 'depuis la base'}[/cyan] [dim]({len(entities_to_process)} au total)[/dim]",
+        "Moteur :", f"[cyan]{parser_name}[/cyan] [dim]({concurrent} workers concurrents)[/dim]",
+    )
+    options_summary = []
+    if plausibility:
+        options_summary.append(f"plausibilité: {plausibility_policy}")
+    if enrich_clubs:
+        options_summary.append("clubs" + ("+géo" if geocode else ""))
+    if rollup:
+        options_summary.append("rollups")
+    if not keep_pdfs:
+        options_summary.append("sans stockage PDF")
+    config_grid.add_row(
+        "Options :", f"[dim]{', '.join(options_summary) or 'défaut'}[/dim]",
+        "Cache :", "[yellow]Rafraîchissement forcé[/yellow]" if refresh_cache else "[dim]Actif (exports CSV)[/dim]",
+    )
+
     console.print(Panel(
-        f"[bold blue]🔄 Import FFVB[/bold blue]\n\n"
-        f"Étapes :     [cyan]{' → '.join(steps)}[/cyan]\n"
-        f"Parser :     [cyan]{parser_name}[/cyan]\n"
-        f"Saison(s) :  [cyan]{saisons_display}[/cyan]\n"
-        f"Entité(s) :  [cyan]{entities_display or 'depuis la base'}[/cyan]"
-        f" ({len(entities_to_process)} au total)\n"
-        f"Limite :     [cyan]{limit or 'aucune'}[/cyan]\n"
-        f"Mode :       [cyan]{'aperçu' if dry_run else 'exécution'}[/cyan]",
-        title="Configuration",
+        config_grid,
+        title="[bold cyan]⚡ PyVolley[/bold cyan] · [bold white]Pipeline d'Importation FFVB[/bold white]",
+        border_style="cyan",
+        box=box.ROUNDED,
     ))
 
     if dry_run:
@@ -294,11 +331,45 @@ def import_data(
     from pyvolley.database.connection import init_db
     init_db()
 
+    # ── Initialisation automatique de l'annuaire fédéral si absent ───────
+    if init_clubs and "scrape" in steps:
+        from pyvolley.database.connection import DatabaseSession
+        from pyvolley.database.models import LigueDB, ClubDB
+        from sqlalchemy import select, func
+        with DatabaseSession() as check_session:
+            nb_ligues = check_session.scalar(select(func.count(LigueDB.id))) or 0
+            nb_clubs = check_session.scalar(select(func.count(ClubDB.id))) or 0
+        if nb_ligues == 0 or nb_clubs == 0:
+            console.print()
+            console.rule("[bold cyan]Initialisation automatique de l'annuaire FFVB[/bold cyan]", style="cyan dim")
+            console.print(
+                "  [cyan]ℹ L'annuaire fédéral (23 ligues, 95 comités, 1293 clubs) n'est pas encore initialisé en base.[/cyan]\n"
+                "  [dim]Lancement de la synchronisation initiale avec géocodage des sièges sociaux...[/dim]"
+            )
+            from pyvolley.database.annuaire_service import AnnuaireService
+            with DatabaseSession() as sync_session:
+                annuaire_svc = AnnuaireService(sync_session)
+                ann_stats = annuaire_svc.sync_annuaire(
+                    geocode=geocode,
+                    fetch_details=True,
+                    max_workers=concurrent,
+                    progress_callback=lambda msg, act, tot: console.print(f"  [cyan]●[/cyan] {msg}"),
+                )
+                console.print(
+                    f"  [bold green]✓ Annuaire initialisé : {ann_stats['ligues_synced']} ligues, "
+                    f"{ann_stats['comites_synced']} comités, {ann_stats['clubs_created']} clubs "
+                    f"({ann_stats['clubs_geocoded']} géocodés sur leur siège social)[/bold green]\n"
+                )
+
     dispatcher = sys.modules.get("pyvolley.cli.main") or sys.modules[__name__]
     timer = PipelineTimer(label="Pipeline Import FFVB")
 
+    total_steps_count = len(steps)
+
     # ── Étape 1 : Scrape ───────────────────────────────────────────
     if "scrape" in steps:
+        step_idx = steps.index("scrape") + 1
+        render_step_rule(console, step_idx, total_steps_count, "Scrape des exports FFVB & Clubs", style="cyan")
         with timer.step("scrape", "1. Scrape (Exports CSV & Clubs)", items_unit="matchs"):
             getattr(dispatcher, "_import_scrape", _import_scrape)(
                 scraper,
@@ -316,9 +387,7 @@ def import_data(
     if "download" in steps:
         if not keep_pdfs and "parse" in steps:
             # Mode streaming : download + parse en une passe
-            console.print(
-                "\n[bold blue]═══ Download + Parse (streaming) ═══[/bold blue]"
-            )
+            render_step_rule(console, 2, 2, "Téléchargement & Analyse en continu (Streaming)", style="blue")
             with timer.step("stream", "2. Streaming (Download + Parse)", items_unit="matchs"):
                 getattr(dispatcher, "_import_stream", _import_stream)(
                     limit=limit, saison=saisons, entity=entity, verbose=verbose,
@@ -333,7 +402,8 @@ def import_data(
                 )
             steps = [s for s in steps if s != "parse"]
         else:
-            console.print("\n[bold blue]═══ Download ═══[/bold blue]")
+            step_idx = steps.index("download") + 1
+            render_step_rule(console, step_idx, total_steps_count, "Téléchargement des feuilles de match", style="blue")
             with timer.step("download", "2. Download (Feuilles PDF)", items_unit="PDFs"):
                 getattr(dispatcher, "_import_download", _import_download)(
                     limit=limit, saison=saisons, concurrent=concurrent,
@@ -346,7 +416,8 @@ def import_data(
 
     # ── Étape 3 : Parse ───────────────────────────────────────────
     if "parse" in steps:
-        console.print("\n[bold blue]═══ Parse ═══[/bold blue]")
+        step_idx = steps.index("parse") + 1
+        render_step_rule(console, step_idx, total_steps_count, "Analyse & Enrichissement des matchs", style="magenta")
         with timer.step("parse", "3. Parse & Enrichissement", items_unit="matchs"):
             getattr(dispatcher, "_import_parse", _import_parse)(
                 limit=limit, saison=saisons, entity=entity,
@@ -367,9 +438,12 @@ def import_data(
             )
 
     timer.stop_pipeline()
+    console.print()
     console.print(Panel(
-        f"[bold green]Pipeline terminé avec succès en {format_duration(timer.total_duration)}[/bold green]",
-        title="✅ Terminé",
+        f"[bold green]✔ Pipeline d'importation terminé avec succès en {format_duration(timer.total_duration)}[/bold green]",
+        title="[bold green]✅ Terminé[/bold green]",
+        border_style="green",
+        box=box.ROUNDED,
     ))
     timer.display_summary(
         console,
@@ -392,6 +466,7 @@ def _import_dry_run(
     from pyvolley.database.models import MatchDB
     from sqlalchemy import select, func
 
+    db_counts = {}
     try:
         init_db()
         with DatabaseSession() as session:
@@ -401,24 +476,52 @@ def _import_dry_run(
                         MatchDB.parsing_status == status,
                     )
                 ) or 0
-                console.print(f"  {status}: [cyan]{count}[/cyan]")
+                db_counts[status] = count
     except Exception:
-        console.print("  [dim]Base de données non initialisée[/dim]")
+        pass
+
+    dry_table = Table.grid(padding=(0, 2))
+    dry_table.add_column(style="bold yellow", justify="right")
+    dry_table.add_column(style="white")
+
+    if db_counts:
+        counts_str = " · ".join(
+            f"[cyan]{st}[/cyan]: [bold]{cnt}[/bold]"
+            for st, cnt in db_counts.items()
+        )
+        dry_table.add_row("État actuel DB :", counts_str)
+    else:
+        dry_table.add_row("État actuel DB :", "[dim]Non initialisée ou vide[/dim]")
 
     if "scrape" in steps:
-        console.print("\n[bold]Étape 1 — Scrape :[/bold]")
-        console.print(f"  → Entités : {', '.join(entities)}")
-        console.print(f"  → Saisons : {', '.join(saisons)}")
-
+        dry_table.add_row(
+            "Étape 1 (Scrape) :",
+            f"Exports CSV pour [cyan]{len(entities)}[/cyan] entité(s) sur [cyan]{', '.join(saisons)}[/cyan]",
+        )
     if "download" in steps:
-        console.print("\n[bold]Étape 2 — Download :[/bold]")
-        console.print("  → Matchs en base avec statut 'discovered'")
-
+        dry_table.add_row(
+            "Étape 2 (Download) :",
+            "Téléchargement des feuilles PDF des matchs à statut 'discovered'",
+        )
     if "parse" in steps:
-        console.print("\n[bold]Étape 3 — Parse :[/bold]")
-        console.print("  → Matchs en base avec PDFs téléchargés")
+        dry_table.add_row(
+            "Étape 3 (Parse) :",
+            "Analyse PDF & injection scores/joueurs pour les matchs à statut 'downloaded'",
+        )
 
-    console.print("\n[yellow]Mode dry-run : aucune action effectuée[/yellow]")
+    dry_table.add_row(
+        "Plafond :",
+        f"[cyan]{limit} matchs max[/cyan]" if limit else "[dim]aucun (totalité)[/dim]",
+    )
+
+    console.print()
+    console.print(Panel(
+        dry_table,
+        title="[bold yellow]🔍 Plan d'exécution simulé (Dry-run)[/bold yellow]",
+        subtitle="[dim yellow]Aucune modification ne sera appliquée à la base de données ni aux fichiers[/dim yellow]",
+        border_style="yellow",
+        box=box.ROUNDED,
+    ))
 
 
 def _import_scrape(
@@ -441,30 +544,25 @@ def _import_scrape(
     from pyvolley.scrapers.ffvb.export_scraper import get_unique_poules
     from pyvolley.cli.helpers import expand_saison_inputs
 
-    console.print("\n[bold blue]═══ Scrape ═══[/bold blue]")
-
     t_scrape_start = time.perf_counter()
     total_imported = 0
     total_updated = 0
-    total_clubs = 0
+    total_duplicates = 0
+    total_clubs_created = 0
+    total_clubs_enriched = 0
+    total_clubs_uptodate = 0
 
     poules_by_entity: dict[str, set[str]] = {}
     saisons_by_entity: dict[str, set[str]] = {}
 
     def _process_export(target_entity: str, target_saison: str, export_data: list) -> None:
-        nonlocal total_imported, total_updated
+        nonlocal total_imported, total_updated, total_duplicates
         if not export_data:
-            console.print(f"\n[blue]{target_entity} — {target_saison}[/blue]")
-            console.print("  [yellow]Aucun match trouvé[/yellow]")
+            console.print(f"  [cyan]●[/cyan] [bold]{target_entity}[/bold] [dim]({target_saison})[/dim] : [yellow]aucun match trouvé[/yellow]")
             return
 
         played = sum(1 for m in export_data if m.match_joue)
         poules = get_unique_poules(export_data)
-        console.print(f"\n[blue]{target_entity} — {target_saison}[/blue]")
-        console.print(
-            f"  [green]✓ {len(export_data)} matchs[/green] "
-            f"({played} joués, {len(poules)} poules)"
-        )
 
         poule_codes = {
             (m.poule_code_ffvb or m.poule_code)
@@ -482,19 +580,24 @@ def _import_scrape(
             )
             imported = stats.get("imported", 0)
             updated = stats.get("updated", 0)
+            dup = stats.get("duplicates", 0)
             total_imported += imported
             total_updated += updated
+            total_duplicates += dup
 
             parts = []
             if imported:
                 parts.append(f"[green]+{imported} créés[/green]")
             if updated:
                 parts.append(f"[cyan]~{updated} mis à jour[/cyan]")
-            dup = stats.get("duplicates", 0)
             if dup:
                 parts.append(f"[dim]{dup} inchangés[/dim]")
+            db_summary = " · ".join(parts) or "[dim]inchangé[/dim]"
+
             console.print(
-                f"  DB : {' | '.join(parts) or '[dim]aucun changement[/dim]'}"
+                f"  [cyan]●[/cyan] [bold]{target_entity}[/bold] [dim]({target_saison})[/dim] : "
+                f"[green]✓ {len(export_data)} matchs[/green] [dim]({played} joués, {len(poules)} poules)[/dim] "
+                f"[dim]→[/dim] {db_summary}"
             )
             session.commit()
 
@@ -505,7 +608,7 @@ def _import_scrape(
     if len(tasks) > 1:
         max_workers = min(8, len(tasks))
         console.print(
-            f"[cyan]Téléchargement parallèle des exports ({len(tasks)} cibles, {max_workers} workers)...[/cyan]"
+            f"  [dim]Téléchargement parallèle de {len(tasks)} exports ({max_workers} workers)...[/dim]"
         )
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_task = {
@@ -517,35 +620,41 @@ def _import_scrape(
                 try:
                     export_data = future.result()
                 except Exception as e:
-                    console.print(f"\n[blue]{ent} — {sais}[/blue]")
-                    console.print(f"  [red]Erreur : {e}[/red]")
+                    console.print(f"  [cyan]●[/cyan] [bold]{ent}[/bold] [dim]({sais})[/dim] : [red]Erreur : {e}[/red]")
                     continue
-                _process_export(ent, sais, export_data)
+                try:
+                    _process_export(ent, sais, export_data)
+                except Exception as e:
+                    console.print(f"  [cyan]●[/cyan] [bold]{ent}[/bold] [dim]({sais})[/dim] : [red]Erreur import base : {e}[/red]")
     else:
         for target_entity, target_saison in tasks:
             try:
                 with console.status(
-                    f"[bold blue]Récupération export CSV pour {target_entity} ({target_saison})..."
+                    f"[bold cyan]Récupération export CSV pour {target_entity} ({target_saison})..."
                 ):
                     export_data = scraper.scrape_entity(target_entity, target_saison, **scrape_kwargs)
             except Exception as e:
-                console.print(f"\n[blue]{target_entity} — {target_saison}[/blue]")
-                console.print(f"  [red]Erreur : {e}[/red]")
+                console.print(f"  [cyan]●[/cyan] [bold]{target_entity}[/bold] [dim]({target_saison})[/dim] : [red]Erreur : {e}[/red]")
                 continue
-            _process_export(target_entity, target_saison, export_data)
+            try:
+                _process_export(target_entity, target_saison, export_data)
+            except Exception as e:
+                console.print(f"  [cyan]●[/cyan] [bold]{target_entity}[/bold] [dim]({target_saison})[/dim] : [red]Erreur import base : {e}[/red]")
     csv_duration = time.perf_counter() - t_csv_start
 
     # ── Enrichissement consolidé des clubs à la fin du scrape ──────────
     clubs_duration = 0.0
     if enrich_clubs and poules_by_entity:
         t_clubs_start = time.perf_counter()
-        console.print("\n[bold magenta]═══ Actualisation des clubs (adressier FFVB) ═══[/bold magenta]")
+        console.print()
+        console.rule("[bold magenta]Actualisation des clubs & salles (adressier FFVB)[/bold magenta]", style="magenta dim")
+        
+        entities_processed_clubs = 0
         for target_entity, poule_set in poules_by_entity.items():
             if not poule_set:
                 continue
 
             entity_saisons = list(saisons_by_entity.get(target_entity, []))
-            # Normaliser et trier pour retenir la saison la plus récente (ex: 2024/2025 > 2023/2024)
             expanded_saisons = expand_saison_inputs(entity_saisons) if entity_saisons else []
             expanded_saisons.sort(reverse=True)
             latest_saison = expanded_saisons[0] if expanded_saisons else (saisons[-1] if saisons else "2024/2025")
@@ -581,28 +690,43 @@ def _import_scrape(
                         geocode=geocode,
                     )
                     session.commit()
-                    enriched = club_stats.get("enriched", 0)
                     created = club_stats.get("created", 0)
-                    skipped = club_stats.get("skipped", 0)
-                    total_clubs += enriched + created
-                    console.print(
-                        f"  [magenta]{target_entity}[/magenta] : "
-                        f"[magenta]{created} créés, {enriched} enrichis, {skipped} ignorés[/magenta]"
-                    )
+                    enriched = club_stats.get("enriched", 0)
+                    uptodate = club_stats.get("already_up_to_date", club_stats.get("skipped", 0))
+
+                    total_clubs_created += created
+                    total_clubs_enriched += enriched
+                    total_clubs_uptodate += uptodate
+                    entities_processed_clubs += 1
+
+                    # Afficher la ligne si des modifications ont eu lieu ou si mode verbeux
+                    if created > 0 or enriched > 0 or verbose:
+                        console.print(
+                            f"  [magenta]●[/magenta] [bold]{target_entity}[/bold] : "
+                            f"[green]+{created} créés[/green] · [cyan]~{enriched} enrichis[/cyan] · [dim]{uptodate} déjà à jour[/dim]"
+                        )
             else:
-                console.print(
-                    f"  [yellow]Aucun club récupéré pour {target_entity} via l'adressier[/yellow]"
-                )
+                if verbose:
+                    console.print(
+                        f"  [yellow]● {target_entity} : Aucun club récupéré via l'adressier[/yellow]"
+                    )
+        
         clubs_duration = time.perf_counter() - t_clubs_start
+        console.print(
+            f"  [magenta]✓ Bilan clubs & salles ({entities_processed_clubs} entités)[/magenta] : "
+            f"[green]+{total_clubs_created} créés[/green] · "
+            f"[cyan]~{total_clubs_enriched} enrichis (adresses & salles)[/cyan] · "
+            f"[dim]{total_clubs_uptodate} déjà à jour[/dim]"
+        )
 
     total_scrape_duration = time.perf_counter() - t_scrape_start
-    total_processed = total_imported + total_updated
+    total_processed = total_imported + total_updated + total_duplicates
     rate_str = format_rate(total_processed, total_scrape_duration, "matchs")
 
     console.print(
         f"\n[green]✓ Scrape terminé en {format_duration(total_scrape_duration)} : "
-        f"{total_imported} importés, {total_updated} mis à jour, "
-        f"{total_clubs} clubs enrichis ({rate_str})[/green]"
+        f"{total_imported} créés, {total_updated} mis à jour, {total_duplicates} inchangés "
+        f"({total_processed} matchs au total, {rate_str})[/green]"
     )
 
     if timer:
@@ -613,7 +737,7 @@ def _import_scrape(
         if enrich_clubs and poules_by_entity:
             timer.record_sub_step(
                 "scrape", "clubs_enrich", "Actualisation Clubs & Salles",
-                clubs_duration, items_count=total_clubs, items_unit="clubs",
+                clubs_duration, items_count=total_clubs_created + total_clubs_enriched, items_unit="clubs",
             )
 
 
@@ -683,12 +807,11 @@ def _import_download(
         matches = list(session.scalars(stmt).all())
 
         if not matches:
-            console.print("[yellow]Aucun match à télécharger[/yellow]")
+            console.print("  [yellow]Aucun match à télécharger[/yellow]")
             return
 
-        console.print(f"[blue]📥 {len(matches)} matchs à traiter[/blue]")
         if verbose:
-            console.print("[dim]Mode verbeux: affichage des URLs, des skips et des erreurs de téléchargement.[/dim]")
+            console.print("  [dim]Mode verbeux: affichage des URLs, des skips et des erreurs de téléchargement.[/dim]")
 
         pdf_base = Path("data/pdfs")
 
@@ -735,14 +858,14 @@ def _import_download(
                     already_present.append((match_db.id, str(existing)))
                     if verbose:
                         console.print(
-                            f"[dim]↷ {match_db.code_match} déjà présent: {existing}[/dim]"
+                            f"  [dim]↷ {match_db.code_match} déjà présent: {existing}[/dim]"
                         )
                     continue
 
                 forced_redownload[redownload_reason] += 1
                 if verbose:
                     console.print(
-                        f"[yellow]↻ {match_db.code_match} retéléchargement forcé: {redownload_reason}[/yellow]"
+                        f"  [yellow]↻ {match_db.code_match} retéléchargement forcé: {redownload_reason}[/yellow]"
                     )
                 try:
                     existing.unlink()
@@ -753,7 +876,7 @@ def _import_download(
             download_tasks.append((match_db.id, match_db.source_url, dest_file))
             if verbose:
                 console.print(
-                    f"[dim]→ {match_db.code_match} | {match_db.source_url} -> {dest_file}[/dim]"
+                    f"  [dim]→ {match_db.code_match} | {match_db.source_url} -> {dest_file}[/dim]"
                 )
 
         # Mettre à jour les matchs dont le PDF existe déjà
@@ -765,9 +888,9 @@ def _import_download(
                     m.parsing_status = "downloaded"
                     m.source_pdf = pdf_path
             session.commit()
-            console.print(f"[dim]⏭ {len(already_present)} PDFs déjà présents[/dim]")
 
         forced_total = sum(forced_redownload.values())
+        forced_msg = ""
         if forced_total:
             details = []
             if forced_redownload["invalid-local-pdf"]:
@@ -776,9 +899,15 @@ def _import_download(
                 details.append(
                     f"{forced_redownload['downloaded-before-match-date']} antérieurs à la date du match"
                 )
-            console.print(
-                "[dim]↻ Retéléchargement forcé : " + ", ".join(details) + "[/dim]"
-            )
+            forced_msg = "  [dim]↻ Retéléchargement forcé : " + ", ".join(details) + "[/dim]"
+
+        console.print(
+            f"  [blue]●[/blue] Matchs ciblés : [bold]{len(matches)}[/bold]  [dim]│[/dim]  "
+            f"Déjà présents : [green]{len(already_present)}[/green]  [dim]│[/dim]  "
+            f"À télécharger : [cyan]{len(download_tasks)}[/cyan]"
+        )
+        if forced_msg:
+            console.print(forced_msg)
 
     phase1_duration = time.perf_counter() - t_dl_start
 
@@ -790,28 +919,23 @@ def _import_download(
             )
         return
 
-    console.print(f"[blue]⬇ {len(download_tasks)} à télécharger[/blue]")
-
     # Phase 2 : téléchargement concurrent (pas d'accès DB ici)
-    # Résultats : (match_id, dest_path, success, error_msg)
     dl_results: list[tuple[int, Path, bool, str]] = []
-
     t_p2_start = time.perf_counter()
 
     async def _run():
         from pyvolley.scrapers.async_http_client import AsyncHttpClient
 
-        # Concurrency semaphore is already managed inside AsyncHttpClient.
-        # Default request_delay is 0.0s for concurrent downloads unless specified.
         effective_delay = delay if delay is not None else 0.0
         async with AsyncHttpClient(
             request_delay=effective_delay,
             max_concurrent=concurrent,
             burst=concurrent,
         ) as client:
-            with make_progress(console) as progress:
+            with make_progress(console, refresh_per_second=8) as progress:
                 task_id = progress.add_task(
-                    "Téléchargement...", total=len(download_tasks),
+                    "[cyan]Téléchargement des feuilles PDF...[/cyan]",
+                    total=len(download_tasks),
                 )
 
                 async def _dl_one(match_id: int, url: str, dest: Path):
@@ -824,21 +948,15 @@ def _import_download(
                         with open(dest, "wb") as f:
                             f.write(content)
                         dl_results.append((match_id, dest, True, ""))
-                        progress.update(
-                            task_id, advance=1,
-                            description=f"[green]✓ {dest.stem}[/green]",
-                        )
+                        progress.advance(task_id, 1)
                     except Exception as e:
                         error_msg = str(e)[:200]
                         dl_results.append((match_id, dest, False, error_msg))
                         if verbose:
-                            console.print(
-                                f"[red]✗ {dest.stem}: {error_msg}[/red]"
+                            progress.console.print(
+                                f"  [red]✗ {dest.stem}: {error_msg}[/red]"
                             )
-                        progress.update(
-                            task_id, advance=1,
-                            description=f"[red]✗ {dest.stem}[/red]",
-                        )
+                        progress.advance(task_id, 1)
 
                 await asyncio.gather(
                     *[_dl_one(mid, url, d) for mid, url, d in download_tasks]
@@ -887,14 +1005,14 @@ def _import_download(
 
     console.print(
         f"\n[green]✓ {downloaded} téléchargés en {format_duration(total_dl_duration)} ({dl_rate})[/green]"
-        + (f" | [dim]{len(already_present)} déjà présents[/dim]" if already_present else "")
-        + (f" | [red]{failed} erreurs[/red]" if failed else "")
+        + (f" [dim]│ {len(already_present)} déjà présents[/dim]" if already_present else "")
+        + (f" [dim]│[/dim] [red]{failed} erreurs[/red]" if failed else "")
     )
     if verbose and failed:
-        console.print("[bold red]Détails des erreurs de téléchargement :[/bold red]")
+        console.print("  [bold red]Détails des erreurs de téléchargement :[/bold red]")
         for match_id, dest, success, error_msg in dl_results:
             if not success:
-                console.print(f"[red]- {dest.stem}: {error_msg}[/red]")
+                console.print(f"  [red]✗ {dest.stem}: {error_msg}[/red]")
 
     if timer:
         timer.record_sub_step(
@@ -1031,22 +1149,25 @@ def _import_parse(
 
     missing_pdf_count = len(matches_db) - len(match_pdf_pairs)
 
-    if missing_pdf_count:
-        console.print(
-            f"[dim]⏭ {missing_pdf_count} match(s) ignoré(s) : PDF introuvable[/dim]"
-        )
-
     if not match_pdf_pairs:
         console.print(
-            f"[yellow]Aucun PDF trouvé pour les {len(matches_db)} matchs. "
+            f"  [yellow]Aucun PDF trouvé pour les {len(matches_db)} matchs. "
             f"Lancez d'abord : pyvolley import --only download[/yellow]"
         )
         return
 
+    import os
+    max_workers = min(8, os.cpu_count() or 4)
+
     console.print(
-        f"[blue]{len(match_pdf_pairs)} matchs à parser "
-        f"({parser.name} v{parser.version})[/blue]"
+        f"  [magenta]●[/magenta] Matchs à parser : [bold]{len(match_pdf_pairs)}[/bold]  [dim]│[/dim]  "
+        f"Moteur : [cyan]{parser.name} v{parser.version}[/cyan]  [dim]│[/dim]  "
+        f"Fils : [cyan]{max_workers}[/cyan]"
     )
+    if missing_pdf_count:
+        console.print(
+            f"  [dim]↷ {missing_pdf_count} match(s) ignoré(s) : PDF introuvable[/dim]"
+        )
 
     enriched = 0
     skipped_count = 0
@@ -1072,17 +1193,16 @@ def _import_parse(
         import_log_id = import_log.id
 
         with sqlite_bulk_mode(session):
-            with make_progress(console) as progress:
+            with make_progress(console, refresh_per_second=8) as progress:
                 task = progress.add_task(
-                    "Parsing...", total=len(match_pdf_pairs),
+                    "[magenta]Parsing des feuilles de match...[/magenta]",
+                    total=len(match_pdf_pairs),
                 )
 
-                import os
                 from queue import Queue
                 from threading import Thread
                 from concurrent.futures import ThreadPoolExecutor
 
-                max_workers = min(8, os.cpu_count() or 4)
                 parse_queue: Queue = Queue(maxsize=150)
                 _sentinel = object()
 
@@ -1136,7 +1256,7 @@ def _import_parse(
                         match_fresh = match_map.get(match_id)
                         if not match_fresh:
                             skipped_count += 1
-                            progress.update(task, advance=1)
+                            progress.advance(task, 1)
                             continue
 
                         if parse_error:
@@ -1146,7 +1266,7 @@ def _import_parse(
                             error_details.append({
                                 'file': str(pdf_path), 'errors': [str(parse_error)],
                             })
-                            progress.update(task, advance=1)
+                            progress.advance(task, 1)
                             continue
 
                         try:
@@ -1157,6 +1277,7 @@ def _import_parse(
                                     force=force,
                                     defer_rollups=True,
                                     defer_player_stats=defer_player_stats,
+                                    import_log_id=import_log_id,
                                 )
                                 if was_enriched:
                                     enriched += 1
@@ -1207,12 +1328,7 @@ def _import_parse(
                                 'file': str(pdf_path), 'errors': [str(e)],
                             })
 
-                        progress.update(task, advance=1)
-                        if (enriched + failed + skipped_count) % 25 == 0:
-                            progress.update(
-                                task,
-                                description=f"Parsing... ({enriched} enrichis, {failed} err)",
-                            )
+                        progress.advance(task, 1)
 
                     # Commit par batch et purge de session en préservant les caches d'entités résolues
                     try:
@@ -1259,7 +1375,7 @@ def _import_parse(
         # Calcul en lot des statistiques joueurs si différé
         if defer_player_stats and enriched_match_ids:
             t_stats_start = time.perf_counter()
-            with make_progress(console) as stats_progress:
+            with make_progress(console, refresh_per_second=8) as stats_progress:
                 stats_task = stats_progress.add_task(
                     "[cyan]Calcul des statistiques joueurs...",
                     total=len(enriched_match_ids),
@@ -1267,7 +1383,7 @@ def _import_parse(
                 total_player_rows = service.compute_player_stats_for_matches(
                     enriched_match_ids,
                     chunk_size=50,
-                    progress_callback=lambda n: stats_progress.update(stats_task, advance=n),
+                    progress_callback=lambda n: stats_progress.advance(stats_task, n),
                 )
                 try:
                     session.commit()
@@ -1280,7 +1396,7 @@ def _import_parse(
             stats_duration = time.perf_counter() - t_stats_start
             stats_rate = format_rate(len(enriched_match_ids), stats_duration, "matchs")
             console.print(
-                f"[cyan]✓ Statistiques joueurs calculées en {format_duration(stats_duration)} : "
+                f"  [cyan]✓ Statistiques joueurs calculées en {format_duration(stats_duration)} : "
                 f"{len(enriched_match_ids)} matchs, {total_player_rows} lignes ({stats_rate})[/cyan]"
             )
             if timer:
@@ -1294,7 +1410,8 @@ def _import_parse(
             from pyvolley.database.rollup_service import RollupStatsService
             t_rollups_start = time.perf_counter()
             with console.status(
-                f"[bold magenta]Actualisation consolidée des rollups pour {len(enriched_match_ids)} match(s)..."
+                f"[bold magenta]Actualisation consolidée des rollups pour {len(enriched_match_ids)} match(s)...",
+                spinner="dots",
             ):
                 try:
                     rollup_service = RollupStatsService(session)
@@ -1308,8 +1425,8 @@ def _import_parse(
                         + rollup_summary.get("poules_updated", 0)
                     )
                     console.print(
-                        f"[magenta]✓ Rollups actualisés en {format_duration(rollups_duration)} : "
-                        f"{rollup_summary.get('player_seasons_updated', 0)} stats saisons joueurs, "
+                        f"  [magenta]✓ Rollups actualisés en {format_duration(rollups_duration)} : "
+                        f"{rollup_summary.get('player_seasons_updated', 0)} stats joueurs, "
                         f"{rollup_summary.get('teams_updated', 0)} équipes, "
                         f"{rollup_summary.get('poules_updated', 0)} poules, "
                         f"{rollup_summary.get('clubs_updated', 0)} clubs ({format_rate(len(enriched_match_ids), rollups_duration, 'matchs')})[/magenta]"
@@ -1320,7 +1437,7 @@ def _import_parse(
                             rollups_duration, items_count=total_rollups_items, items_unit="agrégats",
                         )
                 except Exception as exc:
-                    console.print(f"[yellow]⚠ Erreur lors de l'actualisation consolidée des rollups : {exc}[/yellow]")
+                    console.print(f"  [yellow]⚠ Erreur lors de l'actualisation consolidée des rollups : {exc}[/yellow]")
 
     total_parse_duration = time.perf_counter() - t_parse_start
     if timer:
@@ -1329,16 +1446,35 @@ def _import_parse(
             parse_work_duration, items_count=enriched, items_unit="matchs",
         )
 
+    summary_grid = Table.grid(padding=(0, 3))
+    summary_grid.add_column(style="bold cyan")
+    summary_grid.add_column(style="white")
+    summary_grid.add_column(style="bold cyan")
+    summary_grid.add_column(style="white")
+
+    summary_grid.add_row(
+        "Matchs enrichis :", f"[bold green]✓ {enriched}[/bold green]",
+        "Warnings PDF :", f"[yellow]⚠ {warnings_count}[/yellow]" if warnings_count else "[dim]0[/dim]",
+    )
+    summary_grid.add_row(
+        "Inchangés :", f"[dim]= {skipped_count}[/dim]",
+        "Plausibilité (modifs) :", f"[magenta]🧪 {plausibility_touched}[/magenta]" if plausibility_touched else "[dim]0[/dim]",
+    )
+    summary_grid.add_row(
+        "Échecs :", f"[bold red]✗ {failed}[/bold red]" if failed else "[green]0[/green]",
+        "Plausibilité (alertes) :", f"[magenta]🧪 {plausibility_flagged}[/magenta]" if plausibility_flagged else "[dim]0[/dim]",
+    )
+    summary_grid.add_row(
+        "Durée totale :", f"[yellow]{format_duration(total_parse_duration)}[/yellow]",
+        "Cadence moyenne :", f"[cyan]{format_rate(enriched, total_parse_duration, 'matchs')}[/cyan]",
+    )
+
+    console.print()
     console.print(Panel(
-        f"[green]✓ Enrichis :  {enriched}[/green]\n"
-        f"[yellow]⏭ Ignorés :   {skipped_count}[/yellow]\n"
-        f"[red]✗ Échecs :    {failed}[/red]\n"
-        f"[dim]⚠ Warnings :  {warnings_count}[/dim]\n"
-        f"[magenta]🧪 Plausibilité (modifs) : {plausibility_touched}[/magenta]\n"
-        f"[magenta]🧪 Plausibilité (signalées) : {plausibility_flagged}[/magenta]\n"
-        f"[yellow]⏱ Durée parse & compute : {format_duration(total_parse_duration)} "
-        f"({format_rate(enriched, total_parse_duration, 'matchs')})[/yellow]",
-        title=f"Résumé du parsing (achevé en {format_duration(total_parse_duration)})",
+        summary_grid,
+        title=f"[bold magenta]📊 Bilan du parsing & enrichissement[/bold magenta] [dim]({format_duration(total_parse_duration)})[/dim]",
+        border_style="magenta",
+        box=box.ROUNDED,
     ))
 
     if results or error_details:
@@ -1405,13 +1541,14 @@ def _import_stream(
         matches = list(session.scalars(stmt).all())
 
     if not matches:
-        console.print("[yellow]Aucun match à traiter[/yellow]")
+        console.print("  [yellow]Aucun match à traiter[/yellow]")
         return
 
     max_workers = max(1, min(concurrent, 20))
     console.print(
-        f"[blue]⚡ {len(matches)} matchs en streaming "
-        f"({parser.name} v{parser.version}, {max_workers} workers)[/blue]"
+        f"  [blue]⚡[/blue] Matchs ciblés en streaming : [bold]{len(matches)}[/bold]  [dim]│[/dim]  "
+        f"Moteur : [cyan]{parser.name} v{parser.version}[/cyan]  [dim]│[/dim]  "
+        f"Workers : [cyan]{max_workers}[/cyan]"
     )
 
     downloaded = 0
@@ -1450,26 +1587,25 @@ def _import_stream(
                     except Exception as exc:
                         return m_id, code_match, None, str(exc)
 
-                with make_progress(console) as progress:
-                    task = progress.add_task("Streaming...", total=len(matches))
+                with make_progress(console, refresh_per_second=8) as progress:
+                    task = progress.add_task(
+                        "[cyan]Streaming (Téléchargement + Analyse)...[/cyan]",
+                        total=len(matches),
+                    )
                     if skipped_no_url:
-                        progress.update(task, advance=skipped_no_url)
+                        progress.advance(task, skipped_no_url)
 
                     with ThreadPoolExecutor(max_workers=max_workers) as executor:
                         for m_id, code_match, result, err_msg in executor.map(_fetch_and_parse, targets):
                             match_fresh = session.get(MatchDB, m_id)
                             if not match_fresh:
-                                progress.update(task, advance=1)
+                                progress.advance(task, 1)
                                 continue
 
                             if err_msg:
                                 failed += 1
                                 match_fresh.parsing_status = "error"
                                 match_fresh.remarques = err_msg[:200]
-                                progress.update(
-                                    task, advance=1,
-                                    description=f"[red]✗ {code_match}[/red]",
-                                )
                             elif result and result.success and result.match:
                                 downloaded += 1
                                 was_enriched = service.enrich_from_pdf(
@@ -1478,6 +1614,7 @@ def _import_stream(
                                     force=True,
                                     defer_rollups=True,
                                     defer_player_stats=defer_player_stats,
+                                    import_log_id=import_log_id,
                                 )
                                 if was_enriched:
                                     enriched += 1
@@ -1490,10 +1627,6 @@ def _import_stream(
                                         f"{m.equipe_a.nom[:20] if m.equipe_a else '?'} vs "
                                         f"{m.equipe_b.nom[:20] if m.equipe_b else '?'}"
                                     )
-                                progress.update(
-                                    task, advance=1,
-                                    description=f"[green]✓ {match_fresh.code_match}[/green]",
-                                )
                             else:
                                 downloaded += 1
                                 failed += 1
@@ -1502,10 +1635,8 @@ def _import_stream(
                                     result.errors[0][:200] if result and result.errors
                                     else "Erreur de parsing"
                                 )
-                                progress.update(
-                                    task, advance=1,
-                                    description=f"[red]✗ {code_match}[/red]",
-                                )
+
+                            progress.advance(task, 1)
 
                             # Commit par batch et purge de session
                             if (enriched + failed) % 50 == 0 and (enriched + failed) > 0:
@@ -1540,7 +1671,7 @@ def _import_stream(
                 # Calcul en lot des statistiques joueurs si différé
                 if defer_player_stats and enriched_match_ids:
                     t_stats_start = time.perf_counter()
-                    with make_progress(console) as stats_progress:
+                    with make_progress(console, refresh_per_second=8) as stats_progress:
                         stats_task = stats_progress.add_task(
                             "[cyan]Calcul des statistiques joueurs (streaming)...",
                             total=len(enriched_match_ids),
@@ -1548,7 +1679,7 @@ def _import_stream(
                         service.compute_player_stats_for_matches(
                             enriched_match_ids,
                             chunk_size=50,
-                            progress_callback=lambda n: stats_progress.update(stats_task, advance=n),
+                            progress_callback=lambda n: stats_progress.advance(stats_task, n),
                         )
                         try:
                             session.commit()
@@ -1558,23 +1689,24 @@ def _import_stream(
                             session.rollback()
                             service.clear_caches(clear_all=True)
 
-                stats_duration = time.perf_counter() - t_stats_start
-                console.print(
-                    f"[cyan]✓ Statistiques joueurs calculées en {format_duration(stats_duration)} "
-                    f"({format_rate(len(enriched_match_ids), stats_duration, 'matchs')})[/cyan]"
-                )
-                if timer:
-                    timer.record_sub_step(
-                        "stream", "player_stats", "Calcul Stats Joueurs (différé)",
-                        stats_duration, items_count=len(enriched_match_ids), items_unit="matchs",
+                    stats_duration = time.perf_counter() - t_stats_start
+                    console.print(
+                        f"  [cyan]✓ Statistiques joueurs calculées en {format_duration(stats_duration)} "
+                        f"({format_rate(len(enriched_match_ids), stats_duration, 'matchs')})[/cyan]"
                     )
+                    if timer:
+                        timer.record_sub_step(
+                            "stream", "player_stats", "Calcul Stats Joueurs (différé)",
+                            stats_duration, items_count=len(enriched_match_ids), items_unit="matchs",
+                        )
 
             # Actualisation consolidée des rollups si demandé
             if rollup and enriched_match_ids:
                 from pyvolley.database.rollup_service import RollupStatsService
                 t_rollups_start = time.perf_counter()
                 with console.status(
-                    f"[bold magenta]Actualisation consolidée des rollups pour {len(enriched_match_ids)} match(s)..."
+                    f"[bold magenta]Actualisation consolidée des rollups pour {len(enriched_match_ids)} match(s)...",
+                    spinner="dots",
                 ):
                     try:
                         rollup_service = RollupStatsService(session)
@@ -1582,7 +1714,7 @@ def _import_stream(
                         session.commit()
                         rollups_duration = time.perf_counter() - t_rollups_start
                         console.print(
-                            f"[magenta]✓ Rollups actualisés en {format_duration(rollups_duration)} "
+                            f"  [magenta]✓ Rollups actualisés en {format_duration(rollups_duration)} "
                             f"({format_rate(len(enriched_match_ids), rollups_duration, 'matchs')})[/magenta]"
                         )
                         if timer:
@@ -1591,7 +1723,7 @@ def _import_stream(
                                 rollups_duration, items_count=len(enriched_match_ids), items_unit="matchs",
                             )
                     except Exception as exc:
-                        console.print(f"[yellow]⚠ Erreur rollups streaming : {exc}[/yellow]")
+                        console.print(f"  [yellow]⚠ Erreur rollups streaming : {exc}[/yellow]")
 
     total_stream_duration = time.perf_counter() - t_stream_start
     stream_rate = format_rate(enriched, total_stream_duration, "matchs")
@@ -1603,7 +1735,7 @@ def _import_stream(
 
     console.print(
         f"\n[green]✓ {enriched} enrichis en {format_duration(total_stream_duration)} ({stream_rate})[/green]"
-        + (f" | [red]{failed} erreurs[/red]" if failed else "")
+        + (f" [dim]│[/dim] [red]{failed} erreurs[/red]" if failed else "")
     )
 
 
@@ -1656,5 +1788,61 @@ def _cleanup_parsed_pdfs(
             "parse", "cleanup", "Nettoyage PDFs locaux",
             clean_duration, items_count=deleted, items_unit="PDFs",
         )
+
+
+def init_clubs_cmd(
+    geocode: bool = typer.Option(
+        True, "--geocode/--no-geocode",
+        help="Géocoder par lot les sièges sociaux des clubs (BAN) (défaut: activé).",
+    ),
+    details: bool = typer.Option(
+        True, "--details/--no-details",
+        help="Récupérer les adresses détaillées de siège social et dirigeants (défaut: activé).",
+    ),
+    force: bool = typer.Option(
+        False, "--force", "-f",
+        help="Forcer le rafraîchissement sans utiliser le cache disque.",
+    ),
+    concurrent: int = typer.Option(
+        10, "--concurrent", "-c",
+        help="Nombre de téléchargements simultanés.",
+    ),
+) -> None:
+    """
+    🏛️ Initialiser ou synchroniser l'annuaire fédéral officiel (23 Ligues, 95 Comités, 1293 Clubs).
+    """
+    from pyvolley.database.connection import init_db, DatabaseSession
+    from pyvolley.database.annuaire_service import AnnuaireService
+
+    init_db()
+    console.print(
+        Panel(
+            "[bold cyan]Moissonnage de l'annuaire fédéral officiel FFVB[/bold cyan]\n"
+            f"[dim]Ligues : 23 │ Comités : ~95 │ Clubs : ~1 293 │ Géocodage sièges sociaux : {'Oui' if geocode else 'Non'}[/dim]",
+            border_style="cyan",
+            box=box.ROUNDED,
+        )
+    )
+
+    t0 = time.perf_counter()
+    with DatabaseSession() as session:
+        service = AnnuaireService(session)
+        stats = service.sync_annuaire(
+            geocode=geocode,
+            fetch_details=details,
+            force_refresh=force,
+            max_workers=concurrent,
+            progress_callback=lambda msg, act, tot: console.print(f"  [cyan]●[/cyan] {msg}"),
+        )
+    dur = time.perf_counter() - t0
+
+    console.print(
+        f"\n[bold green]✓ Synchronisation terminée en {dur:.2f}s ![/bold green]\n"
+        f"  • Ligues synchronisées : [bold]{stats['ligues_synced']}[/bold]\n"
+        f"  • Comités départementaux : [bold]{stats['comites_synced']}[/bold]\n"
+        f"  • Clubs créés : [bold]{stats['clubs_created']}[/bold]\n"
+        f"  • Clubs mis à jour : [bold]{stats['clubs_updated']}[/bold]\n"
+        f"  • Clubs géolocalisés (sièges) : [bold]{stats['clubs_geocoded']}[/bold]"
+    )
 
 

@@ -50,24 +50,42 @@
                             <i data-lucide="hash" class="w-3 h-3 mr-0.5"></i>{{ competition.code_competition }}
                         </span>
                         {% endif %}
+                        {% if poule.code %}
+                        <span class="badge badge-gray font-mono text-xs" title="Code poule">
+                            <i data-lucide="tag" class="w-3 h-3 mr-0.5"></i>{{ poule.code }}
+                        </span>
+                        {% endif %}
                     </div>
                 </div>
             </div>
 
             <!-- Action buttons -->
             <div class="flex flex-wrap items-center gap-2">
-                {% if competition.code_competition %}
-                <a href="https://www.ffvbbeach.org/ffvbapp/resu/seniors/{{ competition.saison.code[:4] if competition.saison else '2024' }}/{{ competition.code_competition }}.htm"
+                {% set cal_url = poule.url_calendrier or ffvb_poule_calendrier_url(poule) %}
+                {% if cal_url %}
+                <a href="{{ cal_url }}"
                    target="_blank" rel="noopener noreferrer"
-                   class="competition-quick-btn btn-ffvb" title="Voir sur le site officiel FFVB">
-                    <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
-                    Site FFVB
+                   class="competition-quick-btn btn-ffvb" title="Calendrier et résultats officiels sur le site de la FFVB">
+                    <i data-lucide="calendar-days" class="w-3.5 h-3.5"></i>
+                    Calendrier FFVB
                 </a>
-                <a href="https://www.ffvbbeach.org/ffvbapp/resu/vbscores.php?poule={{ poule.code }}"
+                {% endif %}
+                {% set cls_url = poule.url_classement or ffvb_poule_classement_url(poule) %}
+                {% if cls_url %}
+                <a href="{{ cls_url }}"
                    target="_blank" rel="noopener noreferrer"
-                   class="competition-quick-btn btn-ffvb" title="Feuille de résultats officielle FFVB">
-                    <i data-lucide="trophy" class="w-3.5 h-3.5"></i>
+                   class="competition-quick-btn btn-ffvb" title="Classement officiel de la poule sur le site FFVB">
+                    <i data-lucide="list-ordered" class="w-3.5 h-3.5"></i>
                     Classement FFVB
+                </a>
+                {% endif %}
+                {% set csv_url = poule.url_export_csv or ffvb_poule_export_csv_url(poule) %}
+                {% if csv_url %}
+                <a href="{{ csv_url }}"
+                   target="_blank" rel="noopener noreferrer"
+                   class="competition-quick-btn text-accent-cyan hover:opacity-90" title="Source brute officielle (export CSV FFVB) consommée par le scraper PyVolley">
+                    <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5"></i>
+                    Source Scraper (CSV)
                 </a>
                 {% endif %}
                 <a href="{{ path_for_entity('competition', competition) }}" class="competition-quick-btn btn-ffvb">
@@ -75,6 +93,14 @@
                     Compétition parente
                 </a>
             </div>
+        </div>
+
+        <!-- Provenance des données FFVB -->
+        <div class="mt-4 px-3.5 py-2 rounded-lg bg-surface-card/60 border border-color-subtle flex items-center gap-2.5 text-xs text-secondary">
+            <i data-lucide="database" class="w-4 h-4 text-accent-cyan flex-shrink-0"></i>
+            <span>
+                <strong class="text-white">Provenance des données :</strong> Matchs, journées et scores de sets importés depuis l'export CSV officiel FFVB (<code class="text-accent-cyan font-mono text-[11px]">vbspo_calendrier_export.php</code>). Les effectifs et statistiques détaillées proviennent des Feuilles de Match Électroniques fédérales (FDME).
+            </span>
         </div>
 
         <!-- Integrated Progress Bar -->

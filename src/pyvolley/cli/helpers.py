@@ -15,12 +15,14 @@ from pathlib import Path
 from typing import Optional, List
 
 from rich.console import Console
+from rich import box
 from rich.progress import (
     Progress,
     SpinnerColumn,
     TextColumn,
     BarColumn,
     TaskProgressColumn,
+    MofNCompleteColumn,
     TimeRemainingColumn,
 )
 from rich.table import Table
@@ -173,7 +175,12 @@ def display_entities(scraper, console: Console) -> None:
         if not group:
             continue
         console.print(f"\n[bold]{label} ({len(group)})[/bold]")
-        table = Table(show_header=True)
+        table = Table(
+            show_header=True,
+            box=box.ROUNDED,
+            border_style="dim",
+            header_style="bold cyan",
+        )
         table.add_column("Code", style="cyan", width=12)
         table.add_column("Nom", style="white")
         for e in sorted(group, key=lambda x: x.code):
@@ -364,21 +371,42 @@ def add_entity_filter(session, stmt, entity: Optional[List[str]]):
 # ── Barre de progression ────────────────────────────────────────────
 
 
-def make_progress(console: Console) -> Progress:
-    """Crée une barre de progression Rich standardisée."""
+def make_progress(
+    console: Console,
+    *,
+    refresh_per_second: int = 8,
+    transient: bool = False,
+) -> Progress:
+    """Crée une barre de progression Rich standardisée, esthétique et économe en I/O terminal."""
     encoding = getattr(console.file, "encoding", None) or "utf-8"
     is_utf8 = encoding.lower() in ("utf-8", "utf8")
-    spinner = SpinnerColumn() if is_utf8 else SpinnerColumn("line")
+    spinner = SpinnerColumn(style="cyan") if is_utf8 else SpinnerColumn("line", style="cyan")
     return Progress(
         spinner,
         TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
+        BarColumn(bar_width=None, complete_style="cyan", finished_style="green"),
         TaskProgressColumn(),
-        "[",
-        TextColumn("{task.completed}/{task.total}"),
-        "]",
+        MofNCompleteColumn(),
         TimeRemainingColumn(),
         console=console,
+        refresh_per_second=refresh_per_second,
+        transient=transient,
+    )
+
+
+def render_step_rule(
+    console: Console,
+    step_num: int,
+    total_steps: int,
+    title: str,
+    *,
+    style: str = "cyan",
+) -> None:
+    """Affiche une règle séparatrice de grande étape numérotée et stylisée."""
+    console.print()
+    console.rule(
+        f"[bold {style}]Étape {step_num}/{total_steps} · {title}[/bold {style}]",
+        style=f"{style} dim",
     )
 
 
@@ -442,6 +470,7 @@ __all__ = [
     "add_saison_filter",
     "add_entity_filter",
     "make_progress",
+    "render_step_rule",
     "sanitize_filename",
     "format_entities_display",
     "configure_parser_plausibility",

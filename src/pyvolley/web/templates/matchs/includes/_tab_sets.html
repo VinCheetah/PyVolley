@@ -5,6 +5,21 @@
 
 {% if match.sets %}
 <div x-show="activeTab === 'sets'" x-cloak class="space-y-6">
+    {% if match.score_conflict %}
+    <div class="p-3.5 rounded-lg text-xs flex items-center justify-between gap-3"
+         style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.25); color: #f59e0b;">
+        <div class="flex items-center gap-2">
+            <i data-lucide="info" class="w-4 h-4 flex-shrink-0"></i>
+            <span>
+                <strong>Déroulé de la feuille de match (FDME) :</strong> Les rotations, changements et temps morts ci-dessous sont ceux enregistrés sur le PDF
+                ({% if match.sets_detail_pdf_display %}{{ match.sets_detail_pdf_display }}{% else %}{{ match.score_pdf }}{% endif %}).
+                Le score officiel retenu pour la compétition est celui du scraper : <strong>{{ match.score_export }}</strong>
+                {% if match.sets_detail_export_display %}({{ match.sets_detail_export_display }}){% endif %}.
+            </span>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Set selector -->
     <div class="flex flex-wrap gap-2">
         {% for set in match.sets %}
@@ -58,7 +73,11 @@
                     <div>
                         <div class="text-xs font-bold uppercase tracking-wider mb-1.5 flex items-center gap-1.5" style="color: var(--accent-primary);">
                             <span class="w-2 h-2 rounded-full" style="background: var(--accent-primary);"></span>
-                            {{ match.equipe_a.nom if match.equipe_a else 'Équipe A' }}
+                            {% if match.equipe_a %}
+                            <a href="{{ path_for_entity('equipe', match.equipe_a) }}" class="hover:underline text-white transition">{{ match.equipe_a.nom }}</a>
+                            {% else %}
+                            Équipe A
+                            {% endif %}
                         </div>
                         {{ single_team_court(match.equipe_a.nom if match.equipe_a else 'Équipe A', court_data.A.positions, court_data.A.libero, side_color='#FACC15') }}
                     </div>
@@ -67,7 +86,11 @@
                     <div>
                         <div class="text-xs font-bold uppercase tracking-wider mb-1.5 flex items-center gap-1.5 text-zinc-300">
                             <span class="w-2 h-2 rounded-full bg-zinc-400"></span>
-                            {{ match.equipe_b.nom if match.equipe_b else 'Équipe B' }}
+                            {% if match.equipe_b %}
+                            <a href="{{ path_for_entity('equipe', match.equipe_b) }}" class="hover:underline text-white transition">{{ match.equipe_b.nom }}</a>
+                            {% else %}
+                            Équipe B
+                            {% endif %}
                         </div>
                         {{ single_team_court(match.equipe_b.nom if match.equipe_b else 'Équipe B', court_data.B.positions, court_data.B.libero, side_color='#71717a') }}
                     </div>

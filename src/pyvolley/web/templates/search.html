@@ -191,9 +191,11 @@
                 <tbody>
                     {% for j in joueurs %}
                     <tr>
-                        <td class="font-semibold">{{ j.nom }}</td>
+                        <td class="font-semibold">
+                            <a href="{{ path_for_entity('joueur', j) }}" class="hover:underline text-white">{{ j.nom }}</a>
+                        </td>
                         <td>{{ j.prenom }}</td>
-                        <td class="text-muted">{{ j.licence }}</td>
+                        <td class="text-muted font-mono">{{ j.licence }}</td>
                         <td class="text-center">
                             <a href="{{ path_for_entity('joueur', j) }}" class="badge badge-blue">Voir profil</a>
                         </td>
@@ -222,7 +224,9 @@
                 <tbody>
                     {% for c in clubs %}
                     <tr>
-                        <td class="font-semibold">{{ c.nom }}</td>
+                        <td class="font-semibold">
+                            <a href="{{ path_for_entity('club', c) }}" class="hover:underline text-white">{{ c.nom }}</a>
+                        </td>
                         <td>
                             {% if c.ville %}
                             <span class="badge badge-blue">{{ c.ville }}</span>
@@ -275,7 +279,9 @@
                         e.division or (e.competition.division if e.competition else None)
                     ) %}
                     <tr>
-                        <td class="font-semibold">{{ e.nom }}</td>
+                        <td class="font-semibold">
+                            <a href="{{ path_for_entity('equipe', e) }}" class="hover:underline text-white">{{ e.nom }}</a>
+                        </td>
                         <td>
                             {% if e.genre %}
                             <span class="badge {% if e.genre == 'MASCULIN' %}badge-blue{% elif e.genre == 'FEMININ' %}badge-red{% else %}badge-purple{% endif %}">
@@ -297,7 +303,7 @@
                             {% else %}<span class="text-muted">—</span>{% endif %}
                         </td>
                         <td class="text-center">
-                            <a href="{{ path_for_entity('equipe', e.id) }}" class="badge badge-purple">Voir équipe</a>
+                            <a href="{{ path_for_entity('equipe', e) }}" class="badge badge-purple">Voir équipe</a>
                         </td>
                     </tr>
                     {% endfor %}
@@ -323,7 +329,9 @@
                 <tbody>
                     {% for a in arbitres %}
                     <tr>
-                        <td class="font-semibold">{{ a.nom }}</td>
+                        <td class="font-semibold">
+                            <a href="{{ path_for_entity('arbitre', a) }}" class="hover:underline text-white">{{ a.nom }}</a>
+                        </td>
                         <td>{{ a.prenom or '-' }}</td>
                         <td class="text-muted">{{ a.ligue or '-' }}</td>
                         <td class="text-center">
@@ -354,14 +362,16 @@
                 <tbody>
                     {% for e in entraineurs %}
                     <tr>
-                        <td class="font-semibold">{{ e.nom }}</td>
+                        <td class="font-semibold">
+                            <a href="{{ path_for_entity('entraineur', e) }}" class="hover:underline text-white">{{ e.nom }}</a>
+                        </td>
                         <td>{{ e.prenom or '-' }}</td>
-                        <td class="text-muted">{{ e.licence or '-' }}</td>
+                        <td class="text-muted font-mono">{{ e.licence or '-' }}</td>
                         <td class="text-center">
                             <span class="badge badge-green">{{ e.matchs_count }}</span>
                         </td>
                         <td class="text-center">
-                            <a href="/entraineurs/{{ e.id }}" class="badge badge-green">Voir profil</a>
+                            <a href="{{ path_for_entity('entraineur', e) }}" class="badge badge-green">Voir profil</a>
                         </td>
                     </tr>
                     {% endfor %}

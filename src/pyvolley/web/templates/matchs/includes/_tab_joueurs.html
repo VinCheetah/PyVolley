@@ -12,7 +12,11 @@
         <div class="flex items-center justify-between mb-4 pb-3 border-b border-zinc-800">
             <h3 class="text-sm font-bold uppercase tracking-wider text-white flex items-center gap-2">
                 <span class="w-2.5 h-2.5 rounded-full" style="background: var(--accent-primary);"></span>
-                {{ match.equipe_a.nom if match.equipe_a else 'Équipe A' }}
+                {% if match.equipe_a %}
+                <a href="{{ path_for_entity('equipe', match.equipe_a) }}" class="hover:underline text-white transition">{{ match.equipe_a.nom }}</a>
+                {% else %}
+                Équipe A
+                {% endif %}
             </h3>
             <span class="text-xs font-mono" style="color: var(--text-muted);">{{ participants_a|length }} joueurs</span>
         </div>
@@ -68,7 +72,11 @@
         <div class="flex items-center justify-between mb-4 pb-3 border-b border-zinc-800">
             <h3 class="text-sm font-bold uppercase tracking-wider text-white flex items-center gap-2">
                 <span class="w-2.5 h-2.5 rounded-full bg-zinc-500"></span>
-                {{ match.equipe_b.nom if match.equipe_b else 'Équipe B' }}
+                {% if match.equipe_b %}
+                <a href="{{ path_for_entity('equipe', match.equipe_b) }}" class="hover:underline text-white transition">{{ match.equipe_b.nom }}</a>
+                {% else %}
+                Équipe B
+                {% endif %}
             </h3>
             <span class="text-xs font-mono" style="color: var(--text-muted);">{{ participants_b|length }} joueurs</span>
         </div>

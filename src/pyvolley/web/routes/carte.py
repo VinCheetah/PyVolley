@@ -13,7 +13,7 @@ from sqlalchemy import select, distinct
 
 from pyvolley.web.templateconfig import templates
 from pyvolley.api.dependencies import get_session
-from pyvolley.database.models import SaisonDB, ClubDB, CompetitionDB
+from pyvolley.database.models import SaisonDB, ClubDB, CompetitionDB, LigueDB, ComiteDB
 
 router = APIRouter()
 
@@ -35,33 +35,50 @@ def carte_page(
     if entity_type == "match" or not entity_type:
         entity_type = "club"
 
-    # 1. Ligues régionales distinctes (triées alphabétiquement)
-    raw_ligues = session.scalars(
-        select(distinct(ClubDB.ligue))
-        .where(ClubDB.ligue.is_not(None), ClubDB.ligue != "")
-        .order_by(ClubDB.ligue)
-    ).all()
-    ligues = [l.strip() for l in raw_ligues if l and l.strip()]
+    # 1. Ligues régionales
+    ligues_from_db = list(session.scalars(select(LigueDB.nom).order_by(LigueDB.nom)))
+    if ligues_from_db:
+        ligues = [l.strip() for l in ligues_from_db if l and l.strip()]
+    else:
+        raw_ligues = session.scalars(
+            select(distinct(ClubDB.ligue))
+            .where(ClubDB.ligue.is_not(None), ClubDB.ligue != "")
+            .order_by(ClubDB.ligue)
+        ).all()
+        ligues = [l.strip() for l in raw_ligues if l and l.strip()]
 
-    # 2. Départements distincts (triés naturellement)
-    raw_depts = session.scalars(
-        select(distinct(ClubDB.departement))
-        .where(ClubDB.departement.is_not(None), ClubDB.departement != "")
-    ).all()
+    # 2. Départements / Comités
+    comites_from_db = list(session.scalars(select(ComiteDB).order_by(ComiteDB.nom)))
+    if comites_from_db:
+        departements = [
+            {"code": c.numero_departement or c.code, "nom": c.nom}
+            for c in comites_from_db
+        ]
+        def _comite_sort_key(d: dict):
+            cleaned = (d["code"] or "").strip().upper()
+            if cleaned.isdigit():
+                return (0, int(cleaned), cleaned)
+            return (1, 0, cleaned)
+        departements = sorted(departements, key=_comite_sort_key)
+    else:
+        raw_depts = session.scalars(
+            select(distinct(ClubDB.departement))
+            .where(ClubDB.departement.is_not(None), ClubDB.departement != "")
+        ).all()
 
-    from pyvolley.core.geo_data import DEPARTMENT_NAMES
+        from pyvolley.core.geo_data import DEPARTMENT_NAMES
 
-    def _dept_sort_key(d: str):
-        cleaned = d.strip().upper()
-        if cleaned.isdigit():
-            return (0, int(cleaned), cleaned)
-        return (1, 0, cleaned)
+        def _dept_sort_key(d: str):
+            cleaned = d.strip().upper()
+            if cleaned.isdigit():
+                return (0, int(cleaned), cleaned)
+            return (1, 0, cleaned)
 
-    sorted_dept_codes = sorted([d.strip().upper() for d in raw_depts if d and d.strip()], key=_dept_sort_key)
-    departements = [
-        {"code": d, "nom": DEPARTMENT_NAMES.get(d, "")}
-        for d in sorted_dept_codes
-    ]
+        sorted_dept_codes = sorted([d.strip().upper() for d in raw_depts if d and d.strip()], key=_dept_sort_key)
+        departements = [
+            {"code": d, "nom": DEPARTMENT_NAMES.get(d, "")}
+            for d in sorted_dept_codes
+        ]
 
     # 3. Compétitions (toutes saisons confondues)
     comp_stmt = select(CompetitionDB).order_by(CompetitionDB.nom)

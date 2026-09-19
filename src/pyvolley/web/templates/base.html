@@ -5,9 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}PyVolley{% endblock %}</title>
 
-    <!-- Inter Font -->
+    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
 
     <!-- Core CSS -->
     <link rel="stylesheet" href="/static/css/base.css">
@@ -16,6 +17,7 @@
     <link rel="stylesheet" href="/static/css/data.css">
     <link rel="stylesheet" href="/static/css/competitions.css">
     <link rel="stylesheet" href="/static/css/utilities.css">
+    <link rel="stylesheet" href="/static/css/players.css">
 
     <!-- Alpine.js & HTMX -->
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.16.2/dist/cdn.min.js"></script>
@@ -65,57 +67,57 @@
                     <i data-lucide="layout-dashboard" class="nav-icon"></i>
                     <span class="nav-label">Tableau de bord</span>
                 </a>
-                <a href="/matchs" class="sidebar-nav-item {% if '/matchs' in request.url.path %}active{% endif %}">
+                <a href="/competitions" class="sidebar-nav-item {% if request.url.path.startswith('/competitions') or request.url.path.startswith('/poules') %}active{% endif %}">
+                    <i data-lucide="trophy" class="nav-icon"></i>
+                    <span class="nav-label">Compétitions</span>
+                </a>
+                <a href="/matchs" class="sidebar-nav-item {% if request.url.path.startswith('/matchs') %}active{% endif %}">
                     <i data-lucide="swords" class="nav-icon"></i>
                     <span class="nav-label">Matchs</span>
                 </a>
-                <a href="/joueurs" class="sidebar-nav-item {% if '/joueurs' in request.url.path %}active{% endif %}">
+                <a href="/joueurs" class="sidebar-nav-item {% if request.url.path.startswith('/joueurs') %}active{% endif %}">
                     <i data-lucide="users" class="nav-icon"></i>
                     <span class="nav-label">Joueurs</span>
                 </a>
-                <a href="/equipes" class="sidebar-nav-item {% if '/equipes' in request.url.path %}active{% endif %}">
+                <a href="/equipes" class="sidebar-nav-item {% if request.url.path.startswith('/equipes') %}active{% endif %}">
                     <i data-lucide="shield" class="nav-icon"></i>
                     <span class="nav-label">Équipes</span>
                 </a>
-                <a href="/clubs" class="sidebar-nav-item {% if '/clubs' in request.url.path %}active{% endif %}">
+                <a href="/clubs" class="sidebar-nav-item {% if request.url.path.startswith('/clubs') %}active{% endif %}">
                     <i data-lucide="building-2" class="nav-icon"></i>
                     <span class="nav-label">Clubs</span>
                 </a>
-                <a href="/carte" class="sidebar-nav-item {% if '/carte' in request.url.path %}active{% endif %}">
+                <a href="/carte" class="sidebar-nav-item {% if request.url.path.startswith('/carte') %}active{% endif %}">
                     <i data-lucide="map" class="nav-icon"></i>
                     <span class="nav-label">Carte interactive</span>
                 </a>
 
                 <div class="sidebar-nav-section" style="margin-top: 0.5rem;">Analyses & Classements</div>
 
-                <a href="/classements" class="sidebar-nav-item {% if '/classements' in request.url.path %}active{% endif %}">
+                <a href="/classements" class="sidebar-nav-item {% if request.url.path.startswith('/classements') %}active{% endif %}">
                     <i data-lucide="list-ordered" class="nav-icon"></i>
                     <span class="nav-label">Classements</span>
                 </a>
-                <a href="/palmares" class="sidebar-nav-item {% if '/palmares' in request.url.path %}active{% endif %}">
+                <a href="/palmares" class="sidebar-nav-item {% if request.url.path.startswith('/palmares') %}active{% endif %}">
                     <i data-lucide="medal" class="nav-icon"></i>
                     <span class="nav-label">Palmarès</span>
                 </a>
-                <a href="/territoire" class="sidebar-nav-item {% if '/territoire' in request.url.path %}active{% endif %}">
+                <a href="/territoire" class="sidebar-nav-item {% if request.url.path.startswith('/territoire') %}active{% endif %}">
                     <i data-lucide="map-pin" class="nav-icon"></i>
                     <span class="nav-label">Territoire & Licences</span>
                 </a>
-                <a href="/statistiques" class="sidebar-nav-item {% if request.url.path == '/statistiques' %}active{% endif %}">
+                <a href="/statistiques" class="sidebar-nav-item {% if request.url.path.startswith('/statistiques') %}active{% endif %}">
                     <i data-lucide="bar-chart-3" class="nav-icon"></i>
                     <span class="nav-label">Statistiques globales</span>
-                </a>
-                <a href="/competitions" class="sidebar-nav-item {% if '/competitions' in request.url.path %}active{% endif %}">
-                    <i data-lucide="trophy" class="nav-icon"></i>
-                    <span class="nav-label">Compétitions</span>
                 </a>
 
                 <div class="sidebar-nav-section" style="margin-top: 0.5rem;">Acteurs</div>
 
-                <a href="/arbitres" class="sidebar-nav-item {% if '/arbitres' in request.url.path %}active{% endif %}">
+                <a href="/arbitres" class="sidebar-nav-item {% if request.url.path.startswith('/arbitres') %}active{% endif %}">
                     <i data-lucide="flag" class="nav-icon"></i>
                     <span class="nav-label">Arbitres</span>
                 </a>
-                <a href="/entraineurs" class="sidebar-nav-item {% if '/entraineurs' in request.url.path %}active{% endif %}">
+                <a href="/entraineurs" class="sidebar-nav-item {% if request.url.path.startswith('/entraineurs') %}active{% endif %}">
                     <i data-lucide="clipboard-list" class="nav-icon"></i>
                     <span class="nav-label">Entraîneurs</span>
                 </a>

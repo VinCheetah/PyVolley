@@ -37,6 +37,9 @@ from .models import (
     JoueurStatsAggregated,
     PresenceSet,
     ServiceSetDetail,
+    PositionRotationStats,
+    RotationStats,
+    ClutchStats,
 )
 from .role_inference import infer_team_roles
 def _norm(numero: Optional[str]) -> str:
@@ -331,6 +334,47 @@ def _get_player_at_position(
     return current
 
 
+def _get_player_position_in_formation(
+    td: SetTeamData,
+    numero: str,
+    at_score_sum: int,
+) -> Optional[int]:
+    """Retourne la position dans la formation (1-6) occupée par le joueur au score donné."""
+    if not td.formation:
+        return None
+    n = _norm(numero)
+    for pos in range(1, 7):
+        p = _get_player_at_position(td, pos, at_score_sum)
+        if p and _norm(p) == n:
+            return pos
+    return None
+
+
+def _parse_duree_minutes(duree_val: Optional[str | int | float]) -> Optional[float]:
+    """Parse une durée (ex: 85, '1h25', '85 min', '01:25') en minutes."""
+    if duree_val is None:
+        return None
+    s = str(duree_val).strip().lower()
+    if not s:
+        return None
+    s = s.replace("min", "").strip()
+    if "h" in s:
+        parts = s.split("h", 1)
+        h = float(parts[0].strip() or 0)
+        m = float(parts[1].strip() or 0)
+        return round(h * 60.0 + m, 1)
+    if ":" in s:
+        parts = s.split(":", 1)
+        h = float(parts[0].strip() or 0)
+        m = float(parts[1].strip() or 0)
+        return round(h * 60.0 + m, 1)
+    try:
+        val = float(s)
+        return round(val, 1) if val > 0 else None
+    except ValueError:
+        return None
+
+
 # ══════════════════════════════════════════════════════════════════
 #  Analyse détaillée d'un joueur sur un match
 # ══════════════════════════════════════════════════════════════════
@@ -347,21 +391,14 @@ def analyze_joueur_match(
 ) -> Optional[JoueurMatchDetailedStats]:
     """Analyse détaillée d'un joueur sur un match.
 
-    Les statistiques sont calculées de manière **exacte** lorsque les
-    données de services et de changements sont disponibles :
-
-    * **Points joués / perdus** : calculés à partir des intervalles
-      de présence exacts (scores aux changements).
-    * **Points gagnés au service** : reconstruits depuis la timeline
-      du set (tours de service intercalés).
-    * **Meilleure série** : max de points au service par tour.
-    * **Temps morts provoqués** : croisement exact tour de service ×
-      temps morts adverses.
-    * **Temps de jeu** : proportionnel aux points joués (si durée connue).
-
-    Quand les données ``services`` sont absentes (match issu de la BDD
-    sans PDF), les stats de service restent à zéro mais les points
-    joués/perdus sont tout de même exacts grâce aux changements.
+    Reconstruit les statistiques individuelles exactes :
+    * Volume de jeu : sets joués, gagnés, perdus, commencés, terminés, match complet / non joué
+    * Dynamique de banc : entrées, sorties, entrées-sorties (rôle d'appoint), sorties-entrées
+    * Points & Impact On/Off : points joués/gagnés/perdus, +/-, différentiel de ratio avec/sans le joueur
+    * Service : nb services, séries, moyenne, max série, max services dans un seul set, break rate
+    * Efficacité par rotation : P1 à P6 (points joués, gagnés, win rate)
+    * Situations de score & Clutch : égalité, en tête, menée, money time, balles de set/match sauvées/converties
+    * Temps de jeu estimé : somme exacte des (ratio présence x durée du set)
     """
     joueur, side = _find_joueur(match, licence)
     if joueur is None or side is None:
@@ -379,7 +416,26 @@ def analyze_joueur_match(
         inferred_roles_by_num = infer_team_roles(match, side)
         inferred_role = inferred_roles_by_num.get(_norm(numero))
 
-    # ── Accumulateurs ────────────────────────────────────
+    # ── Totaux du match pour On/Off et présence relative ─
+    match_total_pts = 0
+    match_total_team_pts = 0
+    for s_item in match.sets:
+        sa = s_item.score_a or 0
+        sb = s_item.score_b or 0
+        match_total_pts += (sa + sb)
+        match_total_team_pts += (sa if side == "A" else sb)
+
+    # Format de match (sets nécessaires pour gagner)
+    raw_max_sets = max(match.sets_a, match.sets_b, 0)
+    if raw_max_sets in {2, 3}:
+        sets_to_win = raw_max_sets
+    else:
+        sets_to_win = 3
+
+    sets_won_side = 0
+    sets_won_opp = 0
+
+    # ── Accumulateurs globaux ────────────────────────────
     presence_par_set: list[PresenceSet] = []
     detail_services: list[ServiceSetDetail] = []
     total_points_joues = 0
@@ -393,7 +449,46 @@ def analyze_joueur_match(
     any_duration = False
     nb_entrees = 0
     nb_sorties = 0
+    nb_entrees_sorties = 0
+    nb_sorties_entrees = 0
+    sets_gagnes = 0
+    sets_perdus = 0
+    sets_termines = 0
+    titulaire_set_1 = False
     temps_morts_provoques = 0
+
+    total_reception_pts_joues = 0
+    total_reception_pts_gagnes = 0
+
+    # Rotations (P1 à P6)
+    rot_played = {z: 0 for z in range(1, 7)}
+    rot_won = {z: 0 for z in range(1, 7)}
+    rot_lost = {z: 0 for z in range(1, 7)}
+
+    # Clutch
+    clutch_pts_egalite = 0
+    clutch_won_egalite = 0
+    clutch_pts_en_tete = 0
+    clutch_won_en_tete = 0
+    clutch_pts_menee = 0
+    clutch_won_menee = 0
+    clutch_pts_money_time = 0
+    clutch_won_money_time = 0
+
+    balles_set_adv_total = 0
+    balles_set_adv_sauvees = 0
+    balles_match_adv_total = 0
+    balles_match_adv_sauvees = 0
+
+    balles_set_eq_total = 0
+    balles_set_eq_conv = 0
+    balles_match_eq_total = 0
+    balles_match_eq_conv = 0
+
+    max_streak_sauve_set = 0
+    max_streak_sauve_match = 0
+
+    match_duree_fallback = _parse_duree_minutes(match.duree_totale)
 
     for s in match.sets:
         td = s.team_data(side)
@@ -412,18 +507,35 @@ def analyze_joueur_match(
 
         if titulaire and td.formation:
             pos_depart = _position_in_formation(td, numero)
+        if titulaire and s.numero == 1:
+            titulaire_set_1 = True
 
+        # Événements de changement pour ce joueur
+        raw_events: list[tuple[str, int, int]] = []
         for ch in td.changements:
+            sa = ch.score_a if ch.score_a is not None else 0
+            sb = ch.score_b if ch.score_b is not None else 0
             if _norm(ch.joueur_entrant) == _norm(numero):
                 entre = True
                 nb_entrees += 1
+                raw_events.append(("in", sa, sb))
                 if ch.score_a is not None and ch.score_b is not None:
                     score_entree = f"{ch.score_a}-{ch.score_b}"
             if _norm(ch.joueur_sortant) == _norm(numero):
                 sorti = True
                 nb_sorties += 1
+                raw_events.append(("out", sa, sb))
                 if ch.score_a is not None and ch.score_b is not None:
                     score_sortie = f"{ch.score_a}-{ch.score_b}"
+
+        raw_events.sort(key=lambda e: (e[1] + e[2], 0 if e[0] == "out" else 1))
+        for idx in range(len(raw_events) - 1):
+            ev1 = raw_events[idx][0]
+            ev2 = raw_events[idx + 1][0]
+            if ev1 == "in" and ev2 == "out":
+                nb_entrees_sorties += 1
+            elif ev1 == "out" and ev2 == "in":
+                nb_sorties_entrees += 1
 
         presence_par_set.append(PresenceSet(
             set_numero=s.numero,
@@ -435,7 +547,18 @@ def analyze_joueur_match(
             score_sortie=score_sortie,
         ))
 
-        if not (titulaire or entre):
+        played_set = (titulaire or entre)
+        if played_set:
+            if s.vainqueur == side:
+                sets_gagnes += 1
+            elif s.vainqueur == opp_side:
+                sets_perdus += 1
+
+        if not played_set:
+            if s.vainqueur == side:
+                sets_won_side += 1
+            elif s.vainqueur == opp_side:
+                sets_won_opp += 1
             continue
 
         # ── Intervalles exacts de présence ─────────────
@@ -444,6 +567,12 @@ def analyze_joueur_match(
         intervals = _compute_presence_intervals(
             td, numero, score_a_final, score_b_final,
         )
+
+        # Set terminé sur le terrain ?
+        if intervals:
+            last_iv = intervals[-1]
+            if last_iv.score_a_out == score_a_final and last_iv.score_b_out == score_b_final:
+                sets_termines += 1
 
         # ── Points joués / perdus (exacts) ─────────────
         set_pts_joues = 0
@@ -522,6 +651,190 @@ def analyze_joueur_match(
         total_nb_series += set_nb_series
         max_serie_match = max(max_serie_match, set_max_serie)
 
+        # ── Point par point : Rotations P1-P6 & Clutch ──
+        if timeline:
+            last_serving_pos = {"A": 1, "B": 1}
+            target_pts = 15 if s.numero == 5 else 25
+            money_thresh = 12 if s.numero == 5 else 20
+            is_opp_match_pt = (sets_won_opp + 1 >= sets_to_win)
+            is_team_match_pt = (sets_won_side + 1 >= sets_to_win)
+            current_streak_set = 0
+            current_streak_match = 0
+
+            for turn in timeline:
+                srv_team = turn.team
+                rec_team = "B" if srv_team == "A" else "A"
+                last_serving_pos[srv_team] = turn.position
+
+                cur_sa = turn.score_a_start
+                cur_sb = turn.score_b_start
+
+                is_player_serving = False
+                if srv_team == side:
+                    srv_num = _get_player_at_position(td, turn.position, cur_sa + cur_sb)
+                    if srv_num and _norm(srv_num) == _norm(numero):
+                        is_player_serving = True
+
+                # 1. Points marqués au service pendant ce tour
+                for _ in range(turn.points_scored):
+                    pre_sa = cur_sa
+                    pre_sb = cur_sb
+                    score_sum = pre_sa + pre_sb
+
+                    if srv_team == "A":
+                        cur_sa += 1
+                    else:
+                        cur_sb += 1
+
+                    on_court = any(
+                        (iv.score_a_in + iv.score_b_in) <= score_sum < (iv.score_a_out + iv.score_b_out)
+                        for iv in intervals
+                    )
+                    if not on_court:
+                        continue
+
+                    team_score_pre = pre_sa if side == "A" else pre_sb
+                    opp_score_pre = pre_sb if side == "A" else pre_sa
+                    team_won_point = (srv_team == side)
+
+                    # Rotation P1-P6
+                    player_form_pos = _get_player_position_in_formation(td, numero, score_sum)
+                    if player_form_pos is not None:
+                        srv_form_pos = last_serving_pos[side]
+                        zone = ((player_form_pos - srv_form_pos) % 6) + 1
+                        rot_played[zone] += 1
+                        if team_won_point:
+                            rot_won[zone] += 1
+                        else:
+                            rot_lost[zone] += 1
+
+                    # Side-out vs Service
+                    if srv_team != side:
+                        total_reception_pts_joues += 1
+
+                    # Dynamique de score
+                    if team_score_pre == opp_score_pre:
+                        clutch_pts_egalite += 1
+                        if team_won_point:
+                            clutch_won_egalite += 1
+                    elif team_score_pre > opp_score_pre:
+                        clutch_pts_en_tete += 1
+                        if team_won_point:
+                            clutch_won_en_tete += 1
+                    else:
+                        clutch_pts_menee += 1
+                        if team_won_point:
+                            clutch_won_menee += 1
+
+                    # Money time
+                    if max(team_score_pre, opp_score_pre) >= money_thresh:
+                        clutch_pts_money_time += 1
+                        if team_won_point:
+                            clutch_won_money_time += 1
+
+                    # Balle de set / match adverse
+                    if opp_score_pre >= target_pts - 1 and opp_score_pre > team_score_pre:
+                        balles_set_adv_total += 1
+                        if team_won_point:
+                            balles_set_adv_sauvees += 1
+                        if is_opp_match_pt:
+                            balles_match_adv_total += 1
+                            if team_won_point:
+                                balles_match_adv_sauvees += 1
+
+                        if is_player_serving and team_won_point:
+                            current_streak_set += 1
+                            max_streak_sauve_set = max(max_streak_sauve_set, current_streak_set)
+                            if is_opp_match_pt:
+                                current_streak_match += 1
+                                max_streak_sauve_match = max(max_streak_sauve_match, current_streak_match)
+                        else:
+                            current_streak_set = 0
+                            current_streak_match = 0
+                    else:
+                        current_streak_set = 0
+                        current_streak_match = 0
+
+                    # Balle de set / match équipe
+                    if team_score_pre >= target_pts - 1 and team_score_pre > opp_score_pre:
+                        balles_set_eq_total += 1
+                        if team_won_point:
+                            balles_set_eq_conv += 1
+                        if is_team_match_pt:
+                            balles_match_eq_total += 1
+                            if team_won_point:
+                                balles_match_eq_conv += 1
+
+                # 2. Point de side-out en fin de tour
+                if not turn.is_set_winner:
+                    pre_sa = cur_sa
+                    pre_sb = cur_sb
+                    score_sum = pre_sa + pre_sb
+
+                    if rec_team == "A":
+                        cur_sa += 1
+                    else:
+                        cur_sb += 1
+
+                    on_court = any(
+                        (iv.score_a_in + iv.score_b_in) <= score_sum < (iv.score_a_out + iv.score_b_out)
+                        for iv in intervals
+                    )
+                    if on_court:
+                        team_score_pre = pre_sa if side == "A" else pre_sb
+                        opp_score_pre = pre_sb if side == "A" else pre_sa
+                        team_won_point = (rec_team == side)
+
+                        player_form_pos = _get_player_position_in_formation(td, numero, score_sum)
+                        if player_form_pos is not None:
+                            srv_form_pos = last_serving_pos[side]
+                            zone = ((player_form_pos - srv_form_pos) % 6) + 1
+                            rot_played[zone] += 1
+                            if team_won_point:
+                                rot_won[zone] += 1
+                            else:
+                                rot_lost[zone] += 1
+
+                        if srv_team != side:
+                            total_reception_pts_joues += 1
+                            total_reception_pts_gagnes += 1
+
+                        if team_score_pre == opp_score_pre:
+                            clutch_pts_egalite += 1
+                            if team_won_point:
+                                clutch_won_egalite += 1
+                        elif team_score_pre > opp_score_pre:
+                            clutch_pts_en_tete += 1
+                            if team_won_point:
+                                clutch_won_en_tete += 1
+                        else:
+                            clutch_pts_menee += 1
+                            if team_won_point:
+                                clutch_won_menee += 1
+
+                        if max(team_score_pre, opp_score_pre) >= money_thresh:
+                            clutch_pts_money_time += 1
+                            if team_won_point:
+                                clutch_won_money_time += 1
+
+                        if opp_score_pre >= target_pts - 1 and opp_score_pre > team_score_pre:
+                            balles_set_adv_total += 1
+                            if team_won_point:
+                                balles_set_adv_sauvees += 1
+                            if is_opp_match_pt:
+                                balles_match_adv_total += 1
+                                if team_won_point:
+                                    balles_match_adv_sauvees += 1
+
+                        if team_score_pre >= target_pts - 1 and team_score_pre > opp_score_pre:
+                            balles_set_eq_total += 1
+                            if team_won_point:
+                                balles_set_eq_conv += 1
+                            if is_team_match_pt:
+                                balles_match_eq_total += 1
+                                if team_won_point:
+                                    balles_match_eq_conv += 1
+
         # ── Temps morts provoqués (exacts) ─────────────
         if timeline and td_opp:
             for to in td_opp.timeouts:
@@ -536,23 +849,33 @@ def analyze_joueur_match(
                         srv = _get_player_at_position(td, turn.position, score_sum)
                         if srv and _norm(srv) == _norm(numero):
                             temps_morts_provoques += 1
-                        break  # un TM n'est compté qu'une fois
+                        break
 
-        # ── Temps de jeu ──────────────────────────────
-        if s.duree_minutes is not None:
+        # ── Temps de jeu estimé (somme des ratios x durée) ─
+        set_dur = float(s.duree_minutes) if s.duree_minutes is not None else None
+        if set_dur is None and match_duree_fallback is not None and match_total_pts > 0:
+            set_dur = match_duree_fallback * ((score_a_final + score_b_final) / match_total_pts)
+
+        if set_dur is not None:
             any_duration = True
             total_pts_set = score_a_final + score_b_final
             if total_pts_set > 0:
                 ratio = set_pts_joues / total_pts_set
             else:
-                ratio = 1.0 if (titulaire or entre) else 0.0
-            minutes = float(s.duree_minutes) * ratio
+                ratio = 1.0 if played_set else 0.0
+            minutes = set_dur * ratio
             temps_par_set[s.numero] = round(minutes, 1)
             temps_total += minutes
 
-    # ── Résultat ──────────────────────────────────────────
+        if s.vainqueur == side:
+            sets_won_side += 1
+        elif s.vainqueur == opp_side:
+            sets_won_opp += 1
+
+    # ── Résultat & Synthèse ──────────────────────────────
     sets_joues = sum(1 for p in presence_par_set if p.titulaire or p.entre_en_jeu)
     sets_titulaire = sum(1 for p in presence_par_set if p.titulaire)
+    sets_commences = sets_titulaire
     victoire = match.vainqueur == side
 
     pts_service_total = sum(d.points_marques for d in detail_services)
@@ -562,6 +885,96 @@ def analyze_joueur_match(
     sideout_contribution_ratio = round(pts_sideout_total / total_points_gagnes, 3) if total_points_gagnes > 0 else 0.0
     moyenne_services_par_serie = round(total_nb_services / total_nb_series, 2) if total_nb_series > 0 else 0.0
     sanctions = _collect_sanctions(match, joueur, side)
+
+    # Métriques On / Off & Présence relative
+    plus_minus = total_points_gagnes - total_points_perdus
+    points_joues_off = max(0, match_total_pts - total_points_joues)
+    points_gagnes_off = max(0, match_total_team_pts - total_points_gagnes)
+    ratio_points_gagnes_off = round(points_gagnes_off / points_joues_off, 3) if points_joues_off > 0 else None
+    differentiel_points_gagnes = (
+        round(ratio_points_gagnes - ratio_points_gagnes_off, 3)
+        if ratio_points_gagnes_off is not None else None
+    )
+    presence_relative = round(total_points_joues / match_total_pts, 3) if match_total_pts > 0 else 0.0
+    sideout_win_rate = (
+        round(total_reception_pts_gagnes / total_reception_pts_joues, 3)
+        if total_reception_pts_joues > 0 else 0.0
+    )
+    max_services_set = max((d.nb_services for d in detail_services), default=0)
+
+    total_sets_match = len(match.sets)
+    match_complet = (total_sets_match > 0 and sets_commences == total_sets_match and nb_sorties == 0)
+    match_non_joue = (sets_joues == 0)
+
+    # Construction RotationStats
+    rotations = RotationStats(
+        p1=PositionRotationStats(
+            points_joues=rot_played[1],
+            points_gagnes=rot_won[1],
+            points_perdus=rot_lost[1],
+            win_rate=round(rot_won[1] / rot_played[1], 3) if rot_played[1] > 0 else 0.0,
+        ),
+        p2=PositionRotationStats(
+            points_joues=rot_played[2],
+            points_gagnes=rot_won[2],
+            points_perdus=rot_lost[2],
+            win_rate=round(rot_won[2] / rot_played[2], 3) if rot_played[2] > 0 else 0.0,
+        ),
+        p3=PositionRotationStats(
+            points_joues=rot_played[3],
+            points_gagnes=rot_won[3],
+            points_perdus=rot_lost[3],
+            win_rate=round(rot_won[3] / rot_played[3], 3) if rot_played[3] > 0 else 0.0,
+        ),
+        p4=PositionRotationStats(
+            points_joues=rot_played[4],
+            points_gagnes=rot_won[4],
+            points_perdus=rot_lost[4],
+            win_rate=round(rot_won[4] / rot_played[4], 3) if rot_played[4] > 0 else 0.0,
+        ),
+        p5=PositionRotationStats(
+            points_joues=rot_played[5],
+            points_gagnes=rot_won[5],
+            points_perdus=rot_lost[5],
+            win_rate=round(rot_won[5] / rot_played[5], 3) if rot_played[5] > 0 else 0.0,
+        ),
+        p6=PositionRotationStats(
+            points_joues=rot_played[6],
+            points_gagnes=rot_won[6],
+            points_perdus=rot_lost[6],
+            win_rate=round(rot_won[6] / rot_played[6], 3) if rot_played[6] > 0 else 0.0,
+        ),
+    )
+
+    # Construction ClutchStats
+    clutch = ClutchStats(
+        points_egalite=clutch_pts_egalite,
+        points_gagnes_egalite=clutch_won_egalite,
+        win_rate_egalite=round(clutch_won_egalite / clutch_pts_egalite, 3) if clutch_pts_egalite > 0 else 0.0,
+        points_en_tete=clutch_pts_en_tete,
+        points_gagnes_en_tete=clutch_won_en_tete,
+        win_rate_en_tete=round(clutch_won_en_tete / clutch_pts_en_tete, 3) if clutch_pts_en_tete > 0 else 0.0,
+        points_menee=clutch_pts_menee,
+        points_gagnes_menee=clutch_won_menee,
+        win_rate_menee=round(clutch_won_menee / clutch_pts_menee, 3) if clutch_pts_menee > 0 else 0.0,
+        points_money_time=clutch_pts_money_time,
+        points_gagnes_money_time=clutch_won_money_time,
+        win_rate_money_time=round(clutch_won_money_time / clutch_pts_money_time, 3) if clutch_pts_money_time > 0 else 0.0,
+        balles_de_set_adverse_total=balles_set_adv_total,
+        balles_de_set_adverse_sauvees=balles_set_adv_sauvees,
+        win_rate_sauve_balle_set=round(balles_set_adv_sauvees / balles_set_adv_total, 3) if balles_set_adv_total > 0 else 0.0,
+        balles_de_match_adverse_total=balles_match_adv_total,
+        balles_de_match_adverse_sauvees=balles_match_adv_sauvees,
+        win_rate_sauve_balle_match=round(balles_match_adv_sauvees / balles_match_adv_total, 3) if balles_match_adv_total > 0 else 0.0,
+        balles_de_set_equipe_total=balles_set_eq_total,
+        balles_de_set_equipe_converties=balles_set_eq_conv,
+        win_rate_balle_set_equipe=round(balles_set_eq_conv / balles_set_eq_total, 3) if balles_set_eq_total > 0 else 0.0,
+        balles_de_match_equipe_total=balles_match_eq_total,
+        balles_de_match_equipe_converties=balles_match_eq_conv,
+        win_rate_balle_match_equipe=round(balles_match_eq_conv / balles_match_eq_total, 3) if balles_match_eq_total > 0 else 0.0,
+        max_serie_sauve_balle_set=max_streak_sauve_set,
+        max_serie_sauve_balle_match=max_streak_sauve_match,
+    )
 
     return JoueurMatchDetailedStats(
         numero=numero,
@@ -587,21 +1000,40 @@ def analyze_joueur_match(
         ratio_points_gagnes=ratio_points_gagnes,
         break_point_ratio=break_point_ratio,
         sideout_contribution_ratio=sideout_contribution_ratio,
+        sideout_win_rate=sideout_win_rate,
+        plus_minus=plus_minus,
+        points_joues_off=points_joues_off,
+        points_gagnes_off=points_gagnes_off,
+        ratio_points_gagnes_off=ratio_points_gagnes_off,
+        differentiel_points_gagnes=differentiel_points_gagnes,
         services=total_nb_services,
         serie=total_nb_series,
         max_serie=max_serie_match,
         moyenne_services_par_serie=moyenne_services_par_serie,
         nb_services=total_nb_services,
         meilleure_serie=max_serie_match,
+        max_services_set=max_services_set,
         detail_services_par_set=detail_services,
         sets_joues=sets_joues,
+        sets_gagnes=sets_gagnes,
+        sets_perdus=sets_perdus,
+        sets_commences=sets_commences,
         sets_titulaire=sets_titulaire,
+        sets_termines=sets_termines,
+        titulaire_set_1=titulaire_set_1,
+        match_complet=match_complet,
+        match_non_joue=match_non_joue,
+        presence_relative=presence_relative,
         presence_par_set=presence_par_set,
         temps_jeu_estime=round(temps_total, 1) if any_duration else None,
         temps_jeu_par_set=temps_par_set,
         nb_entrees=nb_entrees,
         nb_sorties=nb_sorties,
         nb_changements_total=nb_entrees + nb_sorties,
+        nb_entrees_sorties=nb_entrees_sorties,
+        nb_sorties_entrees=nb_sorties_entrees,
+        rotations=rotations,
+        clutch=clutch,
         temps_morts_provoques=temps_morts_provoques,
         sanctions=sanctions,
         est_calcul_libero=est_mode_libero,
@@ -645,6 +1077,134 @@ def aggregate_joueur_stats(
         )
     }
 
+    # Agrégation Rotations
+    rot_p1_joues = sum(s.rotations.p1.points_joues for s in stats_list)
+    rot_p1_gagnes = sum(s.rotations.p1.points_gagnes for s in stats_list)
+    rot_p1_perdus = sum(s.rotations.p1.points_perdus for s in stats_list)
+
+    rot_p2_joues = sum(s.rotations.p2.points_joues for s in stats_list)
+    rot_p2_gagnes = sum(s.rotations.p2.points_gagnes for s in stats_list)
+    rot_p2_perdus = sum(s.rotations.p2.points_perdus for s in stats_list)
+
+    rot_p3_joues = sum(s.rotations.p3.points_joues for s in stats_list)
+    rot_p3_gagnes = sum(s.rotations.p3.points_gagnes for s in stats_list)
+    rot_p3_perdus = sum(s.rotations.p3.points_perdus for s in stats_list)
+
+    rot_p4_joues = sum(s.rotations.p4.points_joues for s in stats_list)
+    rot_p4_gagnes = sum(s.rotations.p4.points_gagnes for s in stats_list)
+    rot_p4_perdus = sum(s.rotations.p4.points_perdus for s in stats_list)
+
+    rot_p5_joues = sum(s.rotations.p5.points_joues for s in stats_list)
+    rot_p5_gagnes = sum(s.rotations.p5.points_gagnes for s in stats_list)
+    rot_p5_perdus = sum(s.rotations.p5.points_perdus for s in stats_list)
+
+    rot_p6_joues = sum(s.rotations.p6.points_joues for s in stats_list)
+    rot_p6_gagnes = sum(s.rotations.p6.points_gagnes for s in stats_list)
+    rot_p6_perdus = sum(s.rotations.p6.points_perdus for s in stats_list)
+
+    rotations_globales = RotationStats(
+        p1=PositionRotationStats(
+            points_joues=rot_p1_joues, points_gagnes=rot_p1_gagnes, points_perdus=rot_p1_perdus,
+            win_rate=round(rot_p1_gagnes / rot_p1_joues, 3) if rot_p1_joues > 0 else 0.0,
+        ),
+        p2=PositionRotationStats(
+            points_joues=rot_p2_joues, points_gagnes=rot_p2_gagnes, points_perdus=rot_p2_perdus,
+            win_rate=round(rot_p2_gagnes / rot_p2_joues, 3) if rot_p2_joues > 0 else 0.0,
+        ),
+        p3=PositionRotationStats(
+            points_joues=rot_p3_joues, points_gagnes=rot_p3_gagnes, points_perdus=rot_p3_perdus,
+            win_rate=round(rot_p3_gagnes / rot_p3_joues, 3) if rot_p3_joues > 0 else 0.0,
+        ),
+        p4=PositionRotationStats(
+            points_joues=rot_p4_joues, points_gagnes=rot_p4_gagnes, points_perdus=rot_p4_perdus,
+            win_rate=round(rot_p4_gagnes / rot_p4_joues, 3) if rot_p4_joues > 0 else 0.0,
+        ),
+        p5=PositionRotationStats(
+            points_joues=rot_p5_joues, points_gagnes=rot_p5_gagnes, points_perdus=rot_p5_perdus,
+            win_rate=round(rot_p5_gagnes / rot_p5_joues, 3) if rot_p5_joues > 0 else 0.0,
+        ),
+        p6=PositionRotationStats(
+            points_joues=rot_p6_joues, points_gagnes=rot_p6_gagnes, points_perdus=rot_p6_perdus,
+            win_rate=round(rot_p6_gagnes / rot_p6_joues, 3) if rot_p6_joues > 0 else 0.0,
+        ),
+    )
+
+    # Agrégation Clutch
+    c_pts_eg = sum(s.clutch.points_egalite for s in stats_list)
+    c_won_eg = sum(s.clutch.points_gagnes_egalite for s in stats_list)
+
+    c_pts_et = sum(s.clutch.points_en_tete for s in stats_list)
+    c_won_et = sum(s.clutch.points_gagnes_en_tete for s in stats_list)
+
+    c_pts_mn = sum(s.clutch.points_menee for s in stats_list)
+    c_won_mn = sum(s.clutch.points_gagnes_menee for s in stats_list)
+
+    c_pts_mt = sum(s.clutch.points_money_time for s in stats_list)
+    c_won_mt = sum(s.clutch.points_gagnes_money_time for s in stats_list)
+
+    c_b_set_adv_tot = sum(s.clutch.balles_de_set_adverse_total for s in stats_list)
+    c_b_set_adv_sauv = sum(s.clutch.balles_de_set_adverse_sauvees for s in stats_list)
+
+    c_b_mat_adv_tot = sum(s.clutch.balles_de_match_adverse_total for s in stats_list)
+    c_b_mat_adv_sauv = sum(s.clutch.balles_de_match_adverse_sauvees for s in stats_list)
+
+    c_b_set_eq_tot = sum(s.clutch.balles_de_set_equipe_total for s in stats_list)
+    c_b_set_eq_conv = sum(s.clutch.balles_de_set_equipe_converties for s in stats_list)
+
+    c_b_mat_eq_tot = sum(s.clutch.balles_de_match_equipe_total for s in stats_list)
+    c_b_mat_eq_conv = sum(s.clutch.balles_de_match_equipe_converties for s in stats_list)
+
+    clutch_global = ClutchStats(
+        points_egalite=c_pts_eg,
+        points_gagnes_egalite=c_won_eg,
+        win_rate_egalite=round(c_won_eg / c_pts_eg, 3) if c_pts_eg > 0 else 0.0,
+        points_en_tete=c_pts_et,
+        points_gagnes_en_tete=c_won_et,
+        win_rate_en_tete=round(c_won_et / c_pts_et, 3) if c_pts_et > 0 else 0.0,
+        points_menee=c_pts_mn,
+        points_gagnes_menee=c_won_mn,
+        win_rate_menee=round(c_won_mn / c_pts_mn, 3) if c_pts_mn > 0 else 0.0,
+        points_money_time=c_pts_mt,
+        points_gagnes_money_time=c_won_mt,
+        win_rate_money_time=round(c_won_mt / c_pts_mt, 3) if c_pts_mt > 0 else 0.0,
+        balles_de_set_adverse_total=c_b_set_adv_tot,
+        balles_de_set_adverse_sauvees=c_b_set_adv_sauv,
+        win_rate_sauve_balle_set=round(c_b_set_adv_sauv / c_b_set_adv_tot, 3) if c_b_set_adv_tot > 0 else 0.0,
+        balles_de_match_adverse_total=c_b_mat_adv_tot,
+        balles_de_match_adverse_sauvees=c_b_mat_adv_sauv,
+        win_rate_sauve_balle_match=round(c_b_mat_adv_sauv / c_b_mat_adv_tot, 3) if c_b_mat_adv_tot > 0 else 0.0,
+        balles_de_set_equipe_total=c_b_set_eq_tot,
+        balles_de_set_equipe_converties=c_b_set_eq_conv,
+        win_rate_balle_set_equipe=round(c_b_set_eq_conv / c_b_set_eq_tot, 3) if c_b_set_eq_tot > 0 else 0.0,
+        balles_de_match_equipe_total=c_b_mat_eq_tot,
+        balles_de_match_equipe_converties=c_b_mat_eq_conv,
+        win_rate_balle_match_equipe=round(c_b_mat_eq_conv / c_b_mat_eq_tot, 3) if c_b_mat_eq_tot > 0 else 0.0,
+        max_serie_sauve_balle_set=max((s.clutch.max_serie_sauve_balle_set for s in stats_list), default=0),
+        max_serie_sauve_balle_match=max((s.clutch.max_serie_sauve_balle_match for s in stats_list), default=0),
+    )
+
+    tot_pts_gagnes = sum(s.points_gagnes for s in stats_list)
+    tot_pts_joues = sum(s.points_joues for s in stats_list)
+    ratio_pts_gagnes_glob = round(tot_pts_gagnes / tot_pts_joues, 3) if tot_pts_joues > 0 else 0.0
+
+    # On / Off global
+    tot_off_joues = sum(s.points_joues_off for s in stats_list)
+    tot_off_gagnes = sum(s.points_gagnes_off for s in stats_list)
+    if tot_off_joues > 0:
+        off_ratio_glob = tot_off_gagnes / tot_off_joues
+        diff_pts_gagnes_glob = round(ratio_pts_gagnes_glob - off_ratio_glob, 3)
+    else:
+        diff_pts_gagnes_glob = None
+
+    tot_sideout_gagnes = sum(s.points_gagnes_sideout for s in stats_list)
+    # Estimation side-out win rate global depuis rot P2..P6 ou réception
+    pts_reception_tot = sum(
+        s.rotations.p2.points_joues + s.rotations.p3.points_joues +
+        s.rotations.p4.points_joues + s.rotations.p5.points_joues + s.rotations.p6.points_joues
+        for s in stats_list
+    )
+    sideout_wr_glob = round(tot_sideout_gagnes / pts_reception_tot, 3) if pts_reception_tot > 0 else 0.0
+
     result = JoueurStatsAggregated(
         nom=first.nom,
         prenom=first.prenom,
@@ -652,16 +1212,33 @@ def aggregate_joueur_stats(
         matchs_joues=len(stats_list),
         matchs_victoires=sum(1 for s in stats_list if s.victoire),
         matchs_defaites=sum(1 for s in stats_list if not s.victoire),
+        total_matchs_complets=sum(1 for s in stats_list if s.match_complet),
+        total_matchs_non_joues=sum(1 for s in stats_list if s.match_non_joue),
+        total_titularisations_set_1=sum(1 for s in stats_list if s.titulaire_set_1),
         total_sets_joues=sum(s.sets_joues for s in stats_list),
+        total_sets_gagnes=sum(s.sets_gagnes for s in stats_list),
+        total_sets_perdus=sum(s.sets_perdus for s in stats_list),
+        total_sets_commences=sum(s.sets_commences for s in stats_list),
         total_sets_titulaire=sum(s.sets_titulaire for s in stats_list),
-        total_points_gagnes=sum(s.points_gagnes for s in stats_list),
+        total_sets_termines=sum(s.sets_termines for s in stats_list),
+        presence_relative_moyenne=round(
+            sum(s.presence_relative for s in stats_list) / len(stats_list), 3
+        ) if stats_list else 0.0,
+        total_points_gagnes=tot_pts_gagnes,
         total_points_gagnes_service=sum(s.points_gagnes_service for s in stats_list),
-        total_points_gagnes_sideout=sum(s.points_gagnes_sideout for s in stats_list),
+        total_points_gagnes_sideout=tot_sideout_gagnes,
         total_points_perdus=sum(s.points_perdus for s in stats_list),
-        total_points_joues=sum(s.points_joues for s in stats_list),
+        total_points_joues=tot_pts_joues,
+        total_plus_minus=sum(s.plus_minus for s in stats_list),
+        ratio_points_gagnes_global=ratio_pts_gagnes_glob,
+        break_point_ratio_global=0.0,
+        ratio_points_gagnes_sideout_global=0.0,
+        sideout_win_rate_global=sideout_wr_glob,
+        differentiel_points_gagnes_global=diff_pts_gagnes_glob,
         total_services=sum(s.services for s in stats_list),
         total_series_service=sum(s.serie for s in stats_list),
         max_serie_service=max((s.max_serie for s in stats_list), default=0),
+        max_services_set_record=max((s.max_services_set for s in stats_list), default=0),
         total_tours_service=total_tours_service,
         meilleure_serie_service=max(
             (s.meilleure_serie for s in stats_list), default=0
@@ -671,6 +1248,10 @@ def aggregate_joueur_stats(
         ),
         total_entrees=sum(s.nb_entrees for s in stats_list),
         total_sorties=sum(s.nb_sorties for s in stats_list),
+        total_entrees_sorties=sum(s.nb_entrees_sorties for s in stats_list),
+        total_sorties_entrees=sum(s.nb_sorties_entrees for s in stats_list),
+        rotations_globales=rotations_globales,
+        clutch_global=clutch_global,
         total_temps_morts_provoques=sum(
             s.temps_morts_provoques for s in stats_list
         ),
@@ -684,10 +1265,6 @@ def aggregate_joueur_stats(
     if result.total_series_service > 0:
         result.moyenne_services_par_serie = round(
             result.total_services / result.total_series_service, 2,
-        )
-    if result.total_points_joues > 0:
-        result.ratio_points_gagnes_global = round(
-            result.total_points_gagnes / result.total_points_joues, 3,
         )
     if result.total_services > 0:
         result.break_point_ratio_global = round(
@@ -704,8 +1281,23 @@ def aggregate_joueur_stats(
         result.moyenne_temps_morts_par_match = round(
             result.total_temps_morts_provoques / result.matchs_joues, 2,
         )
+    if result.total_sets_joues > 0:
+        result.moyenne_temps_par_set = round(
+            result.total_temps_jeu / result.total_sets_joues, 1,
+        )
 
     result.role_distribution_matchs = role_distribution_matchs
+    role_scores_totaux_dict: dict[str, float] = {}
+    for stats in stats_list:
+        for role_name, score in (stats.role_scores or {}).items():
+            role_scores_totaux_dict[role_name] = role_scores_totaux_dict.get(role_name, 0.0) + float(score)
+
+    role_scores_moyens = {
+        role_name: round(total_score / len(stats_list), 3)
+        for role_name, total_score in sorted(
+            role_scores_totaux_dict.items(), key=lambda item: (-item[1], item[0])
+        )
+    }
     result.role_scores_moyens = role_scores_moyens
 
     if role_scores_moyens:

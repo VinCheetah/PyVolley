@@ -41,10 +41,16 @@ class TestDetectNiveau:
 
     @pytest.mark.parametrize("competition,expected", [
         ("PFA - CHAMPIONNAT PRE-NATIONAL SENIOR FEMININ : POULE A", "PRE_NATIONALE"),
-        ("AFA - ACCESSION REGIONALE SENIOR FEM POULE A", "PRE_NATIONALE"),
-        ("AFA - Accession Régionale Féminines Poule A", "PRE_NATIONALE"),
+        ("PNM - PRE-NATIONALE MASCULINE POULE A", "PRE_NATIONALE"),
     ])
     def test_pre_nationale(self, competition, expected):
+        assert detect_niveau(competition) == expected
+
+    @pytest.mark.parametrize("competition,expected", [
+        ("AFA - ACCESSION REGIONALE SENIOR FEM POULE A", "PRE_REGIONALE"),
+        ("AFA - Accession Régionale Féminines Poule A", "PRE_REGIONALE"),
+    ])
+    def test_pre_regionale(self, competition, expected):
         assert detect_niveau(competition) == expected
 
     @pytest.mark.parametrize("competition,expected", [

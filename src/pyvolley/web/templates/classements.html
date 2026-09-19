@@ -226,10 +226,21 @@
                             <div class="text-xs text-muted flex items-center gap-1 mt-0.5">
                                 {% if filters.entity_type == 'clubs' %}
                                 <i data-lucide="map-pin" class="w-3 h-3 text-muted"></i>
+                                {{ item.nom_secondaire }}
                                 {% else %}
                                 <i data-lucide="building-2" class="w-3 h-3 text-muted"></i>
-                                {% endif %}
+                                {% if item.metadata.get('club_code_ffvb') %}
+                                <a href="/clubs/{{ item.metadata.get('club_code_ffvb') }}" class="hover:text-primary transition-colors">
+                                    {{ item.nom_secondaire }}
+                                </a>
+                                {% elif item.metadata.get('club_id') %}
+                                <a href="/clubs/{{ item.metadata.get('club_id') }}" class="hover:text-primary transition-colors">
+                                    {{ item.nom_secondaire }}
+                                </a>
+                                {% else %}
                                 {{ item.nom_secondaire }}
+                                {% endif %}
+                                {% endif %}
                             </div>
                             {% endif %}
                         </td>

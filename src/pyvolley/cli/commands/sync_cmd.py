@@ -236,21 +236,143 @@ def sync_geocode(
         "-f",
         help="Forcer le re-géocodage même pour les entités déjà pourvues de coordonnées.",
     ),
+    audit: bool = typer.Option(
+        False,
+        "--audit",
+        help="Auditer les anomalies de géocodage (coordonnées situées hors du département officiel).",
+    ),
+    fix_outliers: bool = typer.Option(
+        False,
+        "--fix-outliers",
+        "--fix",
+        help="Re-géocoder spécifiquement les entités situées hors de leur département officiel.",
+    ),
     limit: int = typer.Option(0, "--limit", "-n", help="Nombre max d'entités par catégorie (0 = toutes)."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Simuler les requêtes sans enregistrer en base."),
 ):
     """📍 Géocode les adresses des salles (gymnases) et des clubs pour un positionnement parfait sur la carte."""
     import time
     from pyvolley.core.geocoding import (
+        audit_geocoding_consistency,
+        fix_geocoded_outliers,
         geocode_address,
         geocode_club_entity,
         get_geocoding_cache,
     )
+    from pyvolley.core.geo_data import department_from_club_code
     from pyvolley.database.connection import DatabaseSession
     from pyvolley.database.models import ClubDB, SalleClubDB
 
-    should_force = force or (not only_missing)
     cache = get_geocoding_cache()
+
+    # ── Option 1: Audit des anomalies de géocodage ──────────────
+    if audit:
+        console.print(
+            Panel(
+                "[bold cyan]Audit de Cohérence Territoriale du Géocodage[/bold cyan]\n"
+                "[dim]Vérification des coordonnées GPS par rapport aux départements officiels (seuil : 120 km)[/dim]",
+                title="PyVolley Geocoding Audit",
+            )
+        )
+        with DatabaseSession() as session:
+            stats = audit_geocoding_consistency(session, max_distance_km=120.0)
+
+            console.print(
+                Panel(
+                    f"• [bold]Salles[/bold] : [cyan]{stats['salles_geocoded']}/{stats['salles_total']}[/cyan] géocodées "
+                    f"| Anomalies : [{'red bold' if stats['salle_outliers'] else 'green'}]{len(stats['salle_outliers'])}[/]\n"
+                    f"• [bold]Clubs[/bold] : [cyan]{stats['clubs_geocoded']}/{stats['clubs_total']}[/cyan] géolocalisés "
+                    f"| Anomalies : [{'red bold' if stats['club_outliers'] else 'green'}]{len(stats['club_outliers'])}[/]",
+                    title="Synthèse de l'Audit",
+                )
+            )
+
+            if stats["salle_outliers"]:
+                table_s = Table(title="[bold red]Salles géocodées hors de leur département[/bold red]")
+                table_s.add_column("ID", style="dim", width=6)
+                table_s.add_column("Nom Salle", style="white", min_width=20)
+                table_s.add_column("Club Rattaché", style="cyan", min_width=25)
+                table_s.add_column("Dépt", style="yellow", justify="center", width=6)
+                table_s.add_column("Adresse Salle", style="dim", min_width=25)
+                table_s.add_column("Coordonnées", style="green", justify="center", width=22)
+                table_s.add_column("Distance Dépt", style="red bold", justify="right", width=14)
+
+                for o in stats["salle_outliers"]:
+                    table_s.add_row(
+                        str(o["id"]),
+                        o["nom"][:25],
+                        f"[{o['club_code'] or '-'}] {o['club_nom'] or '-'}"[:30],
+                        o["expected_dept"] or "-",
+                        f"{o['adresse'] or ''} {o['ville'] or ''}"[:30],
+                        f"{o['latitude']:.4f}, {o['longitude']:.4f}",
+                        f"{o['distance_km']:.1f} km",
+                    )
+                console.print(table_s)
+
+            if stats["club_outliers"]:
+                table_c = Table(title=f"[bold red]Clubs géocodés hors de leur département ({len(stats['club_outliers'])} cas)[/bold red]")
+                table_c.add_column("ID", style="dim", width=6)
+                table_c.add_column("Code FFVB", style="magenta", width=10)
+                table_c.add_column("Nom Club", style="white", min_width=25)
+                table_c.add_column("Dépt", style="yellow", justify="center", width=6)
+                table_c.add_column("Commune / Siège", style="dim", min_width=20)
+                table_c.add_column("Coordonnées", style="green", justify="center", width=22)
+                table_c.add_column("Distance Dépt", style="red bold", justify="right", width=14)
+
+                for o in stats["club_outliers"][:30]:
+                    table_c.add_row(
+                        str(o["id"]),
+                        o["code_ffvb"] or "-",
+                        o["nom"][:30],
+                        o["expected_dept"] or "-",
+                        (o["ville_siege"] or o["ville"] or "-")[:25],
+                        f"{o['latitude']:.4f}, {o['longitude']:.4f}",
+                        f"{o['distance_km']:.1f} km",
+                    )
+                if len(stats["club_outliers"]) > 30:
+                    console.print(f"[dim]... et {len(stats['club_outliers']) - 30} autre(s) club(s) en anomalie.[/dim]")
+                console.print(table_c)
+
+            if stats["salle_outliers"] or stats["club_outliers"]:
+                console.print(
+                    "\n[yellow]💡 Pour corriger automatiquement ces anomalies territoriales, exécutez :[/yellow] "
+                    "[bold green]pyvolley sync geocode --fix-outliers[/bold green]\n"
+                )
+            else:
+                console.print("\n[bold green]✓ Aucune anomalie détectée : toutes les entités sont bien positionnées dans leur département.[/bold green]\n")
+        return
+
+    # ── Option 2: Correction ciblée des anomalies ──────────────
+    if fix_outliers:
+        console.print(
+            Panel(
+                "[bold cyan]Correction des Anomalies Territoriales de Géocodage[/bold cyan]\n"
+                "[dim]Re-géocodage strict des entités positionnées hors de leur département officiel[/dim]",
+                title="PyVolley Geocoding Fixer",
+            )
+        )
+        with DatabaseSession() as session:
+            with make_progress(console) as progress:
+                task = progress.add_task("[cyan]Correction des anomalies...", total=100)
+
+                def _progress_cb(cur: int, tot: int, name: str):
+                    progress.update(task, completed=int(cur / tot * 100) if tot else 100, description=f"[cyan]{name[:30]}")
+
+                fix_stats = fix_geocoded_outliers(session, max_distance_km=120.0, on_progress=_progress_cb)
+
+            console.print(
+                Panel(
+                    f"• [bold]Salles[/bold] : [green]{fix_stats['fixed_salles']}/{fix_stats['initial_salle_outliers']}[/green] corrigée(s) "
+                    f"(Restantes : [bold]{fix_stats['remaining_salle_outliers']}[/bold])\n"
+                    f"• [bold]Clubs[/bold] : [green]{fix_stats['fixed_clubs']}/{fix_stats['initial_club_outliers']}[/green] corrigé(s) "
+                    f"(Restants : [bold]{fix_stats['remaining_club_outliers']}[/bold])",
+                    title="Bilan des Corrections",
+                )
+            )
+        return
+
+    # ── Mode standard : Géocodage classique ────────────────────
+    should_force = force or (not only_missing)
 
     console.print(
         Panel(
@@ -293,10 +415,18 @@ def sync_geocode(
                     for s in salles_list:
                         nom_s = s.nom or f"Salle {s.numero}"
                         addr_str = f"{s.adresse or ''} {s.ville or ''}".strip()
+                        club = s.club
+                        c_dept = club.departement if club else None
+                        if not c_dept and club and club.code_ffvb:
+                            c_dept = department_from_club_code(club.code_ffvb)
+                        c_ligue = club.ligue if club else None
+
                         res = geocode_address(
                             adresse=s.adresse,
-                            ville=s.ville or (s.club.ville if s.club else None),
+                            ville=s.ville or (club.ville if club else None),
                             nom=s.nom,
+                            departement=c_dept,
+                            ligue=c_ligue,
                         )
                         if res:
                             total_geocoded += 1

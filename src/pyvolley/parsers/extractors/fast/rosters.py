@@ -4,11 +4,13 @@ Module d'extraction direct et ultra-rapide des effectifs (Joueurs, Libéros, Off
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 from pyvolley.core.models import Equipe, Joueur, Officiel
 from pyvolley.parsers.layout_config import ParserLayoutConfig
+from pyvolley.parsers.utils import clean_team_name
 from pyvolley.parsers.extractors.fast.utils import (
     WordTuple,
     group_words_by_line,
@@ -208,6 +210,13 @@ def extract_fast_rosters(
     else:
         nom_a, roster_a = nom_droite, roster_droite
         nom_b, roster_b = nom_gauche, roster_gauche
+
+    nom_a = clean_team_name(nom_a or "")
+    nom_b = clean_team_name(nom_b or "")
+    if len(nom_a) < 2 or not re.search(r"[a-zA-Z0-9]", nom_a):
+        nom_a = "Équipe A"
+    if len(nom_b) < 2 or not re.search(r"[a-zA-Z0-9]", nom_b):
+        nom_b = "Équipe B"
 
     equipe_a = Equipe(
         nom=nom_a,

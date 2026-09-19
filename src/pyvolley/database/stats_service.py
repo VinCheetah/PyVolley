@@ -49,6 +49,14 @@ class StatsFilters:
     competition_id: Optional[int] = None
     niveau: Optional[str] = None
     niveau_echelon: Optional[str] = None  # NATIONAL, REGIONAL, DEPARTEMENTAL
+    saison: Optional[Any] = None  # alias rétrocompatible pour saison_id / code saison
+
+    def __post_init__(self):
+        if self.saison is not None and self.saison_id is None:
+            if isinstance(self.saison, int):
+                self.saison_id = self.saison
+            elif isinstance(self.saison, str) and self.saison.isdigit():
+                self.saison_id = int(self.saison)
 
 
 # ─── Service ────────────────────────────────────────────────────
@@ -67,6 +75,14 @@ class StatsAmusantesService:
         season_ids = list(filters.saison_ids or [])
         if filters.saison_id and filters.saison_id not in season_ids:
             season_ids.append(filters.saison_id)
+
+        if not season_ids and filters.saison:
+            from pyvolley.database.models import SaisonDB
+            s_id = self.session.scalar(
+                select(SaisonDB.id).where(SaisonDB.code == str(filters.saison))
+            )
+            if s_id:
+                season_ids.append(s_id)
 
         if season_ids:
             stmt = stmt.where(MatchDB.saison_id.in_(season_ids))
@@ -1616,3 +1632,23 @@ class StatsAmusantesService:
             self.session.rollback()
 
         return stats_data, False
+
+    def is_cache_valid(self, filters: StatsFilters) -> bool:
+        """Vérifie si le cache pour ces filtres est présent et à jour."""
+        from pyvolley.database.repositories import StatsCacheRepository
+
+        filter_key = self.build_filter_key(filters)
+        repo = StatsCacheRepository(self.session)
+        current_match_count, last_match_update = self._current_cache_signature(filters)
+        entry = repo.get_by_filter_key(filter_key)
+        if entry is None:
+            return False
+        return not repo.is_stale(
+            filter_key,
+            current_match_count,
+            current_last_match_update=last_match_update,
+        )
+
+    def compute_and_cache(self, filters: StatsFilters) -> Dict[str, Any]:
+        """Calcule et met en cache les statistiques (alias de compute_and_store)."""
+        return self.compute_and_store(filters)

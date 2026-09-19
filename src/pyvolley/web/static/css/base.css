@@ -1,94 +1,119 @@
 /* ═══════════════════════════════════════════════════════════════
-   PyVolley — Base layer
-   Design tokens (CSS custom properties), resets, typography
+   PyVolley — Base Layer · Design System "Spike"
+   Tokens, resets, typography, scrollbar, focus
    ═══════════════════════════════════════════════════════════════ */
 
 :root {
   color-scheme: dark;
 
   /* ── Backgrounds ── */
-  --bg-primary: #09090b;
-  --bg-secondary: #111113;
-  --bg-card: #18181b;
-  --bg-card-hover: #1f1f23;
-  --bg-surface: #141416;
+  --bg-primary:      #060a14;
+  --bg-secondary:    #0c1120;
+  --bg-card:         #0f1629;
+  --bg-card-hover:   #151d35;
+  --bg-surface:      #111827;
+  --bg-glass:        rgba(15, 22, 41, 0.72);
+  --bg-glass-heavy:  rgba(15, 22, 41, 0.88);
+  --bg-elevated:     #1a2340;
 
   /* ── Borders ── */
-  --border-color: #27272a;
-  --border-color-subtle: rgba(39, 39, 42, 0.5);
-  --border-color-hover: #3f3f46;
+  --border-color:        rgba(255, 255, 255, 0.06);
+  --border-color-subtle: rgba(255, 255, 255, 0.03);
+  --border-color-hover:  rgba(255, 255, 255, 0.12);
+  --border-color-accent: rgba(255, 107, 44, 0.30);
 
   /* ── Text ── */
-  --text-primary: #fafafa;
-  --text-secondary: #a1a1aa;
-  --text-muted: #52525b;
-  --text-inverse: #09090b;
+  --text-primary:   #f0f2f8;
+  --text-secondary: #8b95b0;
+  --text-muted:     #4b5574;
+  --text-inverse:   #060a14;
 
-  /* ── Accent — Spyke Yellow (≈5% usage) ── */
-  --accent-primary: #FACC15;
-  --accent-primary-light: #FDE047;
-  --accent-primary-dim: #CA8A04;
-  --accent-primary-bg: rgba(250, 204, 21, 0.10);
-  --accent-primary-border: rgba(250, 204, 21, 0.25);
+  /* ── Accent — Spike Orange ── */
+  --accent-primary:        #FF6B2C;
+  --accent-primary-light:  #FF8F5E;
+  --accent-primary-dim:    #CC5523;
+  --accent-primary-bg:     rgba(255, 107, 44, 0.10);
+  --accent-primary-border: rgba(255, 107, 44, 0.25);
+  --accent-primary-glow:   rgba(255, 107, 44, 0.15);
 
   /* ── Semantic Colors ── */
-  --accent-green: #22c55e;
-  --accent-green-light: #4ade80;
-  --accent-green-bg: rgba(34, 197, 94, 0.12);
-  --accent-green-border: rgba(34, 197, 94, 0.30);
+  --accent-green:        #10b981;
+  --accent-green-light:  #34d399;
+  --accent-green-bg:     rgba(16, 185, 129, 0.10);
+  --accent-green-border: rgba(16, 185, 129, 0.25);
 
-  --accent-red: #ef4444;
-  --accent-red-light: #f87171;
-  --accent-red-bg: rgba(239, 68, 68, 0.12);
-  --accent-red-border: rgba(239, 68, 68, 0.30);
+  --accent-red:          #ef4444;
+  --accent-red-light:    #f87171;
+  --accent-red-bg:       rgba(239, 68, 68, 0.10);
+  --accent-red-border:   rgba(239, 68, 68, 0.25);
 
-  --accent-blue: #3b82f6;
-  --accent-blue-light: #60a5fa;
-  --accent-blue-bg: rgba(59, 130, 246, 0.12);
-  --accent-blue-border: rgba(59, 130, 246, 0.30);
+  --accent-blue:         #3b82f6;
+  --accent-blue-light:   #60a5fa;
+  --accent-blue-bg:      rgba(59, 130, 246, 0.10);
+  --accent-blue-border:  rgba(59, 130, 246, 0.25);
 
-  --accent-purple: #a855f7;
+  --accent-purple:       #a855f7;
   --accent-purple-light: #c084fc;
-  --accent-purple-bg: rgba(168, 85, 247, 0.12);
-  --accent-purple-border: rgba(168, 85, 247, 0.30);
+  --accent-purple-bg:    rgba(168, 85, 247, 0.10);
+  --accent-purple-border:rgba(168, 85, 247, 0.25);
 
-  --accent-cyan: #06b6d4;
-  --accent-gold: #f59e0b;
+  --accent-cyan:         #06b6d4;
+  --accent-cyan-light:   #22d3ee;
+  --accent-cyan-bg:      rgba(6, 182, 212, 0.10);
+  --accent-cyan-border:  rgba(6, 182, 212, 0.25);
+
+  --accent-gold:         #f59e0b;
+  --accent-gold-light:   #fbbf24;
+  --accent-gold-bg:      rgba(245, 158, 11, 0.10);
+  --accent-gold-border:  rgba(245, 158, 11, 0.25);
 
   /* ── Teams ── */
-  --team-a: #3b82f6;
-  --team-a-light: #60a5fa;
-  --team-a-bg: rgba(59, 130, 246, 0.12);
-  --team-b: #ef4444;
-  --team-b-light: #f87171;
-  --team-b-bg: rgba(239, 68, 68, 0.12);
+  --team-a:      #3b82f6;
+  --team-a-light:#60a5fa;
+  --team-a-bg:   rgba(59, 130, 246, 0.12);
+  --team-b:      #ef4444;
+  --team-b-light:#f87171;
+  --team-b-bg:   rgba(239, 68, 68, 0.12);
 
   /* ── Layout ── */
-  --sidebar-width: 240px;
+  --sidebar-width:          240px;
   --sidebar-collapsed-width: 60px;
-  --topbar-height: 56px;
+  --topbar-height:           56px;
 
   /* ── Shared tokens ── */
-  --radius: 10px;
-  --radius-sm: 6px;
-  --radius-lg: 14px;
-  --radius-xl: 16px;
-  --shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
-  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.5);
-  --transition: 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  --transition-slow: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  --radius:    12px;
+  --radius-sm: 8px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 9999px;
+
+  --shadow:    0 4px 24px rgba(0, 0, 0, 0.50);
+  --shadow-sm: 0 2px 12px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.60);
+  --shadow-glow: 0 0 20px var(--accent-primary-glow);
+
+  --transition:      0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-spring: 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ── Typography ── */
+  --font-display: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+  --font-body:    'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono:    'JetBrains Mono', 'Fira Code', monospace;
 }
 
 /* ── Base ── */
 html {
   color-scheme: dark;
+  scroll-behavior: smooth;
 }
 
 body {
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   margin: 0;
@@ -99,8 +124,8 @@ body {
 /* ── Scrollbar ── */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.08); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.15); }
 
 /* ── Alpine.js cloak ── */
 [x-cloak] { display: none !important; }
@@ -115,4 +140,24 @@ body {
 :focus-visible {
   outline: 2px solid var(--accent-primary);
   outline-offset: 2px;
+}
+
+/* ── Base links ── */
+a {
+  color: var(--accent-primary-light);
+  text-decoration: none;
+  transition: color var(--transition);
+}
+a:hover {
+  color: var(--accent-primary);
+}
+.no-underline { text-decoration: none; }
+
+/* ── Headings ── */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  margin: 0;
 }

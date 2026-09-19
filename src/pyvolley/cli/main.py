@@ -78,6 +78,7 @@ from pyvolley.cli.commands.audit_cmd import audit_app
 from pyvolley.cli.commands.sync_cmd import sync_app, sync_geocode
 from pyvolley.cli.commands.import_cmd import (
     import_data,
+    init_clubs_cmd,
     _is_local_pdf_usable,
     _get_pdf_redownload_reason,
     _import_dry_run,
@@ -92,10 +93,12 @@ from pyvolley.cli.commands.pipeline_cmd import (
     status,
     cleanup,
     serve,
+    kill_serve,
     simulate,
 )
 from pyvolley.cli.commands.parse_cmd import parse
 from pyvolley.cli.plausibility_cli import apply_plausibility_core_to_match_db
+from pyvolley.pipeline.cli import pipeline_app
 
 # Enregistrement des sous-applications
 app.add_typer(list_app, name="list")
@@ -106,12 +109,16 @@ app.add_typer(dev_app, name="dev")
 app.add_typer(compute_app, name="compute")
 app.add_typer(audit_app, name="audit")
 app.add_typer(sync_app, name="sync")
+app.add_typer(pipeline_app, name="pipeline")
 
 # ── Commandes racines principales ──────────────────────────────────────────
 app.command("import")(import_data)
+app.command("init-clubs")(init_clubs_cmd)
 app.command("status")(status)
 app.command("parse")(parse)
 app.command("serve")(serve)
+app.command("kill-serve")(kill_serve)
+app.command("stop")(kill_serve)
 app.command("simulate")(simulate)
 app.command("cleanup")(cleanup)
 app.command("geocode")(sync_geocode)

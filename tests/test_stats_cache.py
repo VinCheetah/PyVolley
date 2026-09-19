@@ -219,3 +219,37 @@ class TestGetCachedOrCompute:
         result, from_cache = service2.get_cached_or_compute(filters)
         assert from_cache is False
         assert "top_matchs" in result
+
+    def test_is_cache_valid_and_compute_and_cache(self, session: Session):
+        _add_played_match(session, "CACHE-VALID-001")
+        session.commit()
+
+        service = StatsAmusantesService(session)
+        filters = StatsFilters()
+
+        assert service.is_cache_valid(filters) is False
+        service.compute_and_cache(filters)
+        assert service.is_cache_valid(filters) is True
+
+    def test_cache_repo_clear_alias(self, session: Session):
+        _add_played_match(session, "CLEAR-001")
+        session.commit()
+
+        service = StatsAmusantesService(session)
+        service.compute_and_cache(StatsFilters())
+
+        repo = StatsCacheRepository(session)
+        assert len(repo.list_all()) > 0
+        deleted = repo.clear()
+        assert deleted > 0
+        assert len(repo.list_all()) == 0
+
+    def test_stats_filters_saison_alias(self):
+        f1 = StatsFilters(saison=1)
+        assert f1.saison_id == 1
+
+        f2 = StatsFilters(saison="42")
+        assert f2.saison_id == 42
+
+        f3 = StatsFilters(saison="2024-2025")
+        assert f3.saison == "2024-2025"

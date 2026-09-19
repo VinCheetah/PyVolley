@@ -38,3 +38,52 @@ def test_reference_level_order_is_explicit_and_sorted():
     ranks = [item["rank"] for item in refs]
     assert ranks == sorted(ranks)
     assert len(ranks) == len(set(ranks))
+
+
+def test_accession_regionale_and_nationale_classification():
+    badge_ar = resolve_niveau_badge(
+        niveau=None,
+        competition_name="ACCESSION REGIONALE MASCULINE",
+    )
+    assert badge_ar == {"label": "Préreg", "css_class": "badge-teal"}
+
+    badge_an = resolve_niveau_badge(
+        niveau=None,
+        competition_name="ACCESSION A LA NATIONALE 3",
+    )
+    assert badge_an == {"label": "Prénat", "css_class": "badge-orange"}
+
+
+def test_4x4_is_not_classified_as_division_4():
+    badge_4x4 = resolve_niveau_badge(
+        niveau="DEPARTEMENTAL",
+        competition_name="CHAMPIONNAT SENIOR 4X4 DEPARTEMENTAL",
+    )
+    assert badge_4x4["label"] == "Dép"
+    assert badge_4x4["label"] != "D4"
+
+
+def test_youth_poule_code_is_not_classified_as_division():
+    badge_youth = resolve_niveau_badge(
+        niveau=None,
+        competition_name="3MG POULE TITRE",
+        categorie="M13",
+    )
+    # Ne doit pas être pris pour une D3
+    assert badge_youth["label"] != "D3"
+    assert badge_youth["label"] != "Jeunes D3"
+
+
+def test_n1_has_elite_rank():
+    badge_n1 = resolve_niveau_badge(
+        niveau=None,
+        competition_name="NATIONALE 1 MASCULINE",
+    )
+    badge_elite = resolve_niveau_badge(
+        niveau=None,
+        competition_name="ELITE MASCULINE",
+    )
+    assert badge_n1["label"] == "N1"
+    assert badge_elite["label"] == "Elite"
+    assert niveau_sort_rank(badge_n1["label"]) == niveau_sort_rank(badge_elite["label"]) == 15
+

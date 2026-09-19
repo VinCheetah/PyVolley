@@ -23,6 +23,9 @@ from .models import (
     RoleInference,
     JoueurMatchDetailedStats,
     JoueurStatsAggregated,
+    PositionRotationStats,
+    RotationStats,
+    ClutchStats,
 )
 
 __all__ = [
@@ -41,4 +44,7 @@ __all__ = [
     "RoleInference",
     "JoueurMatchDetailedStats",
     "JoueurStatsAggregated",
+    "PositionRotationStats",
+    "RotationStats",
+    "ClutchStats",
 ]

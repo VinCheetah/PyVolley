@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pyvolley.core.models import Categorie, Genre, Niveau
 from pyvolley.parsers.layout_config import ParserLayoutConfig
-from pyvolley.parsers.utils import detect_niveau, try_enum
+from pyvolley.parsers.utils import detect_niveau, try_enum, clean_team_name
 from pyvolley.parsers.extractors.fast.utils import (
     WordTuple,
     extract_text_in_region,
@@ -109,8 +109,13 @@ def extract_fast_header(
     raw_date = extract_text_in_region(sorted_words, y0_list, reg.get("header/date")) or ""
     div_cat_str = extract_text_in_region(sorted_words, y0_list, reg.get("header/division_categorie")) or ""
 
-    nom_gauche = extract_text_in_region(sorted_words, y0_list, reg.get("header/equipes/gauche")) or "Équipe Gauche"
-    nom_droite = extract_text_in_region(sorted_words, y0_list, reg.get("header/equipes/droite")) or "Équipe Droite"
+    nom_gauche = clean_team_name(extract_text_in_region(sorted_words, y0_list, reg.get("header/equipes/gauche")) or "")
+    nom_droite = clean_team_name(extract_text_in_region(sorted_words, y0_list, reg.get("header/equipes/droite")) or "")
+
+    if len(nom_gauche) < 2 or not re.search(r"[a-zA-Z0-9]", nom_gauche):
+        nom_gauche = "Équipe Gauche"
+    if len(nom_droite) < 2 or not re.search(r"[a-zA-Z0-9]", nom_droite):
+        nom_droite = "Équipe Droite"
 
     # Parsing date & heure
     parsed_date, parsed_time = parse_date_heure(raw_date)

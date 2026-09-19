@@ -18,7 +18,12 @@ from pyvolley.database.repositories import (
     MatchRepository,
 )
 from pyvolley.core.config import settings
-from pyvolley.scrapers.ffvb.utils import build_competition_calendar_url, build_classement_url
+from pyvolley.scrapers.ffvb.utils import (
+    build_competition_calendar_url,
+    build_classement_url,
+    build_home_url,
+)
+from pyvolley.scrapers.ffvb.export_scraper import build_export_url
 
 router = APIRouter()
 
@@ -65,12 +70,27 @@ def poule_detail(
                 saison,
                 poule.code,
             )
+            poule.url_export_csv = build_export_url(
+                settings.ffvb_base_url,
+                competition.entite.code,
+                saison,
+                poule=poule.code,
+            )
+            poule.url_entite_ffvb = build_home_url(
+                settings.ffvb_base_url,
+                competition.entite.code,
+                saison,
+            )
         else:
             poule.url_calendrier = None
             poule.url_classement = None
+            poule.url_export_csv = None
+            poule.url_entite_ffvb = None
     else:
         poule.url_calendrier = None
         poule.url_classement = None
+        poule.url_export_csv = None
+        poule.url_entite_ffvb = None
 
     # Detect youth competition
     from pyvolley.scrapers.ffvb.jeunes import is_youth_competition

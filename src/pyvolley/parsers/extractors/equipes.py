@@ -101,7 +101,11 @@ def extract_equipes(
             single = _TEAM_NAME_SINGLE_LETTER_PATTERN.match(val)
             if single:
                 val = val[single.end():]
-        eq[key] = clean_team_name(val)
+        cleaned = clean_team_name(val)
+        if len(cleaned) < 2 or not re.search(r"[a-zA-Z0-9]", cleaned):
+            eq[key] = None
+        else:
+            eq[key] = cleaned
 
     # Méthode 2 fallback : header line with organisateur + team names
     # Line 3 typically has "Organisateur TEAM_A TEAM_B"
@@ -125,9 +129,13 @@ def extract_equipes(
             left = ' '.join(w['text'] for w in team_words if w['x0'] < mid)
             right = ' '.join(w['text'] for w in team_words if w['x0'] >= mid)
             if left and not eq["equipe_a"]:
-                eq["equipe_a"] = clean_team_name(left.strip())
+                c_left = clean_team_name(left.strip())
+                if len(c_left) >= 2 and re.search(r"[a-zA-Z0-9]", c_left):
+                    eq["equipe_a"] = c_left
             if right and not eq["equipe_b"]:
-                eq["equipe_b"] = clean_team_name(right.strip())
+                c_right = clean_team_name(right.strip())
+                if len(c_right) >= 2 and re.search(r"[a-zA-Z0-9]", c_right):
+                    eq["equipe_b"] = c_right
 
     return eq
 

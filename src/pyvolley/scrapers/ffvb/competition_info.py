@@ -180,7 +180,8 @@ _NIVEAU_PATTERNS: list[tuple[re.Pattern, str]] = [
     # Pré-régionale (échelon départemental supérieur)
     (re.compile(r'\bPR[EÉ][\s-]*R[EÉ]GIONAL(?:E|AUX|ES?)?\b', re.IGNORECASE), Niveau.PRE_REGIONALE.value),
     (re.compile(r'\bPREREGIONAL\b', re.IGNORECASE), Niveau.PRE_REGIONALE.value),
-    (re.compile(r'\bACCESSION\b', re.IGNORECASE), Niveau.PRE_NATIONALE.value),
+    (re.compile(r'\bACCESSION\s+(?:A\s+LA\s+)?R[EÉ]GIONAL(?:E|AUX|ES?)?\b', re.IGNORECASE), Niveau.PRE_REGIONALE.value),
+    (re.compile(r'\bACCESSION\s+(?:A\s+LA\s+)?(?:NATIONAL(?:E|AUX|ES?)?(?:\s*3)?|N3)\b', re.IGNORECASE), Niveau.PRE_NATIONALE.value),
     # Nationale
     (re.compile(r'\bNATIONAL(?:E|AUX|ES?)?\s*\d?\b', re.IGNORECASE), Niveau.NATIONALE.value),
     (re.compile(r'\bCOUPE\s+DE\s+FRANCE\b', re.IGNORECASE), Niveau.NATIONALE.value),

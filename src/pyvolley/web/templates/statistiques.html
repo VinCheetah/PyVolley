@@ -188,51 +188,61 @@
                 <tr>
                     <td class="font-medium text-white">
                         <i data-lucide="swords" class="w-4 h-4 inline-block mr-2 text-zinc-400"></i>
-                        Matchs
+                        <a href="/matchs" class="hover:underline text-white">Matchs</a>
                     </td>
                     <td class="text-center font-bold font-mono text-white">{{ stats.matchs }}</td>
-                    <td class="text-right"><a href="/matchs" class="badge text-xs">Voir</a></td>
+                    <td class="text-right"><a href="/matchs" class="badge text-xs hover:opacity-80 transition">Explorer</a></td>
                 </tr>
                 <tr>
                     <td class="font-medium text-white">
-                        <i data-lucide="user" class="w-4 h-4 inline-block mr-2 text-zinc-400"></i>
-                        Joueurs
+                        <i data-lucide="users" class="w-4 h-4 inline-block mr-2 text-zinc-400"></i>
+                        <a href="/joueurs" class="hover:underline text-white">Joueurs</a>
                     </td>
                     <td class="text-center font-bold font-mono text-white">{{ stats.joueurs }}</td>
-                    <td class="text-right"><a href="/joueurs" class="badge text-xs">Voir</a></td>
+                    <td class="text-right"><a href="/joueurs" class="badge text-xs hover:opacity-80 transition">Explorer</a></td>
                 </tr>
                 <tr>
                     <td class="font-medium text-white">
                         <i data-lucide="shield" class="w-4 h-4 inline-block mr-2 text-zinc-400"></i>
-                        Équipes
+                        <a href="/equipes" class="hover:underline text-white">Équipes</a>
                     </td>
                     <td class="text-center font-bold font-mono text-white">{{ stats.equipes }}</td>
-                    <td class="text-right"><a href="/equipes" class="badge text-xs">Voir</a></td>
+                    <td class="text-right"><a href="/equipes" class="badge text-xs hover:opacity-80 transition">Explorer</a></td>
                 </tr>
                 <tr>
                     <td class="font-medium text-white">
                         <i data-lucide="building-2" class="w-4 h-4 inline-block mr-2 text-zinc-400"></i>
-                        Clubs
+                        <a href="/clubs" class="hover:underline text-white">Clubs</a>
                     </td>
                     <td class="text-center font-bold font-mono text-white">{{ stats.clubs }}</td>
-                    <td class="text-right"><a href="/clubs" class="badge text-xs">Voir</a></td>
-                </tr>
-                <tr>
-                    <td class="font-medium text-white">
-                        <i data-lucide="flag" class="w-4 h-4 inline-block mr-2 text-zinc-400"></i>
-                        Arbitres
-                    </td>
-                    <td class="text-center font-bold font-mono text-white">{{ stats.arbitres }}</td>
-                    <td class="text-right"><a href="/arbitres" class="badge text-xs">Voir</a></td>
+                    <td class="text-right"><a href="/clubs" class="badge text-xs hover:opacity-80 transition">Explorer</a></td>
                 </tr>
                 <tr>
                     <td class="font-medium text-white">
                         <i data-lucide="trophy" class="w-4 h-4 inline-block mr-2 text-zinc-400"></i>
-                        Compétitions
+                        <a href="/competitions" class="hover:underline text-white">Compétitions</a>
                     </td>
                     <td class="text-center font-bold font-mono text-white">{{ stats.competitions }}</td>
-                    <td class="text-right"><a href="/competitions" class="badge text-xs">Voir</a></td>
+                    <td class="text-right"><a href="/competitions" class="badge text-xs hover:opacity-80 transition">Explorer</a></td>
                 </tr>
+                <tr>
+                    <td class="font-medium text-white">
+                        <i data-lucide="flag" class="w-4 h-4 inline-block mr-2 text-zinc-400"></i>
+                        <a href="/arbitres" class="hover:underline text-white">Arbitres</a>
+                    </td>
+                    <td class="text-center font-bold font-mono text-white">{{ stats.arbitres }}</td>
+                    <td class="text-right"><a href="/arbitres" class="badge text-xs hover:opacity-80 transition">Explorer</a></td>
+                </tr>
+                {% if stats.entraineurs is defined %}
+                <tr>
+                    <td class="font-medium text-white">
+                        <i data-lucide="clipboard-list" class="w-4 h-4 inline-block mr-2 text-zinc-400"></i>
+                        <a href="/entraineurs" class="hover:underline text-white">Entraîneurs</a>
+                    </td>
+                    <td class="text-center font-bold font-mono text-white">{{ stats.entraineurs }}</td>
+                    <td class="text-right"><a href="/entraineurs" class="badge text-xs hover:opacity-80 transition">Explorer</a></td>
+                </tr>
+                {% endif %}
             </tbody>
         </table>
     </div>

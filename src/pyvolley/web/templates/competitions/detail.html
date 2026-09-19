@@ -125,6 +125,24 @@
         {% endif %}
     </div>
 
+    <!-- Provenance des données FFVB -->
+    <div class="px-3.5 py-2 rounded-lg bg-surface-card/60 border border-color-subtle flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-secondary">
+        <div class="flex items-center gap-2.5">
+            <i data-lucide="database" class="w-4 h-4 text-accent-cyan flex-shrink-0"></i>
+            <span>
+                <strong class="text-white">Source officielle FFVB :</strong> Calendriers, classements et scores issus de la plateforme fédérale FFVB (<code class="text-accent-cyan font-mono text-[11px]">vbspo</code>).
+            </span>
+        </div>
+        {% if competition.entite and competition.entite.code %}
+        {% set entite_home = ffvb_entite_home_url(competition.entite.code, competition.saison.code if competition.saison else None) %}
+        {% if entite_home %}
+        <a href="{{ entite_home }}" target="_blank" rel="noopener noreferrer" class="text-accent-cyan hover:underline flex items-center gap-1 flex-shrink-0">
+            Portail fédéral {{ competition.entite.nom|truncate_name(24) }} <i data-lucide="external-link" class="w-3 h-3"></i>
+        </a>
+        {% endif %}
+        {% endif %}
+    </div>
+
     <!-- ═══════════ Stats Grid ═══════════ -->
     <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3.5">
         <div class="stat-card">
@@ -163,7 +181,7 @@
             <div class="card p-3.5 bg-card-hover flex flex-col justify-between">
                 <div class="flex items-start justify-between gap-2 mb-2">
                     <div>
-                        <a href="{{ path_for_entity('poule', poule.id) }}" class="font-bold text-white text-sm hover:text-accent-primary transition">
+                        <a href="{{ path_for_entity('poule', poule) }}" class="font-bold text-white text-sm hover:text-accent-primary transition">
                             {{ poule.nom or poule.code }}
                         </a>
                         {% if poule.nom and poule.code != poule.nom %}
@@ -173,14 +191,26 @@
                     <span class="badge text-xs">{{ poule.matchs|length }} matchs</span>
                 </div>
                 <div class="flex items-center justify-between pt-2 border-t border-color-subtle text-xs">
-                    <a href="{{ path_for_entity('poule', poule.id) }}" class="text-accent-primary hover:underline flex items-center gap-1 font-medium">
+                    <a href="{{ path_for_entity('poule', poule) }}" class="text-accent-primary hover:underline flex items-center gap-1 font-medium">
                         Voir la poule <i data-lucide="arrow-right" class="w-3 h-3"></i>
                     </a>
-                    {% if poule.url_classement %}
-                    <a href="{{ poule.url_classement }}" target="_blank" rel="noopener noreferrer" class="text-muted hover:text-white" title="Classement officiel FFVB">
-                        <i data-lucide="external-link" class="w-3 h-3"></i>
-                    </a>
-                    {% endif %}
+                    <div class="flex items-center gap-2">
+                        {% if poule.url_calendrier %}
+                        <a href="{{ poule.url_calendrier }}" target="_blank" rel="noopener noreferrer" class="text-muted hover:text-accent-cyan" title="Calendrier officiel FFVB">
+                            <i data-lucide="calendar-days" class="w-3.5 h-3.5"></i>
+                        </a>
+                        {% endif %}
+                        {% if poule.url_classement %}
+                        <a href="{{ poule.url_classement }}" target="_blank" rel="noopener noreferrer" class="text-muted hover:text-accent-gold" title="Classement officiel FFVB">
+                            <i data-lucide="trophy" class="w-3.5 h-3.5"></i>
+                        </a>
+                        {% endif %}
+                        {% if poule.url_export_csv %}
+                        <a href="{{ poule.url_export_csv }}" target="_blank" rel="noopener noreferrer" class="text-muted hover:text-white" title="Export CSV officiel FFVB (source scraper)">
+                            <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5"></i>
+                        </a>
+                        {% endif %}
+                    </div>
                 </div>
             </div>
             {% endfor %}

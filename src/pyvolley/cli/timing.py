@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any, Generator, List, Optional
 
 from rich.console import Console
+from rich import box
 from rich.table import Table
 
 
@@ -361,7 +362,8 @@ class PipelineTimer:
         table_title = title or f"⏱️ Récapitulatif des performances : {self.label}"
         table = Table(
             title=f"[bold]{table_title}[/bold]",
-            header_style="bold blue",
+            header_style="bold cyan",
+            box=box.ROUNDED,
             border_style="dim",
             show_footer=True,
         )

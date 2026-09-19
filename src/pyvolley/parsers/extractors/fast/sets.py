@@ -212,14 +212,11 @@ def extract_fast_sets(
         h_fin = parse_time_token(fin_str)
 
         # Extraction des deux équipes du set
-        # Dans layout_config :
-        # set1 : equipe_a (gauche), equipe_b (droite)
-        # set2 : equipe_b (gauche), equipe_a (droite)
-        # set3 : equipe_a (gauche), equipe_b (droite)
-        # set4 : equipe_b (gauche), equipe_a (droite)
-        # set5 : equipe_b (gauche), equipe_a (droite)
-        key_a = "equipe_a" if gauche_est_equipe_a else "equipe_b"
-        key_b = "equipe_b" if gauche_est_equipe_a else "equipe_a"
+        # Dans layout_config, sets/set{s}/equipe_a et equipe_b sont déjà positionnés
+        # selon l'alternance des côtés de terrain pour correspondre toujours à l'équipe A
+        # et à l'équipe B du match sheet.
+        key_a = "equipe_a"
+        key_b = "equipe_b"
 
         data_a, a_has_x = _extract_team_set_data(
             sorted_words, y0_list, config, s_num=s_num, team_key=key_a, is_team_a=True

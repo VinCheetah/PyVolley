@@ -258,10 +258,16 @@
                             <td class="py-3.5 px-4 text-center font-mono text-white">{{ reg.nb_joueurs_actifs }}</td>
                             <td class="py-3.5 px-4 text-center font-mono text-muted">{{ reg.nb_matchs_joues }}</td>
                             <td class="py-3.5 px-4 text-right">
-                                <a href="/classements?entity_type=clubs&ligue={{ reg.code }}&saison_id={{ current_saison_id }}"
-                                   class="text-xs text-primary hover:underline" title="Classement des clubs de la région">
-                                    Classement Clubs →
-                                </a>
+                                <div class="flex items-center justify-end gap-2">
+                                    <a href="/carte?ligue={{ reg.code|urlencode }}"
+                                       class="text-xs text-muted hover:text-white transition flex items-center gap-1" title="Voir les clubs sur la carte">
+                                        <i data-lucide="map" class="w-3 h-3"></i> Carte
+                                    </a>
+                                    <a href="/classements?entity_type=clubs&ligue={{ reg.code }}&saison_id={{ current_saison_id }}"
+                                       class="text-xs text-primary hover:underline flex items-center gap-1" title="Classement des clubs de la région">
+                                        Classement →
+                                    </a>
+                                </div>
                             </td>
                         </tr>
                         {% endfor %}
@@ -296,9 +302,14 @@
 
                 <div class="mt-3 pt-2 border-t border-subtle flex justify-between items-center text-xs">
                     <span class="text-muted">{{ dep.nb_joueurs_actifs }} joueurs</span>
-                    <a href="/classements?entity_type=clubs&departement={{ dep.code }}&saison_id={{ current_saison_id }}" class="text-primary hover:underline">
-                        Clubs
-                    </a>
+                    <div class="flex items-center gap-2">
+                        <a href="/carte?departement={{ dep.code }}" class="text-muted hover:text-white transition" title="Carte du département {{ dep.code }}">
+                            <i data-lucide="map" class="w-3 h-3"></i>
+                        </a>
+                        <a href="/clubs?departement={{ dep.code }}" class="text-primary hover:underline" title="Annuaire des clubs du {{ dep.code }}">
+                            Clubs
+                        </a>
+                    </div>
                 </div>
             </div>
             {% endfor %}

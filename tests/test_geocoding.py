@@ -143,7 +143,7 @@ class TestGeocodingCascade:
     @patch("pyvolley.core.geocoding._call_ban_api")
     def test_fallback_without_postcode_on_mistyped_cp(self, mock_ban):
         """Simule un premier échec avec code postal erroné, puis succès sans code postal."""
-        def side_effect(query, postcode=None, city=None, result_type=None, timeout=6.0):
+        def side_effect(query, postcode=None, city=None, result_type=None, timeout=6.0, *args, **kwargs):
             if postcode == "63140":
                 return None
             if postcode is None and "chamalieres" in query.lower():
@@ -172,7 +172,7 @@ class TestGeocodingCascade:
     @patch("pyvolley.core.geocoding._call_ban_api")
     def test_fallback_with_nom_salle(self, mock_ban):
         """Si l'adresse seule ne donne rien, le nom de la salle permet de trouver."""
-        def side_effect(query, postcode=None, city=None, result_type=None, timeout=6.0):
+        def side_effect(query, postcode=None, city=None, result_type=None, timeout=6.0, *args, **kwargs):
             if "clemenceau" in query.lower():
                 return GeocodingResult(
                     latitude=45.4278,
@@ -349,5 +349,5 @@ class TestEntityGeocoding:
         res = geocode_club_entity(club, session=session, commit=True)
         assert res is not None
         assert club.latitude == 45.4397
-        mock_geo.assert_called_once_with(adresse=None, ville="SAINT-ETIENNE", nom="CLUB SANS SALLE")
+        mock_geo.assert_called_once_with(adresse=None, ville="SAINT-ETIENNE", nom="CLUB SANS SALLE", departement="42", ligue=None)
 

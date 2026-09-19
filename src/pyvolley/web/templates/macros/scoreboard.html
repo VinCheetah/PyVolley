@@ -30,6 +30,15 @@
                 <span style="color: var(--text-muted);">•</span>
                 <span class="font-mono font-semibold" style="color: var(--accent-primary);">J{{ match.journee }}</span>
             {% endif %}
+            {% if match.score_conflict %}
+                <span style="color: var(--text-muted);">•</span>
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold"
+                      style="background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3);"
+                      title="Divergence détectée entre le score officiel (scraper) et la feuille de match (PDF)">
+                    <i data-lucide="alert-triangle" class="w-3.5 h-3.5"></i>
+                    Divergence score
+                </span>
+            {% endif %}
         </div>
 
         <div class="flex items-center gap-4 text-xs" style="color: var(--text-muted);">
@@ -60,7 +69,7 @@
                     <i data-lucide="trophy" class="w-5 h-5" style="color: var(--accent-primary);"></i>
                     {% endif %}
                     {% if match.equipe_a %}
-                    <a href="/equipes/{{ match.equipe_a.id }}" class="hover:underline transition no-underline text-white">
+                    <a href="{{ path_for_entity('equipe', match.equipe_a) }}" class="hover:underline transition no-underline text-white">
                         {{ match.equipe_a.nom }}
                     </a>
                     {% else %}
@@ -90,7 +99,19 @@
             </div>
 
             <!-- Set by set chips -->
-            {% if match.sets %}
+            {% if match.sets_detail_export %}
+            <div class="flex flex-col items-center gap-1 mt-3">
+                <div class="flex flex-wrap items-center justify-center gap-1.5">
+                    {% for s in match.sets_detail_export %}
+                    <span class="px-2.5 py-0.5 rounded text-xs font-mono font-medium shadow-sm"
+                          style="background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-secondary);"
+                          title="Set {{ s.numero }} (Scraper)">
+                        <span class="{% if s.score_a is not none and s.score_b is not none and s.score_a > s.score_b %}font-bold text-white{% endif %}">{{ s.score_a if s.score_a is not none else '-' }}</span>-<span class="{% if s.score_a is not none and s.score_b is not none and s.score_b > s.score_a %}font-bold text-white{% endif %}">{{ s.score_b if s.score_b is not none else '-' }}</span>
+                    </span>
+                    {% endfor %}
+                </div>
+            </div>
+            {% elif match.sets %}
             <div class="flex flex-wrap items-center justify-center gap-1.5 mt-3">
                 {% for s in match.sets|sort(attribute='numero') %}
                 <span class="px-2.5 py-0.5 rounded text-xs font-mono font-medium shadow-sm"
@@ -112,7 +133,7 @@
             <div>
                 <h2 class="text-xl sm:text-2xl font-black tracking-tight text-white flex items-center gap-2">
                     {% if match.equipe_b %}
-                    <a href="/equipes/{{ match.equipe_b.id }}" class="hover:underline transition no-underline text-white">
+                    <a href="{{ path_for_entity('equipe', match.equipe_b) }}" class="hover:underline transition no-underline text-white">
                         {{ match.equipe_b.nom }}
                     </a>
                     {% else %}

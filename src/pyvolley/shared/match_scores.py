@@ -41,40 +41,31 @@ def resolve_match_score(
 ) -> MatchScoreResolution:
     """Résout les scores disponibles en choisissant une valeur effective.
 
-    Priorité d'affichage et de traitement : score PDF > score export > score historique.
-    Si les deux sources sont présentes et différentes, le score PDF reste la valeur
-    effective mais la chaîne d'affichage expose explicitement l'écart.
+    Priorité de traitement officiel et de compétition : score export (scraper) > score PDF > score historique.
+    En cas de divergence entre l'export scraper et le PDF parser :
+    - Le score export reste la valeur effective officielle.
+    - Le conflit est signalé (conflict = True).
+    - La chaîne d'affichage expose explicitement les deux valeurs.
     """
     export_norm = normalize_score_sets(score_export)
     pdf_norm = normalize_score_sets(score_pdf)
     legacy_norm = normalize_score_sets(legacy_score)
 
-    score_effective = pdf_norm or export_norm or legacy_norm
-    if pdf_norm and export_norm:
-        conflict = pdf_norm != export_norm
+    score_effective = export_norm or pdf_norm or legacy_norm
+    if export_norm and pdf_norm:
+        conflict = export_norm != pdf_norm
         if conflict:
-            score_display = f"PDF {pdf_norm} · export {export_norm}"
+            score_display = f"Scrape {export_norm} · PDF {pdf_norm}"
         else:
-            score_display = pdf_norm
+            score_display = export_norm
         return MatchScoreResolution(
             score_export=export_norm,
             score_pdf=pdf_norm,
             score_effective=score_effective,
             score_display=score_display,
-            primary_source="pdf",
-            secondary_source="export",
+            primary_source="export",
+            secondary_source="pdf",
             conflict=conflict,
-        )
-
-    if pdf_norm:
-        return MatchScoreResolution(
-            score_export=export_norm,
-            score_pdf=pdf_norm,
-            score_effective=score_effective,
-            score_display=pdf_norm,
-            primary_source="pdf",
-            secondary_source="export" if export_norm else None,
-            conflict=False,
         )
 
     if export_norm:
@@ -84,6 +75,17 @@ def resolve_match_score(
             score_effective=score_effective,
             score_display=export_norm,
             primary_source="export",
+            secondary_source=None,
+            conflict=False,
+        )
+
+    if pdf_norm:
+        return MatchScoreResolution(
+            score_export=export_norm,
+            score_pdf=pdf_norm,
+            score_effective=score_effective,
+            score_display=pdf_norm,
+            primary_source="pdf",
             secondary_source=None,
             conflict=False,
         )

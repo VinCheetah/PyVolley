@@ -26,7 +26,9 @@
             {% if match.poule %}
             <div class="flex justify-between items-center py-1" style="border-bottom: 1px solid var(--border-color-subtle);">
                 <dt style="color: var(--text-secondary);">Poule</dt>
-                <dd class="font-medium">{{ match.poule.nom or match.poule.code }}</dd>
+                <dd class="font-medium">
+                    <a href="{{ path_for_entity('poule', match.poule) }}" class="hover:text-white transition" style="color: var(--text-primary);">{{ match.poule.nom or match.poule.code }}</a>
+                </dd>
             </div>
             {% endif %}
             {% if match.journee %}
@@ -75,25 +77,42 @@
                 <dd class="text-right">
                     {% if match.score_conflict %}
                     <div class="flex flex-col items-end gap-1">
+                        <span class="badge badge-purple font-semibold" title="Score officiel retenu pour la compétition">Scrape {{ match.score_export or '—' }} (officiel)</span>
                         <span class="badge badge-green" title="Feuille de match parsée">PDF {{ match.score_pdf or '—' }}</span>
-                        <span class="badge badge-purple" title="Scraping global">Scrape {{ match.score_export or '—' }}</span>
                     </div>
+                    {% elif match.score_export %}
+                    <span class="badge badge-purple" title="Scraping global FFVB">Scrape {{ match.score_export }}</span>
                     {% elif match.score_pdf %}
                     <span class="badge badge-green" title="Feuille de match parsée">PDF {{ match.score_pdf }}</span>
-                    {% else %}
-                    <span class="badge badge-purple" title="Scraping global">Scrape {{ match.score_export }}</span>
                     {% endif %}
                 </dd>
             </div>
             {% endif %}
-            {% if match.competition and match.competition.entite and match.saison %}
-            <div class="flex justify-between items-center py-1" style="{% if match.source_url %}border-bottom: 1px solid var(--border-color-subtle);{% endif %}">
+            {% set fdme_url = ffvb_fdme_url(match) %}
+            {% if fdme_url %}
+            <div class="flex justify-between items-center py-1" style="border-bottom: 1px solid var(--border-color-subtle);">
                 <dt style="color: var(--text-secondary);">Feuille de match</dt>
                 <dd>
-                    <a href="https://www.ffvbbeach.org/ffvbapp/resu/ffvolley_fdme.php?saison={{ match.saison.code|replace('-', '/') }}&codent={{ match.competition.entite.code }}&codmatch={{ match.code_match }}"
+                    <a href="{{ fdme_url }}"
                        target="_blank" rel="noopener noreferrer"
-                       class="badge badge-green hover:opacity-80 transition">
-                        <i data-lucide="file-text" class="w-3 h-3 mr-1"></i> Voir sur FFVB
+                       class="badge badge-green hover:opacity-80 transition"
+                       title="Feuille de match électronique officielle (FDME PDF) analysée par le scraper PyVolley">
+                        <i data-lucide="file-text" class="w-3 h-3 mr-1"></i> FDME officielle (PDF)
+                        <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
+                    </a>
+                </dd>
+            </div>
+            {% endif %}
+            {% set poule_cal_url = ffvb_poule_calendrier_url(match) %}
+            {% if poule_cal_url %}
+            <div class="flex justify-between items-center py-1" style="{% if match.source_url or match.source_pdf %}border-bottom: 1px solid var(--border-color-subtle);{% endif %}">
+                <dt style="color: var(--text-secondary);">Calendrier poule FFVB</dt>
+                <dd>
+                    <a href="{{ poule_cal_url }}"
+                       target="_blank" rel="noopener noreferrer"
+                       class="badge badge-blue hover:opacity-80 transition"
+                       title="Calendrier complet et résultats officiels de la poule sur le site fédéral">
+                        <i data-lucide="calendar" class="w-3 h-3 mr-1"></i> Calendrier FFVB
                         <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
                     </a>
                 </dd>
@@ -115,7 +134,7 @@
             <div class="flex justify-between items-center py-1">
                 <dt style="color: var(--text-secondary);">Source</dt>
                 <dd class="font-mono text-xs" style="color: var(--text-muted);">
-                    <i data-lucide="file-text" class="w-3 h-3 inline mr-1"></i>PDF importé
+                    <i data-lucide="file-check" class="w-3 h-3 inline mr-1"></i>FDME importée et validée
                 </dd>
             </div>
             {% endif %}

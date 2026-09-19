@@ -170,6 +170,41 @@ def _ensure_performance_indexes(engine) -> None:
         logger.warning("Could not verify performance indexes: %s", e)
 
 
+def _ensure_table_columns(engine) -> None:
+    """Vérifie que les tables et colonnes définies dans les modèles existent dans la base de données (sécurité SQLite)."""
+    if not str(engine.url).startswith("sqlite"):
+        return
+    try:
+        from pyvolley.database.models import Base
+        Base.metadata.create_all(bind=engine)
+        with engine.begin() as conn:
+            inspector = sa_inspect(conn)
+            existing_tables = set(inspector.get_table_names())
+            for table_name, table in Base.metadata.tables.items():
+                if table_name not in existing_tables:
+                    continue
+                existing_cols = {c["name"] for c in inspector.get_columns(table_name)}
+                for col in table.columns:
+                    if col.name not in existing_cols:
+                        col_type = col.type.compile(engine.dialect)
+                        default_clause = ""
+                        if col.default is not None and col.default.is_scalar:
+                            default_clause = f" DEFAULT {col.default.arg}"
+                        elif not col.nullable:
+                            t_str = str(col_type).upper()
+                            if "INT" in t_str:
+                                default_clause = " DEFAULT 0"
+                            elif "FLOAT" in t_str or "NUMERIC" in t_str:
+                                default_clause = " DEFAULT 0.0"
+                            elif "BOOL" in t_str:
+                                default_clause = " DEFAULT 0"
+                        sql = f"ALTER TABLE {table_name} ADD COLUMN {col.name} {col_type}{default_clause}"
+                        conn.execute(text(sql))
+                        logger.info("Added missing column %s.%s (%s)", table_name, col.name, col_type)
+    except Exception as e:
+        logger.warning("Could not verify/add table columns: %s", e)
+
+
 def init_db() -> None:
     """
     Initialise la base de données en créant toutes les tables.
@@ -206,6 +241,7 @@ def init_db() -> None:
         except Exception as e:
             logger.warning("Could not apply pending migrations: %s", e)
         _ensure_performance_indexes(engine)
+        _ensure_table_columns(engine)
         return
 
     if not table_names:
@@ -215,6 +251,7 @@ def init_db() -> None:
             upgrade("head")
             logger.info("Database initialized from Alembic migrations")
             _ensure_performance_indexes(engine)
+            _ensure_table_columns(engine)
             return
         except Exception as e:
             logger.warning("Migration-based initialization failed, fallback create_all: %s", e)
@@ -233,6 +270,7 @@ def init_db() -> None:
         logger.warning("Could not stamp Alembic revision after init_db: %s", e)
 
     _ensure_performance_indexes(engine)
+    _ensure_table_columns(engine)
 
 
 def drop_db() -> None:

@@ -96,6 +96,17 @@ def test_web_joueur_detail_page_renders_successfully():
     assert response.status_code == 200
     assert "GARDIES" in response.text
     assert "Paul" in response.text
+    assert "Points joués" in response.text
+    assert "Points gagnés" in response.text
+
+    # Test accès par numéro de licence FFVB (URL canonique)
+    response_licence = client.get(f"/joueurs/{joueur.licence}")
+    assert response_licence.status_code == 200
+    assert "GARDIES" in response_licence.text
+    assert "Paul" in response_licence.text
+    assert "Points joués" in response_licence.text
+    assert "Points gagnés" in response_licence.text
+    assert "Aucune statistique détaillée disponible pour les matchs filtrés." not in response_licence.text
 
     # Test full-page list load
     list_res = client.get("/joueurs")

@@ -31,7 +31,7 @@
                 ) %}
                 <div class="flex flex-wrap gap-2 mt-2">
                     {% if equipe.club %}
-                    <a href="{{ path_for_entity('club', equipe.club.id if equipe.club else None) }}" class="badge badge-blue">
+                    <a href="{{ path_for_entity('club', equipe.club) }}" class="badge badge-blue">
                         <i data-lucide="building-2" class="w-3 h-3 mr-1"></i>
                         {{ equipe.club.nom|truncate_name(30) }}
                     </a>
@@ -69,11 +69,35 @@
                         {{ equipe.competition.nom|truncate_name(35) }}
                     </a>
                     {% endif %}
+                    {% if primary_poule %}
+                    <a href="{{ path_for_entity('poule', primary_poule) }}" class="badge badge-purple hover:opacity-80 transition" title="Poule {{ primary_poule.nom }}">
+                        <i data-lucide="grid" class="w-3 h-3 mr-1"></i>
+                        Poule {{ primary_poule.nom }}
+                    </a>
+                    {% set f_class_url = ffvb_poule_classement_url(primary_poule) %}
+                    {% if f_class_url %}
+                    <a href="{{ f_class_url }}" target="_blank" rel="noopener noreferrer"
+                       class="badge badge-green hover:opacity-80 transition" title="Classement officiel de la poule sur le site de la FFVB">
+                        <i data-lucide="list-ordered" class="w-3 h-3 mr-1"></i>
+                        Classement FFVB
+                        <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
+                    </a>
+                    {% endif %}
+                    {% set f_cal_url = ffvb_poule_calendrier_url(primary_poule) %}
+                    {% if f_cal_url %}
+                    <a href="{{ f_cal_url }}" target="_blank" rel="noopener noreferrer"
+                       class="badge badge-blue hover:opacity-80 transition" title="Calendrier officiel de la poule sur le site de la FFVB">
+                        <i data-lucide="calendar" class="w-3 h-3 mr-1"></i>
+                        Calendrier FFVB
+                        <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
+                    </a>
+                    {% endif %}
+                    {% endif %}
                     {% if url_ffvb %}
                     <a href="{{ url_ffvb }}" target="_blank" rel="noopener noreferrer"
-                       class="badge badge-blue hover:opacity-80 transition" title="Voir sur le site de la FFVB">
-                        <i data-lucide="globe" class="w-3 h-3 mr-1"></i>
-                        FFVB
+                       class="badge badge-blue hover:opacity-80 transition" title="Planning officiel du club sur le site de la FFVB">
+                        <i data-lucide="calendar-days" class="w-3 h-3 mr-1"></i>
+                        Planning FFVB
                         <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
                     </a>
                     {% endif %}
@@ -208,7 +232,7 @@
                                 {% endif %}
                             </td>
                             <td>
-                                <a href="{{ path_for_entity('joueur', j.id) }}" class="font-medium hover:text-white transition"
+                                <a href="{{ path_for_entity('joueur', j) }}" class="font-medium hover:text-white transition"
                                    style="color: var(--text-primary);">
                                     {{ j.nom }} <span style="color: var(--text-secondary);">{{ j.prenom }}</span>
                                 </a>
@@ -262,7 +286,7 @@
                                 {% endif %}
                             </td>
                             <td class="text-right">
-                                <a href="{{ path_for_entity('joueur', j.id) }}" class="badge badge-blue text-xs">Voir</a>
+                                <a href="{{ path_for_entity('joueur', j) }}" class="badge badge-blue text-xs hover:opacity-80 transition">Profil</a>
                             </td>
                         </tr>
                         {% endfor %}
@@ -312,13 +336,21 @@
                 {% set sb = m.sets_equipe_b or 0 %}
                 {% set has_sets = m.sets_equipe_a is not none and m.sets_equipe_b is not none %}
                 {% set won = has_sets and ((is_team_a and sa > sb) or (not is_team_a and sb > sa)) %}
-                <tr>
                     <td class="text-sm" style="color: var(--text-muted);">
-                        {{ m.date_match|format_date }}
+                        <div>{{ m.date_match|format_date }}</div>
+                        {% if m.poule %}
+                        <a href="{{ path_for_entity('poule', m.poule) }}" class="text-xs text-muted hover:text-white transition flex items-center gap-1 mt-0.5" title="Poule {{ m.poule.nom }}">
+                            <i data-lucide="grid" class="w-3 h-3 text-primary"></i>
+                            <span class="truncate max-w-[140px]">{{ m.poule.nom }}</span>
+                            {% if m.journee %}<span class="font-mono font-bold text-slate-300">J{{ m.journee }}</span>{% endif %}
+                        </a>
+                        {% elif m.journee %}
+                        <span class="text-xs text-muted font-mono">J{{ m.journee }}</span>
+                        {% endif %}
                     </td>
                     <td>
                         {% if opponent %}
-                        <a href="{{ path_for_entity('equipe', opponent.id) }}" class="font-medium hover:text-white transition"
+                        <a href="{{ path_for_entity('equipe', opponent) }}" class="font-medium hover:text-white transition"
                            style="color: var(--text-secondary);">
                             {% if is_team_a %}
                             <span class="text-xs" style="color: var(--text-muted);">vs</span>
@@ -331,6 +363,7 @@
                     </td>
                     <td class="text-center">
                         {% if has_sets %}
+                            <a href="{{ path_for_entity('match', m) }}" class="no-underline hover:opacity-80">
                             {% if is_team_a %}
                             <span class="set-score {% if sa > sb %}won-a{% else %}won-b{% endif %}">
                                 {{ m.sets_equipe_a }}-{{ m.sets_equipe_b }}
@@ -340,6 +373,7 @@
                                 {{ m.sets_equipe_b }}-{{ m.sets_equipe_a }}
                             </span>
                             {% endif %}
+                            </a>
                         {% else %}
                             <span class="text-xs" style="color: var(--text-muted);">—</span>
                         {% endif %}
@@ -359,11 +393,12 @@
                     </td>
                     <td class="text-right">
                         <div class="flex items-center justify-end gap-1">
-                            <a href="{{ path_for_entity('match', m.id) }}" class="badge badge-blue text-xs">Voir</a>
-                            {% if m.competition and m.competition.entite and m.saison %}
-                            <a href="https://www.ffvbbeach.org/ffvbapp/resu/ffvolley_fdme.php?saison={{ m.saison.code|replace('-', '/') }}&codent={{ m.competition.entite.code }}&codmatch={{ m.code_match }}"
+                            <a href="{{ path_for_entity('match', m) }}" class="badge badge-blue text-xs hover:opacity-80 transition">Feuille</a>
+                            {% set fdme_url = ffvb_fdme_url(m) %}
+                            {% if fdme_url %}
+                            <a href="{{ fdme_url }}"
                                target="_blank" rel="noopener noreferrer"
-                               class="badge badge-green text-xs hover:opacity-80 transition" title="Feuille de match FFVB">
+                               class="badge badge-green text-xs hover:opacity-80 transition" title="Feuille de match officielle FFVB (FDME PDF)">
                                 <i data-lucide="file-text" class="w-3 h-3"></i>
                             </a>
                             {% endif %}

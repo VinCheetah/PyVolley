@@ -318,12 +318,13 @@
                             <thead>
                                 <tr>
                                     <th>Joueur</th>
-                                    <th class="text-center">Pts joués</th>
+                                    <th class="text-center">Pts</th>
                                     <th class="text-center">Eff.</th>
-                                    <th class="text-center">Pts side-out</th>
+                                    <th class="text-center">+/-</th>
+                                    <th class="text-center">Side-out</th>
                                     <th class="text-center">Break %</th>
-                                    <th class="text-center">Serv.</th>
-                                    <th class="text-center">Série</th>
+                                    <th class="text-center">Serv. (Max)</th>
+                                    <th class="text-center">Temps</th>
                                     <th class="text-right">Détail</th>
                                 </tr>
                             </thead>
@@ -331,15 +332,16 @@
                                 <template x-for="player in playersBySide(side)" :key="player.joueur_id">
                                     <tr>
                                         <td class="font-medium whitespace-nowrap">
-                                            <span x-text="`${player.prenom ? player.prenom[0] + '. ' : ''}${player.nom}`"></span>
+                                            <span x-text="`${player.prenom ? player.prenom[0] + '. ' : ''}${player.nom || 'Joueur'}`"></span>
                                             <span class="font-mono" style="color: var(--text-muted);" x-text="`#${player.numero || '?'}`"></span>
                                         </td>
                                         <td class="text-center" x-text="player.points_joues"></td>
                                         <td class="text-center" style="color: var(--accent-green);" x-text="`${player.efficacite_pct}%`"></td>
+                                        <td class="text-center font-bold font-mono" :class="player.plus_minus > 0 ? 'text-emerald-400' : (player.plus_minus < 0 ? 'text-rose-400' : 'text-zinc-400')" x-text="player.plus_minus > 0 ? `+${player.plus_minus}` : player.plus_minus"></td>
                                         <td class="text-center" style="color: var(--accent-blue);" x-text="player.points_gagnes_sideout"></td>
                                         <td class="text-center" style="color: var(--accent-purple);" x-text="`${player.break_point_ratio_pct}%`"></td>
-                                        <td class="text-center" x-text="player.services"></td>
-                                        <td class="text-center" style="color: var(--accent-gold);" x-text="player.max_serie"></td>
+                                        <td class="text-center font-mono" x-text="`${player.services} (${player.max_serie})`"></td>
+                                        <td class="text-center text-xs" x-text="player.temps_jeu ? `${Math.round(player.temps_jeu)}m` : '—'"></td>
                                         <td class="text-right">
                                             <button class="btn-secondary text-xs py-1 px-2.5 hover:border-yellow-500 hover:text-yellow-400 inline-flex items-center gap-1" @click="selectPlayer(player.joueur_id)">
                                                 <i data-lucide="scan" class="w-3 h-3"></i> Analyser
@@ -348,7 +350,7 @@
                                     </tr>
                                 </template>
                                 <tr x-show="playersBySide(side).length === 0">
-                                    <td colspan="8" class="text-center py-6" style="color: var(--text-muted);">Aucune statistique joueur disponible pour cette équipe.</td>
+                                    <td colspan="9" class="text-center py-6" style="color: var(--text-muted);">Aucune statistique joueur disponible pour cette équipe.</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -364,19 +366,32 @@
                         <div class="flex items-center justify-between flex-wrap gap-3 mb-3">
                             <h4 class="text-sm font-semibold uppercase tracking-wider text-white flex items-center gap-2">
                                 <span class="w-2.5 h-2.5 rounded-full" style="background: var(--accent-primary);"></span>
-                                <span x-text="selectedPlayer().prenom"></span> <span x-text="selectedPlayer().nom"></span>
+                                <span x-text="selectedPlayer().prenom || ''"></span> <span x-text="selectedPlayer().nom || 'Joueur'"></span>
                                 <span class="font-mono" style="color: var(--text-muted);" x-text="`#${selectedPlayer().numero || '?'}`"></span>
+                                <template x-if="selectedPlayer().nb_entrees_sorties > 0">
+                                    <span class="badge badge-cyan text-xs" x-text="`${selectedPlayer().nb_entrees_sorties} In-Out`"></span>
+                                </template>
+                                <template x-if="selectedPlayer().nb_sorties_entrees > 0">
+                                    <span class="badge badge-gold text-xs" x-text="`${selectedPlayer().nb_sorties_entrees} Out-In`"></span>
+                                </template>
                             </h4>
                             <button class="pagination-btn text-xs py-1 px-3" @click="clearPlayer()">Fermer</button>
                         </div>
-                        <div class="grid grid-cols-2 md:grid-cols-7 gap-3 text-center">
+                        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 text-center">
                             <div class="card p-3"><div class="text-xs" style="color: var(--text-muted);">Pts joués</div><div class="text-lg font-black" style="color: var(--accent-primary);" x-text="selectedPlayer().points_joues"></div></div>
                             <div class="card p-3"><div class="text-xs" style="color: var(--text-muted);">Efficacité</div><div class="text-lg font-black" style="color: var(--accent-green);" x-text="`${selectedPlayer().efficacite_pct}%`"></div></div>
+                            <div class="card p-3">
+                                <div class="text-xs" style="color: var(--text-muted);">Diff (+/-)</div>
+                                <div class="text-lg font-black" :class="selectedPlayer().plus_minus > 0 ? 'text-emerald-400' : (selectedPlayer().plus_minus < 0 ? 'text-rose-400' : 'text-zinc-400')" x-text="selectedPlayer().plus_minus > 0 ? `+${selectedPlayer().plus_minus}` : selectedPlayer().plus_minus"></div>
+                            </div>
+                            <div class="card p-3">
+                                <div class="text-xs" style="color: var(--text-muted);">On/Off Diff</div>
+                                <div class="text-lg font-black text-amber-300" x-text="selectedPlayer().differentiel_points_gagnes !== null && selectedPlayer().differentiel_points_gagnes !== undefined ? (selectedPlayer().differentiel_points_gagnes > 0 ? `+${(selectedPlayer().differentiel_points_gagnes * 100).toFixed(1)}%` : `${(selectedPlayer().differentiel_points_gagnes * 100).toFixed(1)}%`) : '—'"></div>
+                            </div>
                             <div class="card p-3"><div class="text-xs" style="color: var(--text-muted);">Pts side-out</div><div class="text-lg font-black" style="color: var(--accent-blue);" x-text="selectedPlayer().points_gagnes_sideout"></div></div>
                             <div class="card p-3"><div class="text-xs" style="color: var(--text-muted);">Break ratio</div><div class="text-lg font-black" style="color: var(--accent-purple);" x-text="`${selectedPlayer().break_point_ratio_pct}%`"></div></div>
-                            <div class="card p-3"><div class="text-xs" style="color: var(--text-muted);">Services</div><div class="text-lg font-black" x-text="selectedPlayer().services"></div></div>
-                            <div class="card p-3"><div class="text-xs" style="color: var(--text-muted);">Max série</div><div class="text-lg font-black" style="color: var(--accent-gold);" x-text="selectedPlayer().max_serie"></div></div>
-                            <div class="card p-3"><div class="text-xs" style="color: var(--text-muted);">Temps estimé</div><div class="text-lg font-black" x-text="`${selectedPlayer().temps_jeu} min`"></div></div>
+                            <div class="card p-3"><div class="text-xs" style="color: var(--text-muted);">Services (Max)</div><div class="text-lg font-black font-mono" x-text="`${selectedPlayer().services} (${selectedPlayer().max_serie})`"></div></div>
+                            <div class="card p-3"><div class="text-xs" style="color: var(--text-muted);">Temps estimé</div><div class="text-lg font-black" x-text="`${Math.round(selectedPlayer().temps_jeu)} min`"></div></div>
                         </div>
                     </div>
 

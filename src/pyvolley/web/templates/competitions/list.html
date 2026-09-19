@@ -252,7 +252,7 @@
                     <!-- Grille des cartes du niveau -->
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                         {% for c in lvl.competitions %}
-                        <a href="{{ path_for_entity('competition', c.id) }}" class="comp-card-v2">
+                        <a href="{{ path_for_entity('competition', c) }}" class="comp-card-v2">
                             <div>
                                 <!-- Top Bar : Code & Niveau Badge -->
                                 <div class="flex items-center justify-between gap-2 mb-2.5">
@@ -369,7 +369,7 @@
                             {{ c.code_competition or "—" }}
                         </td>
                         <td class="font-medium text-white">
-                            <a href="{{ path_for_entity('competition', c.id) }}" class="hover:underline">
+                            <a href="{{ path_for_entity('competition', c) }}" class="hover:underline">
                                 {{ c.nom }}
                             </a>
                         </td>
@@ -393,8 +393,8 @@
                             {{ c.matchs_count }}
                         </td>
                         <td class="text-right">
-                            <a href="{{ path_for_entity('competition', c.id) }}" class="badge badge-purple text-xs hover:opacity-80 transition">
-                                Voir
+                            <a href="{{ path_for_entity('competition', c) }}" class="badge badge-purple text-xs hover:opacity-80 transition">
+                                Détails
                             </a>
                         </td>
                     </tr>

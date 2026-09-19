@@ -103,7 +103,7 @@ class TestParseCompetitionNameNiveau:
         ("COUPE DE FRANCE M13 FEMININ POULE A", "NATIONALE"),
         ("PRENATIONAL MASCULINS POULE A", "PRE_NATIONALE"),
         ("CHAMPIONNAT PRE-NATIONAL SENIOR FEMININ : POULE A", "PRE_NATIONALE"),
-        ("ACCESSION REGIONALE SENIOR FEM POULE A", "PRE_NATIONALE"),
+        ("ACCESSION REGIONALE SENIOR FEM POULE A", "PRE_REGIONALE"),
         ("PRÉ-RÉGIONAL ACCESSION FEMININ POULE B", "PRE_REGIONALE"),
         ("MARMARA SPIKELIGUE", "PRO"),
         ("LIGUE B MASCULINE", "PRO"),
@@ -299,7 +299,7 @@ class TestParseCompetitionNameFullResult:
         )
         assert meta.genre == "FEMININ"
         assert meta.categorie_age == "SENIOR"
-        assert meta.niveau == "PRE_NATIONALE"
+        assert meta.niveau == "PRE_REGIONALE"
 
     def test_coupe_de_france_m13(self):
         meta = parse_competition_name(

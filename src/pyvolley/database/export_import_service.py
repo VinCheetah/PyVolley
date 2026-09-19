@@ -19,11 +19,13 @@ import re
 from datetime import datetime
 from typing import Optional
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
 from pyvolley.scrapers.ffvb.export_scraper import ExportMatchInfo, ArbitreInfo
 from pyvolley.scrapers.ffvb.adressier_scraper import AdressierClubInfo, SalleInfo
+from pyvolley.shared.categorisation import normalize_genre, normalize_categorie
 from pyvolley.shared.match_status import (
     compute_match_played,
     normalize_score_sets,
@@ -39,7 +41,7 @@ from pyvolley.database.models import (
 )
 
 from pyvolley.shared.niveau import classify_level
-from pyvolley.core.geo_data import department_from_club_code
+from pyvolley.core.geo_data import DEPT_TO_LIGUE, department_from_club_code
 from pyvolley.core.geocoding import (
     geocode_address,
     geocode_addresses_batch,
@@ -260,7 +262,7 @@ class ExportImportService:
 
         if saison and saison.id:
             for comp in self.session.scalars(select(CompetitionDB).where(CompetitionDB.saison_id == saison.id)).all():
-                key = (comp.nom, comp.saison_id, comp.genre, comp.categorie)
+                key = (comp.nom, comp.saison_id, comp.genre, comp.categorie, comp.entite_id)
                 self._competition_cache[key] = comp
 
             for p in self.session.scalars(
@@ -271,8 +273,8 @@ class ExportImportService:
             for eq in self.session.scalars(select(EquipeDB).where(EquipeDB.saison_id == saison.id)).all():
                 self._equipe_cache[(eq.nom, eq.saison_id, eq.competition_id)] = eq
 
-        # Pré-charger les matchs existants pour éviter N+1 requêtes SELECT
-        existing_matches_map: dict[str, MatchDB] = {}
+        # Pré-charger les matchs existants par clé composite (code_match, competition_id)
+        existing_matches_map: dict[tuple[str, int], MatchDB] = {}
         all_codes = [m.code_match for m in matches if m.code_match]
         if all_codes and saison and saison.id:
             for i in range(0, len(all_codes), 900):
@@ -283,7 +285,8 @@ class ExportImportService:
                         MatchDB.code_match.in_(chunk),
                     )
                 ).all():
-                    existing_matches_map[m_db.code_match] = m_db
+                    if m_db.competition_id:
+                        existing_matches_map[(m_db.code_match, m_db.competition_id)] = m_db
 
         batch_size = 200
         with self.session.no_autoflush:
@@ -291,7 +294,7 @@ class ExportImportService:
                 try:
                     result = self._import_single_match(
                         match_info, saison, entite,
-                        existing_match=existing_matches_map.get(match_info.code_match),
+                        existing_matches_map=existing_matches_map,
                     )
                     stats[result] += 1
                     if idx % batch_size == 0:
@@ -301,7 +304,13 @@ class ExportImportService:
                         "Erreur import match %s: %s",
                         match_info.code_match, e,
                     )
+                    try:
+                        self.session.rollback()
+                    except Exception:
+                        pass
                     self.clear_caches()
+                    saison = self._get_or_create_saison(saison_db_code)
+                    entite = self._get_or_create_entite(entite_code, nom=entite_nom)
                     stats["errors"] += 1
 
         self.session.flush()
@@ -368,26 +377,45 @@ class ExportImportService:
         saison: SaisonDB,
         entite: EntiteFFVBDB,
         existing_match: Optional[MatchDB] = None,
+        existing_matches_map: Optional[dict[tuple[str, int], MatchDB]] = None,
     ) -> str:
         """Importe un seul match. Retourne le type de résultat."""
 
-        # Vérifier si le match existe déjà
+        # 1. Résoudre d'abord la compétition pour avoir la clé composite d'unicité
+        competition = self._get_or_create_competition(
+            match_info, saison, entite
+        )
+
+        # 2. Vérifier si le match existe déjà dans cette compétition
         existing = existing_match
-        if existing is None:
+        if existing is None and existing_matches_map is not None and competition and competition.id:
+            existing = existing_matches_map.get((match_info.code_match, competition.id))
+
+        if existing is None and competition and competition.id:
             existing = self.session.execute(
                 select(MatchDB).where(
                     MatchDB.code_match == match_info.code_match,
                     MatchDB.saison_id == saison.id,
+                    MatchDB.competition_id == competition.id,
                 )
             ).scalar_one_or_none()
 
         if existing:
+            # Garde-fou de cohérence sportive : refuser l'écrasement si les clubs sont différents
+            if (
+                existing.club_a_code_ffvb
+                and match_info.club_a_code_ffvb
+                and existing.club_a_code_ffvb != match_info.club_a_code_ffvb
+            ):
+                logger.warning(
+                    "Collision détectée sur le match %s (competition %s) : clubs différents (%s vs %s). Écrasement refusé.",
+                    match_info.code_match,
+                    competition.nom if competition else None,
+                    existing.club_a_code_ffvb,
+                    match_info.club_a_code_ffvb,
+                )
+                return "duplicates"
             return self._update_match_if_needed(existing, match_info)
-
-        # Créer le match
-        competition = self._get_or_create_competition(
-            match_info, saison, entite
-        )
 
         # Utiliser le code de base pour les poules avec phase aller/retour.
         # Par exemple, "PMAA" (aller) et "PMAR" (retour) doivent partager
@@ -451,6 +479,11 @@ class ExportImportService:
         if not cat_val and not classification.is_youth:
             cat_val = "SENIOR"
 
+        sets_detail_export = [
+            {"numero": idx, "score_a": sa, "score_b": sb}
+            for idx, (sa, sb) in enumerate(match_info.sets, start=1)
+        ] if match_info.sets else None
+
         match_db = MatchDB(
             code_match=match_info.code_match,
             date_match=match_info.date_match,
@@ -468,6 +501,7 @@ class ExportImportService:
             score_sets=score_resolution.score_effective,
             score_export=score_resolution.score_export,
             score_pdf=score_resolution.score_pdf,
+            sets_detail_export=sets_detail_export,
             sets_equipe_a=match_info.sets_equipe_a,
             sets_equipe_b=match_info.sets_equipe_b,
             match_joue=computed_played,
@@ -486,6 +520,8 @@ class ExportImportService:
         )
 
         self.session.add(match_db)
+        if existing_matches_map is not None and competition and competition.id:
+            existing_matches_map[(match_db.code_match, competition.id)] = match_db
 
         # Scores détaillés de sets depuis l'export CSV (phase scraping)
         if match_info.sets and has_details:
@@ -527,9 +563,17 @@ class ExportImportService:
             trust_declared=True,
         )
 
-        # Si l'URL source change, reprogrammer un passage download+parse propre.
+        # Si l'URL source change significativement, reprogrammer un passage download+parse propre.
         new_source_url = (match_info.feuille_match_url or "").strip() or None
-        if new_source_url and existing.source_url != new_source_url:
+        url_changed = False
+        if new_source_url and existing.source_url:
+            norm_existing = existing.source_url.rstrip("/").replace("http://", "https://")
+            norm_new = new_source_url.rstrip("/").replace("http://", "https://")
+            url_changed = (norm_existing != norm_new)
+        elif new_source_url != existing.source_url:
+            url_changed = True
+
+        if url_changed and new_source_url:
             existing.source_url = new_source_url
             updated = True
 
@@ -538,7 +582,7 @@ class ExportImportService:
                 existing.source_pdf = None
                 existing.parsed_at = None
 
-        # Mettre à jour les champs manquants
+        # Mettre à jour les champs manquants ou enrichis
         if not existing.date_match and match_info.date_match:
             existing.date_match = match_info.date_match
             updated = True
@@ -551,23 +595,62 @@ class ExportImportService:
         if not existing.club_a_code_ffvb and match_info.club_a_code_ffvb:
             existing.club_a_code_ffvb = match_info.club_a_code_ffvb
             updated = True
-        if not existing.club_b_code_ffvb and match_info.club_b_code_ffvb:
-            existing.club_b_code_ffvb = match_info.club_b_code_ffvb
+        if match_info.sets:
+            new_sets_export = [
+                {"numero": idx, "score_a": sa, "score_b": sb}
+                for idx, (sa, sb) in enumerate(match_info.sets, start=1)
+            ]
+            if existing.sets_detail_export != new_sets_export:
+                existing.sets_detail_export = new_sets_export
+                updated = True
+
+        if score_resolution.score_export and existing.score_export != score_resolution.score_export:
+            existing.score_export = score_resolution.score_export
             updated = True
 
-        # Ne pas écraser les données PDF détaillées avec l'export CSV.
-        if not parsed_locked:
-            existing.score_export = score_resolution.score_export
-            if existing.score_pdf is None:
+        # Le score de l'export prévaut pour le résultat officiel
+        if computed_played and score_resolution.score_export:
+            if existing.score_sets != score_resolution.score_effective:
                 existing.score_sets = score_resolution.score_effective
-                existing.vainqueur = match_info.vainqueur
+                updated = True
+            if (match_info.sets_equipe_a is not None and match_info.sets_equipe_b is not None) and (
+                existing.sets_equipe_a != match_info.sets_equipe_a or existing.sets_equipe_b != match_info.sets_equipe_b
+            ):
                 existing.sets_equipe_a = match_info.sets_equipe_a
                 existing.sets_equipe_b = match_info.sets_equipe_b
-                if computed_played:
-                    existing.match_joue = True
-                    existing.forfait = match_info.forfait
-                    existing.type_forfait = match_info.type_forfait
                 updated = True
+            if match_info.vainqueur and existing.vainqueur != match_info.vainqueur:
+                existing.vainqueur = match_info.vainqueur
+                updated = True
+
+        # Ne pas écraser les données PDF détaillées (SetDB) avec l'export CSV.
+        if not parsed_locked:
+            if score_resolution.score_export and existing.score_export != score_resolution.score_export:
+                existing.score_export = score_resolution.score_export
+                updated = True
+            if existing.score_pdf is None:
+                if existing.score_sets != score_resolution.score_effective:
+                    existing.score_sets = score_resolution.score_effective
+                    updated = True
+                if match_info.vainqueur and existing.vainqueur != match_info.vainqueur:
+                    existing.vainqueur = match_info.vainqueur
+                    updated = True
+                if match_info.sets_equipe_a is not None and existing.sets_equipe_a != match_info.sets_equipe_a:
+                    existing.sets_equipe_a = match_info.sets_equipe_a
+                    updated = True
+                if match_info.sets_equipe_b is not None and existing.sets_equipe_b != match_info.sets_equipe_b:
+                    existing.sets_equipe_b = match_info.sets_equipe_b
+                    updated = True
+                if computed_played:
+                    if not existing.match_joue:
+                        existing.match_joue = True
+                        updated = True
+                    if bool(existing.forfait) != bool(match_info.forfait):
+                        existing.forfait = match_info.forfait
+                        updated = True
+                    if existing.type_forfait != match_info.type_forfait:
+                        existing.type_forfait = match_info.type_forfait
+                        updated = True
 
             can_overwrite_score = (existing.score_source in {None, "export"}) or (not existing.match_joue)
 
@@ -588,8 +671,8 @@ class ExportImportService:
                     existing.vainqueur = match_info.vainqueur
                     if existing.score_pdf is None:
                         existing.score_sets = score_resolution.score_effective
-                    existing.sets_equipe_a = match_info.sets_equipe_a
-                    existing.sets_equipe_b = match_info.sets_equipe_b
+                    existing.sets_equipe_a = match_info.sets_equipe_a or 0
+                    existing.sets_equipe_b = match_info.sets_equipe_b or 0
                     existing.forfait = match_info.forfait
                     existing.type_forfait = match_info.type_forfait
                     existing.score_export = score_resolution.score_export
@@ -738,14 +821,26 @@ class ExportImportService:
         # une compétition. Le heading est typiquement "ELITE MASCULINE",
         # "NATIONALE 2 FÉMININE", etc.
         comp_key_name = match_info.competition_groupe or match_info.poule_code
-        genre = match_info.genre
-        categorie = match_info.categorie_age
 
-        cache_key = (comp_key_name, saison.id, genre, categorie)
+        # Normaliser genre et catégorie AVANT le cache et la recherche DB
+        genre = normalize_genre(match_info.genre) or normalize_genre(comp_key_name)
+        categorie = normalize_categorie(match_info.categorie_age) or normalize_categorie(comp_key_name)
+
+        classification = classify_level(
+            competition_name=comp_key_name,
+            niveau=match_info.niveau,
+            categorie=categorie,
+            division=match_info.division or match_info.division_code,
+        )
+        if not categorie and not classification.is_youth:
+            categorie = "SENIOR"
+
+        entite_id = entite.id if entite else None
+        cache_key = (comp_key_name, saison.id, genre, categorie, entite_id)
         if cache_key in self._competition_cache:
             return self._competition_cache[cache_key]
 
-        # Chercher par nom + saison + genre + catégorie
+        # 1. Chercher par nom + saison + genre + catégorie + entité
         stmt = (
             select(CompetitionDB)
             .where(
@@ -753,6 +848,10 @@ class ExportImportService:
                 CompetitionDB.saison_id == saison.id,
             )
         )
+        if entite_id is not None:
+            stmt = stmt.where(CompetitionDB.entite_id == entite_id)
+        else:
+            stmt = stmt.where(CompetitionDB.entite_id.is_(None))
         if genre:
             stmt = stmt.where(CompetitionDB.genre == genre)
         else:
@@ -763,6 +862,33 @@ class ExportImportService:
             stmt = stmt.where(CompetitionDB.categorie.is_(None))
 
         competition = self.session.execute(stmt).scalar_one_or_none()
+
+        # 2. Fallback : chercher par nom + saison + genre + entité
+        if not competition and genre:
+            stmt_cg = select(CompetitionDB).where(
+                CompetitionDB.nom == comp_key_name,
+                CompetitionDB.saison_id == saison.id,
+                CompetitionDB.genre == genre,
+            )
+            if entite_id is not None:
+                stmt_cg = stmt_cg.where(CompetitionDB.entite_id == entite_id)
+            else:
+                stmt_cg = stmt_cg.where(CompetitionDB.entite_id.is_(None))
+            competition = self.session.execute(stmt_cg).scalars().first()
+
+        # 3. Fallback : chercher par nom + saison + entité
+        if not competition:
+            stmt_nom = select(CompetitionDB).where(
+                CompetitionDB.nom == comp_key_name,
+                CompetitionDB.saison_id == saison.id,
+            )
+            if entite_id is not None:
+                stmt_nom = stmt_nom.where(CompetitionDB.entite_id == entite_id)
+            else:
+                stmt_nom = stmt_nom.where(CompetitionDB.entite_id.is_(None))
+            candidates = self.session.execute(stmt_nom).scalars().all()
+            if len(candidates) == 1:
+                competition = candidates[0]
 
         if not competition:
             # Extraire un code court
@@ -776,57 +902,106 @@ class ExportImportService:
                 if m:
                     code_comp = m.group(1)
 
-            classification = classify_level(
-                competition_name=comp_key_name,
-                niveau=match_info.niveau,
-                categorie=categorie,
-                division=match_info.division or match_info.division_code,
-            )
-            if not categorie and not classification.is_youth:
-                categorie = "SENIOR"
-
-            competition = CompetitionDB(
-                nom=comp_key_name,
-                code_competition=code_comp,
-                genre=genre,
-                categorie=categorie,
-                niveau=classification.categorie_principale,
-                division=classification.division,
-                niveau_badge=classification.label,
-                niveau_rank=classification.rank,
-                saison_id=saison.id,
-                entite_id=entite.id,
-            )
-            self.session.add(competition)
-            self.session.flush()
+            try:
+                with self.session.begin_nested():
+                    competition = CompetitionDB(
+                        nom=comp_key_name,
+                        code_competition=code_comp,
+                        genre=genre,
+                        categorie=categorie,
+                        niveau=classification.categorie_principale,
+                        division=classification.division,
+                        niveau_badge=classification.label,
+                        niveau_rank=classification.rank,
+                        saison_id=saison.id,
+                        entite_id=entite_id,
+                    )
+                    self.session.add(competition)
+                    self.session.flush()
+            except IntegrityError:
+                # En cas de conflit d'unicité, récupérer l'enregistrement existant
+                stmt_conflict = select(CompetitionDB).where(
+                    CompetitionDB.nom == comp_key_name,
+                    CompetitionDB.saison_id == saison.id,
+                    CompetitionDB.genre == genre,
+                    CompetitionDB.categorie == categorie,
+                )
+                if entite_id is not None:
+                    stmt_conflict = stmt_conflict.where(CompetitionDB.entite_id == entite_id)
+                else:
+                    stmt_conflict = stmt_conflict.where(CompetitionDB.entite_id.is_(None))
+                competition = self.session.execute(stmt_conflict).scalar_one_or_none()
+                if not competition and genre:
+                    stmt_cg = select(CompetitionDB).where(
+                        CompetitionDB.nom == comp_key_name,
+                        CompetitionDB.saison_id == saison.id,
+                        CompetitionDB.genre == genre,
+                    )
+                    if entite_id is not None:
+                        stmt_cg = stmt_cg.where(CompetitionDB.entite_id == entite_id)
+                    else:
+                        stmt_cg = stmt_cg.where(CompetitionDB.entite_id.is_(None))
+                    competition = self.session.execute(stmt_cg).scalars().first()
+                if not competition:
+                    stmt_cs = select(CompetitionDB).where(
+                        CompetitionDB.nom == comp_key_name,
+                        CompetitionDB.saison_id == saison.id,
+                    )
+                    if entite_id is not None:
+                        stmt_cs = stmt_cs.where(CompetitionDB.entite_id == entite_id)
+                    else:
+                        stmt_cs = stmt_cs.where(CompetitionDB.entite_id.is_(None))
+                    competition = self.session.execute(stmt_cs).scalars().first()
 
         # Enrichir si des métadonnées manquent
-        updated = False
-        if not competition.genre and genre:
-            competition.genre = genre
-            updated = True
-        if not competition.categorie and categorie:
-            competition.categorie = categorie
-            updated = True
-        if not competition.niveau_badge or competition.niveau_rank == -1:
-            classification = classify_level(
-                competition_name=competition.nom,
-                niveau=competition.niveau or match_info.niveau,
-                categorie=competition.categorie or categorie,
-                division=competition.division or match_info.division or match_info.division_code,
-            )
-            competition.niveau = classification.categorie_principale
-            competition.division = classification.division
-            competition.niveau_badge = classification.label
-            competition.niveau_rank = classification.rank
-            updated = True
-        if not competition.entite_id and entite:
-            competition.entite_id = entite.id
-            updated = True
-        if updated:
-            self.session.flush()
+        if competition:
+            updated = False
+            if not competition.genre and genre:
+                competition.genre = genre
+                updated = True
+            if not competition.categorie and categorie:
+                competition.categorie = categorie
+                updated = True
+            if not competition.niveau_badge or competition.niveau_rank == -1:
+                classification = classify_level(
+                    competition_name=competition.nom,
+                    niveau=competition.niveau or match_info.niveau,
+                    categorie=competition.categorie or categorie,
+                    division=competition.division or match_info.division or match_info.division_code,
+                )
+                competition.niveau = classification.categorie_principale
+                competition.division = classification.division
+                competition.niveau_badge = classification.label
+                competition.niveau_rank = classification.rank
+                updated = True
+            if not competition.entite_id and entite_id:
+                competition.entite_id = entite_id
+                updated = True
+            if updated:
+                try:
+                    with self.session.begin_nested():
+                        self.session.flush()
+                except IntegrityError:
+                    pass
 
-        self._competition_cache[cache_key] = competition
+            self._competition_cache[cache_key] = competition
+            canonical_key = (
+                competition.nom,
+                competition.saison_id,
+                competition.genre,
+                competition.categorie,
+                competition.entite_id,
+            )
+            self._competition_cache[canonical_key] = competition
+            raw_key = (
+                comp_key_name,
+                saison.id,
+                match_info.genre,
+                match_info.categorie_age,
+                entite_id,
+            )
+            self._competition_cache[raw_key] = competition
+
         return competition
 
     def _get_or_create_poule(
@@ -862,18 +1037,28 @@ class ExportImportService:
 
         if not poule:
             nom = poule_nom or f"Poule {poule_code}"
-            poule = PouleDB(
-                code=poule_code,
-                nom=nom,
-                competition_id=competition.id,
-            )
-            self.session.add(poule)
-            self.session.flush()
+            try:
+                with self.session.begin_nested():
+                    poule = PouleDB(
+                        code=poule_code,
+                        nom=nom,
+                        competition_id=competition.id,
+                    )
+                    self.session.add(poule)
+                    self.session.flush()
+            except IntegrityError:
+                poule = self.session.execute(
+                    select(PouleDB).where(
+                        PouleDB.code == poule_code,
+                        PouleDB.competition_id == competition.id,
+                    )
+                ).scalar_one_or_none()
         elif poule_nom and poule.nom == f"Poule {poule_code}":
             # Enrichir le nom si on a mieux
             poule.nom = poule_nom
 
-        self._poule_cache[cache_key] = poule
+        if poule:
+            self._poule_cache[cache_key] = poule
         return poule
 
     def _resolve_club(
@@ -1106,7 +1291,7 @@ class ExportImportService:
         Returns:
             Dict ``{"enriched": N, "created": N, "skipped": N}``.
         """
-        stats = {"enriched": 0, "created": 0, "skipped": 0}
+        stats = {"enriched": 0, "created": 0, "skipped": 0, "already_up_to_date": 0}
 
         # Pré-charger les clubs existants par code FFVB pour éviter les requêtes N+1
         all_codes = [c.code_ffvb for c in clubs_info if c.code_ffvb]
@@ -1143,6 +1328,8 @@ class ExportImportService:
                 c_city = None
                 if c_info.correspondant_ville:
                     _, c_city = _split_postal_city(c_info.correspondant_ville)
+                c_dept = department_from_club_code(c_info.code_ffvb)
+                c_ligue = getattr(c_info, "ligue", None) or (DEPT_TO_LIGUE.get(c_dept) if c_dept else None)
                 for s_info in c_info.salles:
                     v = s_info.ville or c_city
                     salle_id = f"salle_{c_info.code_ffvb}_{s_info.numero}"
@@ -1151,6 +1338,8 @@ class ExportImportService:
                         "adresse": s_info.adresse,
                         "ville": v,
                         "nom": s_info.nom,
+                        "departement": c_dept,
+                        "ligue": c_ligue,
                     })
                 if c_city:
                     club_id = f"club_{c_info.code_ffvb}"
@@ -1159,6 +1348,8 @@ class ExportImportService:
                         "adresse": None,
                         "ville": c_city,
                         "nom": c_info.nom,
+                        "departement": c_dept,
+                        "ligue": c_ligue,
                     })
             if geo_items:
                 batch_geo_results = geocode_addresses_batch(
@@ -1212,6 +1403,7 @@ class ExportImportService:
             else:
                 if not force_reenrich and self._has_adressier_data(club):
                     stats["skipped"] += 1
+                    stats["already_up_to_date"] += 1
                     continue
                 stats["enriched"] += 1
 
@@ -1301,20 +1493,26 @@ class ExportImportService:
                         )
                     )
 
-            # La localisation du club est celle de sa salle principale (Salle 1)
-            main_salle = next((s for s in club.salles if s.numero == 1), None) or (club.salles[0] if club.salles else None)
-            if main_salle and main_salle.latitude is not None and main_salle.longitude is not None:
-                club.latitude = main_salle.latitude
-                club.longitude = main_salle.longitude
-            elif club.ville and geocode and (club.latitude is None or club.longitude is None):
-                # Fallback uniquement sur la commune du club (jamais l'adresse privée du correspondant)
-                club_id = f"club_{club_info.code_ffvb}"
-                city_geo = batch_geo_results.get(club_id)
-                if not city_geo and not batch_geo_results:
-                    city_geo = geocode_address(adresse=None, ville=club.ville, nom=club.nom, allow_nominatim=False)
-                if city_geo:
-                    club.latitude = city_geo.latitude
-                    club.longitude = city_geo.longitude
+            # La localisation du club est celle de son siège social (adresse administrative),
+            # tandis que les salles (gymnases) conservent leurs propres coordonnées distinctes.
+            if club.latitude is None or club.longitude is None:
+                # Si le club n'a pas encore de coordonnées, tenter le géocodage sur son siège social ou sa ville
+                addr = club.adresse_siege or None
+                city = f"{club.code_postal_siege or ''} {club.ville_siege or ''}".strip() or club.ville
+                if (addr or city) and geocode:
+                    c_d = club.departement or department_from_club_code(club.code_ffvb)
+                    c_l = club.ligue or (DEPT_TO_LIGUE.get(c_d) if c_d else None)
+                    city_geo = geocode_address(
+                        adresse=addr,
+                        ville=city,
+                        nom=club.nom,
+                        departement=c_d,
+                        ligue=c_l,
+                        allow_nominatim=False,
+                    )
+                    if city_geo:
+                        club.latitude = city_geo.latitude
+                        club.longitude = city_geo.longitude
 
         self.session.flush()
         if geocode:

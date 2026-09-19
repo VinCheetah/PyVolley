@@ -139,7 +139,13 @@ class JoueurMatchStatsService:
                     side = "A"
                 elif entry.equipe_id is not None and entry.equipe_id == match_db.equipe_b_id:
                     side = "B"
-            payload = {"joueur_id": entry.joueur_id, "stats": entry.as_dict()}
+            d = entry.as_dict()
+            if entry.joueur:
+                if not d.get("nom"):
+                    d["nom"] = entry.joueur.nom
+                if not d.get("prenom"):
+                    d["prenom"] = entry.joueur.prenom
+            payload = {"joueur_id": entry.joueur_id, "stats": d}
             if side == "A":
                 stats_a.append(payload)
             elif side == "B":

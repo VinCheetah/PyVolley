@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+import time
 from pathlib import Path
 from typing import Optional, List
 
 import typer
+from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
@@ -109,6 +117,15 @@ def status(
                 base_filter.where(MatchDB.match_joue == True).subquery()  # noqa: E712
             )
         ) or 0
+        upcoming = total - played
+        played_to_download = session.scalar(
+            select(func.count()).select_from(
+                base_filter.where(
+                    MatchDB.parsing_status == "discovered",
+                    MatchDB.match_joue == True,  # noqa: E712
+                ).subquery()
+            )
+        ) or 0
 
         # PDFs locaux
         pdf_base = Path("data/pdfs")
@@ -129,6 +146,8 @@ def status(
         table = Table(
             title=f"📊 Statut du pipeline{filter_label}",
             show_header=True,
+            box=box.ROUNDED,
+            border_style="dim",
             header_style="bold cyan",
         )
         table.add_column("Statut", style="bold")
@@ -149,7 +168,8 @@ def status(
 
         table.add_section()
         table.add_row("[bold]Total[/bold]", f"[bold]{total}[/bold]", "100%")
-        table.add_row("[dim]Joués[/dim]", f"[dim]{played}[/dim]", "")
+        table.add_row("[dim]Matchs joués[/dim]", f"[dim]{played}[/dim]", f"[dim]{played / total * 100:.1f}%[/dim]" if total > 0 else "—")
+        table.add_row("[dim]Matchs à venir[/dim]", f"[dim]{upcoming}[/dim]", f"[dim]{upcoming / total * 100:.1f}%[/dim]" if total > 0 else "—")
         table.add_row(
             "[dim]PDFs locaux[/dim]",
             f"[dim]{pdf_count}[/dim]",
@@ -158,8 +178,19 @@ def status(
 
         console.print(table)
 
-        # Barre de progression
-        if total > 0:
+        # Barre de progression (basée sur les matchs joués, les seuls éligibles au parsing)
+        if played > 0:
+            pct_played = status_counts["parsed"] / played * 100
+            console.print(
+                f"\n[bold]Progression (matchs joués) :[/bold] "
+                f"[green]{'█' * int(pct_played // 2)}[/green]"
+                f"[dim]{'░' * (50 - int(pct_played // 2))}[/dim] "
+                f"[bold]{pct_played:.1f}%[/bold] ({status_counts['parsed']}/{played})"
+            )
+            if upcoming > 0:
+                pct_total = status_counts["parsed"] / total * 100
+                console.print(f"[dim]Total général (inclus {upcoming} matchs à venir) : {pct_total:.1f}%[/dim]")
+        elif total > 0:
             pct = status_counts["parsed"] / total * 100
             console.print(
                 f"\n[bold]Progression :[/bold] "
@@ -175,7 +206,12 @@ def status(
                 select(SaisonDB).order_by(SaisonDB.code)
             ).all()
 
-            detail = Table(show_header=True, header_style="bold")
+            detail = Table(
+                show_header=True,
+                box=box.ROUNDED,
+                border_style="dim",
+                header_style="bold cyan",
+            )
             detail.add_column("Saison")
             detail.add_column("Total", justify="right")
             detail.add_column("Joués", justify="right")
@@ -213,19 +249,23 @@ def status(
             console.print(detail)
 
         # Suggestions
-        if status_counts["discovered"] > 0:
+        if played_to_download > 0:
             console.print(
-                f"\n[yellow]💡 {status_counts['discovered']} matchs à télécharger → "
+                f"\n[yellow]💡 {played_to_download} match(s) joué(s) en attente de téléchargement → "
                 f"pyvolley import --only download[/yellow]"
+            )
+        elif upcoming > 0 and status_counts["discovered"] > 0:
+            console.print(
+                f"\n[dim]ℹ {status_counts['discovered']} match(s) non parsé(s) dont {upcoming} match(s) à venir (aucun PDF disponible sur FFVB).[/dim]"
             )
         if status_counts["downloaded"] > 0:
             console.print(
-                f"[yellow]💡 {status_counts['downloaded']} matchs à parser → "
+                f"[yellow]💡 {status_counts['downloaded']} match(s) à parser → "
                 f"pyvolley import --only parse[/yellow]"
             )
         if status_counts["error"] > 0:
             console.print(
-                f"[yellow]💡 {status_counts['error']} matchs en erreur → "
+                f"[yellow]💡 {status_counts['error']} match(s) en erreur → "
                 f"pyvolley import --only parse[/yellow]"
             )
 
@@ -374,19 +414,208 @@ def cleanup(
     ))
 
 
+def find_pids_on_port(port: int) -> list[int]:
+    """Retourne la liste des PIDs écoutant ou connectés sur le port spécifié."""
+    pids: set[int] = set()
+    current_pid = os.getpid()
+    if sys.platform == "win32":
+        try:
+            res = subprocess.run(["netstat", "-ano", "-p", "tcp"], capture_output=True)
+            output = res.stdout.decode("latin-1", errors="replace")
+            for line in output.splitlines():
+                parts = line.strip().split()
+                if len(parts) >= 5 and parts[0].upper() == "TCP":
+                    local_addr = parts[1]
+                    if local_addr.endswith(f":{port}"):
+                        try:
+                            pid = int(parts[4])
+                            if pid > 0 and pid != current_pid:
+                                pids.add(pid)
+                        except ValueError:
+                            pass
+        except Exception:
+            pass
+    else:
+        try:
+            res = subprocess.run(["lsof", "-ti", f":{port}"], capture_output=True, text=True)
+            for line in res.stdout.splitlines():
+                line = line.strip()
+                if line.isdigit():
+                    pid = int(line)
+                    if pid > 0 and pid != current_pid:
+                        pids.add(pid)
+        except Exception:
+            pass
+    return sorted(pids)
+
+
+def find_pyvolley_serve_pids() -> list[int]:
+    """Recherche tous les processus Python exécutant pyvolley serve ou web_app."""
+    pids: set[int] = set()
+    current_pid = os.getpid()
+    parent_pid = os.getppid() if hasattr(os, "getppid") else 0
+    excluded_pids = {current_pid, parent_pid, 0}
+
+    # Match exclusif pour le serveur web pyvolley (évite kill_serve, kill-serve, etc.)
+    pattern = re.compile(r"(?:(?<![_-])\bserve\b|pyvolley\.web\.app)", re.IGNORECASE)
+
+    if sys.platform == "win32":
+        try:
+            cmd = [
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'python' } | Select-Object ProcessId, CommandLine | ConvertTo-Json",
+            ]
+            res = subprocess.run(cmd, capture_output=True, timeout=5)
+            raw = res.stdout.decode("utf-8", errors="replace").strip()
+            if raw:
+                data = json.loads(raw)
+                if isinstance(data, dict):
+                    data = [data]
+                for item in data:
+                    pid = item.get("ProcessId")
+                    cmdline = item.get("CommandLine") or ""
+                    if not pid or pid in excluded_pids:
+                        continue
+                    if " -c " in cmdline or "kill-serve" in cmdline or "kill_serve" in cmdline:
+                        continue
+                    if "pyvolley" in cmdline.lower() and pattern.search(cmdline):
+                        pids.add(pid)
+        except Exception:
+            pass
+    else:
+        try:
+            res = subprocess.run(
+                ["ps", "-eo", "pid,command"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            for line in res.stdout.splitlines():
+                parts = line.strip().split(None, 1)
+                if len(parts) == 2 and parts[0].isdigit():
+                    pid = int(parts[0])
+                    cmdline = parts[1]
+                    if pid in excluded_pids:
+                        continue
+                    if " -c " in cmdline or "kill-serve" in cmdline or "kill_serve" in cmdline:
+                        continue
+                    if "python" in cmdline and "pyvolley" in cmdline.lower() and pattern.search(cmdline):
+                        pids.add(pid)
+        except Exception:
+            pass
+    return sorted(pids)
+
+
+def kill_pids(pids: list[int], force: bool = True) -> list[int]:
+    """Arrête les processus donnés (arborescence comprise sous Windows)."""
+    killed: list[int] = []
+    current_pid = os.getpid()
+    parent_pid = os.getppid() if hasattr(os, "getppid") else 0
+    excluded = {current_pid, parent_pid, 0}
+    for pid in set(pids):
+        if pid in excluded or pid <= 0:
+            continue
+        try:
+            if sys.platform == "win32":
+                args = ["taskkill"]
+                if force:
+                    args.append("/F")
+                args.extend(["/T", "/PID", str(pid)])
+                res = subprocess.run(args, capture_output=True)
+                if res.returncode == 0:
+                    killed.append(pid)
+            else:
+                sig = signal.SIGKILL if force else signal.SIGTERM
+                os.kill(pid, sig)
+                killed.append(pid)
+        except Exception:
+            pass
+    return sorted(killed)
+
+
+def find_parent_pids(pids: list[int]) -> list[int]:
+    """Trouve les processus parents des PIDs donnés."""
+    parents: set[int] = set()
+    current_pid = os.getpid()
+    if sys.platform == "win32" and pids:
+        try:
+            pid_filter = " or ".join(f"ProcessId = {p}" for p in pids)
+            cmd = [
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                f"Get-CimInstance Win32_Process -Filter '{pid_filter}' | Select-Object -ExpandProperty ParentProcessId",
+            ]
+            res = subprocess.run(cmd, capture_output=True, timeout=5)
+            output = res.stdout.decode("latin-1", errors="replace")
+            for line in output.splitlines():
+                line = line.strip()
+                if line.isdigit():
+                    ppid = int(line)
+                    if ppid > 0 and ppid != current_pid:
+                        parents.add(ppid)
+        except Exception:
+            pass
+    return sorted(parents)
+
+
+def kill_active_serve(port: int = 8000, force: bool = True) -> list[int]:
+    """Tue tous les processus actifs liés à pyvolley serve et/ou occupant le port."""
+    pids_port = find_pids_on_port(port)
+    pids_parents = find_parent_pids(pids_port)
+    pids_cmd = find_pyvolley_serve_pids()
+    target_pids = sorted(set(pids_port) | set(pids_parents) | set(pids_cmd))
+    if not target_pids:
+        return []
+    killed = kill_pids(target_pids, force=force)
+    time.sleep(0.3)
+    return killed
+
+
 def serve(
     host: str = typer.Option("127.0.0.1", "--host", "-h", help="Adresse d'écoute."),
     port: int = typer.Option(8000, "--port", "-p", help="Port d'écoute."),
     reload: bool = typer.Option(True, "--reload", "-r", help="Rechargement auto."),
+    kill: bool = typer.Option(
+        True,
+        "--kill/--no-kill",
+        help="Tuer tout processus pyvolley serve ou occupant le port avant de démarrer.",
+    ),
 ):
     """🌐 Lance le serveur web."""
     import uvicorn
+
+    if kill:
+        killed = kill_active_serve(port=port)
+        if killed:
+            console.print(
+                f"[yellow]⚠️ {len(killed)} processus actif(s) sur le port {port} arrêté(s) (PIDs: {', '.join(map(str, killed))})[/yellow]"
+            )
 
     try:
         console.print(f"[blue]🏐 PyVolley sur http://{host}:{port}[/blue]")
     except UnicodeEncodeError:
         console.print(f"[blue]PyVolley sur http://{host}:{port}[/blue]")
     uvicorn.run("pyvolley.web.app:web_app", host=host, port=port, reload=reload)
+
+
+def kill_serve(
+    port: int = typer.Option(8000, "--port", "-p", help="Port d'écoute du serveur web."),
+    force: bool = typer.Option(True, "--force/--no-force", "-f", help="Forcer l'arrêt immédiat."),
+):
+    """🛑 Arrête et tue les processus actifs du serveur PyVolley."""
+    killed = kill_active_serve(port=port, force=force)
+    if killed:
+        console.print(
+            f"[green]✓ {len(killed)} processus pyvolley serve arrêté(s) sur le port {port} (PIDs: {', '.join(map(str, killed))})[/green]"
+        )
+    else:
+        console.print(f"[dim]Aucun processus actif trouvé sur le port {port}.[/dim]")
+
 
 
 def simulate(

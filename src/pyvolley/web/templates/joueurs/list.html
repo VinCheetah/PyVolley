@@ -3,20 +3,17 @@
 {% block title %}Joueurs — PyVolley{% endblock %}
 
 {% block content %}
-<div class="space-y-6">
+<div class="space-y-6 fade-in">
 
     <!-- Header -->
-    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-            <h1 class="text-2xl sm:text-3xl font-black text-white flex items-center gap-3">
-                <div class="w-10 h-10 rounded-xl flex items-center justify-center shadow-sm"
-                     style="background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--accent-primary);">
-                    <i data-lucide="users" class="w-5 h-5"></i>
-                </div>
-                <span>Joueurs</span>
-            </h1>
-            <p class="text-sm mt-1" style="color: var(--text-secondary);">Annuaire des licenciés, fiches sportives et historiques de compétition</p>
-        </div>
+    <div class="player-list-header">
+        <h1>
+            <div class="header-icon">
+                <i data-lucide="users" class="w-5 h-5" style="color: white;"></i>
+            </div>
+            <span>Joueurs</span>
+        </h1>
+        <p>Annuaire des licenciés, fiches sportives et historiques de compétition</p>
     </div>
 
     <!-- Filters Bar -->

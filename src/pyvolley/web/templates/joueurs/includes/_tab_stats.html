@@ -1,24 +1,325 @@
 {# ═══════════════════════════════════════════════════════════════
    Joueur Detail — Stats Détaillées Tab
-   Aggregated player stats, radar profile chart, role detection & per-match detailed performance table
+   Aggregated player stats: Participation, On/Off, Rotations, Clutch, Roles & Matches
    ═══════════════════════════════════════════════════════════════ #}
 
 <div x-show="activeTab === 'stats'" class="space-y-6" x-cloak>
     {% if aggregated_stats and aggregated_stats.matchs_joues > 0 %}
+
+    {# ── 1. KPI Cards Résumés ──────────────────────────────────────── #}
     <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-        <div class="stat-card"><div class="stat-value" style="color: var(--accent-cyan);">{{ aggregated_stats.total_points_joues }}</div><div class="stat-label">Points joués</div></div>
-        <div class="stat-card"><div class="stat-value" style="color: var(--accent-green);">{{ aggregated_stats.total_points_gagnes }}</div><div class="stat-label">Points gagnés</div></div>
-        <div class="stat-card"><div class="stat-value" style="color: var(--accent-red);">{{ aggregated_stats.total_points_perdus }}</div><div class="stat-label">Points perdus</div></div>
-        <div class="stat-card"><div class="stat-value" style="color: var(--accent-blue);">{{ aggregated_stats.total_points_gagnes_sideout }}</div><div class="stat-label">Pts side-out</div></div>
-        <div class="stat-card"><div class="stat-value" style="color: var(--accent-purple);">{{ (aggregated_stats.break_point_ratio_global * 100)|round(1) }}%</div><div class="stat-label">Break ratio</div></div>
-        <div class="stat-card"><div class="stat-value" style="color: var(--accent-cyan);">{{ (aggregated_stats.ratio_points_gagnes_sideout_global * 100)|round(1) }}%</div><div class="stat-label">Contribution side-out</div></div>
-        <div class="stat-card"><div class="stat-value gradient-text-gold">{{ aggregated_stats.total_services }}</div><div class="stat-label">Services</div></div>
-        <div class="stat-card"><div class="stat-value" style="color: var(--accent-purple);">{{ aggregated_stats.max_serie_service }}</div><div class="stat-label">Max série</div></div>
-        <div class="stat-card"><div class="stat-value" style="color: var(--accent-blue);">{{ aggregated_stats.total_sets_joues }}</div><div class="stat-label">Sets joués</div></div>
-        <div class="stat-card"><div class="stat-value" style="color: var(--accent-cyan);">{{ role_overview.principal_label if role_overview.available else '—' }}</div><div class="stat-label">Rôle principal</div></div>
-        <div class="stat-card"><div class="stat-value" style="color: var(--accent-gold);">{% if role_overview.available %}{{ role_overview.plausibility_pct|round(1) }}%{% else %}—{% endif %}</div><div class="stat-label">Plausibilité rôle</div></div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--accent-cyan);">{{ aggregated_stats.total_points_joues }}</div>
+            <div class="stat-label">Points joués</div>
+            <div class="text-[11px] mt-1" style="color: var(--text-secondary);">{{ (aggregated_stats.ratio_points_gagnes_global * 100)|round(1) }}% gagnés</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--accent-green);">{{ aggregated_stats.total_points_gagnes }}</div>
+            <div class="stat-label">Points gagnés</div>
+            <div class="text-[11px] mt-1" style="color: var(--text-secondary);">{{ aggregated_stats.total_points_perdus }} perdus</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value {% if aggregated_stats.total_plus_minus >= 0 %}text-emerald-400{% else %}text-rose-400{% endif %}">
+                {% if aggregated_stats.total_plus_minus > 0 %}+{% endif %}{{ aggregated_stats.total_plus_minus }}
+            </div>
+            <div class="stat-label">Différentiel (+/-)</div>
+            <div class="text-[11px] mt-1" style="color: var(--text-secondary);">Net présence terrain</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--accent-gold);">
+                {% if aggregated_stats.differentiel_points_gagnes_global is not none %}
+                    {% if aggregated_stats.differentiel_points_gagnes_global > 0 %}+{% endif %}{{ (aggregated_stats.differentiel_points_gagnes_global * 100)|round(1) }}%
+                {% else %}
+                    —
+                {% endif %}
+            </div>
+            <div class="stat-label">Impact On / Off</div>
+            <div class="text-[11px] mt-1" style="color: var(--text-secondary);">vs équipe sur le banc</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value" style="color: var(--accent-blue);">{{ (aggregated_stats.presence_relative_moyenne * 100)|round(1) }}%</div>
+            <div class="stat-label">Présence terrain</div>
+            <div class="text-[11px] mt-1" style="color: var(--text-secondary);">Part pts équipe</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value gradient-text-gold">
+                {% if aggregated_stats.total_temps_jeu > 0 %}
+                    {{ aggregated_stats.total_temps_jeu|round(0)|int }}<span class="text-xs font-normal"> min</span>
+                {% else %}
+                    —
+                {% endif %}
+            </div>
+            <div class="stat-label">Temps estimé</div>
+            <div class="text-[11px] mt-1" style="color: var(--text-secondary);">
+                {% if aggregated_stats.moyenne_temps_par_match > 0 %}~{{ aggregated_stats.moyenne_temps_par_match|round(1) }} min/m{% else %}calcul durée x présence{% endif %}
+            </div>
+        </div>
     </div>
 
+    {# ── 2. Participation & Dynamique de Match ─────────────────────── #}
+    <div class="card p-5">
+        <h3 class="text-xs font-semibold uppercase tracking-wider mb-4 flex items-center gap-2" style="color: var(--text-muted);">
+            <span>⏱️</span> Participation, Sets & Dynamique de Banc
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {# Colonne Sets #}
+            <div class="p-4 rounded-xl" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color);">
+                <h4 class="text-xs font-bold uppercase tracking-wider text-white mb-3 flex items-center justify-between">
+                    <span>Sets disputés</span>
+                    <span class="badge badge-blue">{{ aggregated_stats.total_sets_joues }} sets</span>
+                </h4>
+                <div class="space-y-2 text-xs">
+                    <div class="flex justify-between py-1 border-b border-white/5">
+                        <span style="color: var(--text-secondary);">Sets gagnés / perdus</span>
+                        <span class="font-semibold text-white">
+                            <span style="color: var(--accent-green);">{{ aggregated_stats.total_sets_gagnes }} V</span> ·
+                            <span style="color: var(--accent-red);">{{ aggregated_stats.total_sets_perdus }} D</span>
+                        </span>
+                    </div>
+                    <div class="flex justify-between py-1 border-b border-white/5">
+                        <span style="color: var(--text-secondary);">Sets commencés (titulaire)</span>
+                        <span class="font-semibold text-white">{{ aggregated_stats.total_sets_commences }} ({{ (aggregated_stats.total_sets_commences / aggregated_stats.total_sets_joues * 100)|round(1) if aggregated_stats.total_sets_joues else 0 }}%)</span>
+                    </div>
+                    <div class="flex justify-between py-1">
+                        <span style="color: var(--text-secondary);">Sets terminés sur le terrain</span>
+                        <span class="font-semibold text-white">{{ aggregated_stats.total_sets_termines }}</span>
+                    </div>
+                </div>
+            </div>
+
+            {# Colonne Matchs #}
+            <div class="p-4 rounded-xl" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color);">
+                <h4 class="text-xs font-bold uppercase tracking-wider text-white mb-3 flex items-center justify-between">
+                    <span>Statuts de Match</span>
+                    <span class="badge badge-purple">{{ aggregated_stats.matchs_joues }} matchs</span>
+                </h4>
+                <div class="space-y-2 text-xs">
+                    <div class="flex justify-between py-1 border-b border-white/5">
+                        <span style="color: var(--text-secondary);">Titulaire au 1er set</span>
+                        <span class="font-semibold text-white">{{ aggregated_stats.total_titularisations_set_1 }} match{% if aggregated_stats.total_titularisations_set_1 > 1 %}s{% endif %}</span>
+                    </div>
+                    <div class="flex justify-between py-1 border-b border-white/5">
+                        <span style="color: var(--text-secondary);">Matchs complets (100% terrain)</span>
+                        <span class="font-semibold text-emerald-400">{{ aggregated_stats.total_matchs_complets }}</span>
+                    </div>
+                    <div class="flex justify-between py-1">
+                        <span style="color: var(--text-secondary);">Matchs non joués (DNP sur feuille)</span>
+                        <span class="font-semibold text-zinc-400">{{ aggregated_stats.total_matchs_non_joues }}</span>
+                    </div>
+                </div>
+            </div>
+
+            {# Colonne Remplacements #}
+            <div class="p-4 rounded-xl" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color);">
+                <h4 class="text-xs font-bold uppercase tracking-wider text-white mb-3 flex items-center justify-between">
+                    <span>Substitutions & Rôle</span>
+                    <span class="badge badge-gold">{{ aggregated_stats.total_entrees + aggregated_stats.total_sorties }} chang.</span>
+                </h4>
+                <div class="space-y-2 text-xs">
+                    <div class="flex justify-between py-1 border-b border-white/5">
+                        <span style="color: var(--text-secondary);">Entrées / Sorties totales</span>
+                        <span class="font-semibold text-white">↑ {{ aggregated_stats.total_entrees }} / ↓ {{ aggregated_stats.total_sorties }}</span>
+                    </div>
+                    <div class="flex justify-between py-1 border-b border-white/5" title="Entré en cours de set puis ressorti au banc : rôle d'appoint (service, renfort arrière)">
+                        <span style="color: var(--text-secondary);">Entrées-Sorties (In-Out)</span>
+                        <span class="font-semibold text-cyan-400">{{ aggregated_stats.total_entrees_sorties }} fois</span>
+                    </div>
+                    <div class="flex justify-between py-1" title="Titulaire sorti sur le banc puis ré-entré dans le même set">
+                        <span style="color: var(--text-secondary);">Sorties-Entrées (Out-In)</span>
+                        <span class="font-semibold text-amber-400">{{ aggregated_stats.total_sorties_entrees }} fois</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# ── 3. Efficacité par Rotation sur le Terrain (P1 à P6) ────────── #}
+    {% set rot = aggregated_stats.rotations_globales %}
+    <div class="card p-5">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-4">
+            <div>
+                <h3 class="text-xs font-semibold uppercase tracking-wider flex items-center gap-2" style="color: var(--text-muted);">
+                    <span>🎯</span> Efficacité par Rotation sur le Terrain (Positions P1 à P6)
+                </h3>
+                <p class="text-xs mt-1" style="color: var(--text-secondary);">
+                    Points joués et ratio de points remportés selon la position réelle occupée par le joueur sur le court.
+                </p>
+            </div>
+            <div class="text-xs font-mono" style="color: var(--text-muted);">
+                Net / Ligne avant (P4, P3, P2) · Fond / Ligne arrière (P5, P6, P1)
+            </div>
+        </div>
+
+        {# Terrain Volleyball 2x3 #}
+        <div class="volleyball-court-grid max-w-2xl mx-auto p-3 rounded-2xl" style="background: linear-gradient(180deg, rgba(30, 58, 138, 0.25) 0%, rgba(15, 23, 42, 0.4) 100%); border: 2px solid rgba(59, 130, 246, 0.3);">
+            <div class="text-center text-[10px] font-bold uppercase tracking-widest text-blue-300/80 mb-2">--- FILET (LIGNE AVANT) ---</div>
+            <div class="grid grid-cols-3 gap-3 mb-3">
+                {# P4 - Avant Gauche #}
+                <div class="court-zone-card p-3 rounded-xl text-center border" style="background: rgba(15, 23, 42, 0.7); border-color: rgba(255,255,255,0.08);">
+                    <div class="text-xs font-black text-cyan-400">P4 (Avant Gauche)</div>
+                    <div class="text-lg font-black mt-1 {% if rot.p4.win_rate >= 0.5 %}text-emerald-400{% elif rot.p4.points_joues > 0 %}text-amber-400{% else %}text-zinc-500{% endif %}">
+                        {% if rot.p4.points_joues > 0 %}{{ (rot.p4.win_rate * 100)|round(1) }}%{% else %}—{% endif %}
+                    </div>
+                    <div class="text-[11px] mt-0.5 text-zinc-400">
+                        {{ rot.p4.points_gagnes }}/{{ rot.p4.points_joues }} pts
+                    </div>
+                </div>
+                {# P3 - Avant Centre #}
+                <div class="court-zone-card p-3 rounded-xl text-center border" style="background: rgba(15, 23, 42, 0.7); border-color: rgba(255,255,255,0.08);">
+                    <div class="text-xs font-black text-cyan-400">P3 (Avant Centre)</div>
+                    <div class="text-lg font-black mt-1 {% if rot.p3.win_rate >= 0.5 %}text-emerald-400{% elif rot.p3.points_joues > 0 %}text-amber-400{% else %}text-zinc-500{% endif %}">
+                        {% if rot.p3.points_joues > 0 %}{{ (rot.p3.win_rate * 100)|round(1) }}%{% else %}—{% endif %}
+                    </div>
+                    <div class="text-[11px] mt-0.5 text-zinc-400">
+                        {{ rot.p3.points_gagnes }}/{{ rot.p3.points_joues }} pts
+                    </div>
+                </div>
+                {# P2 - Avant Droit #}
+                <div class="court-zone-card p-3 rounded-xl text-center border" style="background: rgba(15, 23, 42, 0.7); border-color: rgba(255,255,255,0.08);">
+                    <div class="text-xs font-black text-cyan-400">P2 (Avant Droit)</div>
+                    <div class="text-lg font-black mt-1 {% if rot.p2.win_rate >= 0.5 %}text-emerald-400{% elif rot.p2.points_joues > 0 %}text-amber-400{% else %}text-zinc-500{% endif %}">
+                        {% if rot.p2.points_joues > 0 %}{{ (rot.p2.win_rate * 100)|round(1) }}%{% else %}—{% endif %}
+                    </div>
+                    <div class="text-[11px] mt-0.5 text-zinc-400">
+                        {{ rot.p2.points_gagnes }}/{{ rot.p2.points_joues }} pts
+                    </div>
+                </div>
+            </div>
+
+            <div class="text-center text-[10px] font-bold uppercase tracking-widest text-zinc-500 my-1">--- LIGNE DES 3 MÈTRES ---</div>
+
+            <div class="grid grid-cols-3 gap-3">
+                {# P5 - Arrière Gauche #}
+                <div class="court-zone-card p-3 rounded-xl text-center border" style="background: rgba(15, 23, 42, 0.7); border-color: rgba(255,255,255,0.08);">
+                    <div class="text-xs font-black text-indigo-400">P5 (Arrière Gauche)</div>
+                    <div class="text-lg font-black mt-1 {% if rot.p5.win_rate >= 0.5 %}text-emerald-400{% elif rot.p5.points_joues > 0 %}text-amber-400{% else %}text-zinc-500{% endif %}">
+                        {% if rot.p5.points_joues > 0 %}{{ (rot.p5.win_rate * 100)|round(1) }}%{% else %}—{% endif %}
+                    </div>
+                    <div class="text-[11px] mt-0.5 text-zinc-400">
+                        {{ rot.p5.points_gagnes }}/{{ rot.p5.points_joues }} pts
+                    </div>
+                </div>
+                {# P6 - Arrière Centre #}
+                <div class="court-zone-card p-3 rounded-xl text-center border" style="background: rgba(15, 23, 42, 0.7); border-color: rgba(255,255,255,0.08);">
+                    <div class="text-xs font-black text-indigo-400">P6 (Arrière Centre)</div>
+                    <div class="text-lg font-black mt-1 {% if rot.p6.win_rate >= 0.5 %}text-emerald-400{% elif rot.p6.points_joues > 0 %}text-amber-400{% else %}text-zinc-500{% endif %}">
+                        {% if rot.p6.points_joues > 0 %}{{ (rot.p6.win_rate * 100)|round(1) }}%{% else %}—{% endif %}
+                    </div>
+                    <div class="text-[11px] mt-0.5 text-zinc-400">
+                        {{ rot.p6.points_gagnes }}/{{ rot.p6.points_joues }} pts
+                    </div>
+                </div>
+                {# P1 - Arrière Droit / Service #}
+                <div class="court-zone-card p-3 rounded-xl text-center border" style="background: rgba(15, 23, 42, 0.7); border-color: rgba(255,255,255,0.08);">
+                    <div class="text-xs font-black text-indigo-400">P1 (Service / Défense)</div>
+                    <div class="text-lg font-black mt-1 {% if rot.p1.win_rate >= 0.5 %}text-emerald-400{% elif rot.p1.points_joues > 0 %}text-amber-400{% else %}text-zinc-500{% endif %}">
+                        {% if rot.p1.points_joues > 0 %}{{ (rot.p1.win_rate * 100)|round(1) }}%{% else %}—{% endif %}
+                    </div>
+                    <div class="text-[11px] mt-0.5 text-zinc-400">
+                        {{ rot.p1.points_gagnes }}/{{ rot.p1.points_joues }} pts
+                    </div>
+                </div>
+            </div>
+            <div class="text-center text-[10px] font-bold uppercase tracking-widest text-indigo-300/80 mt-2">--- LIGNE DE FOND (SERVICE) ---</div>
+        </div>
+    </div>
+
+    {# ── 4. Clutch & Situations Sous Pression ───────────────────────── #}
+    {% set cl = aggregated_stats.clutch_global %}
+    <div class="card p-5">
+        <h3 class="text-xs font-semibold uppercase tracking-wider mb-4 flex items-center gap-2" style="color: var(--text-muted);">
+            <span>🔥</span> Clutch & Situations Sous Pression
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+            {# Égalité #}
+            <div class="p-3.5 rounded-xl" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color);">
+                <div class="text-xs text-zinc-400 uppercase font-semibold">À Égalité</div>
+                <div class="text-xl font-black mt-1 {% if cl.win_rate_egalite >= 0.5 %}text-emerald-400{% else %}text-amber-400{% endif %}">
+                    {% if cl.points_egalite > 0 %}{{ (cl.win_rate_egalite * 100)|round(1) }}%{% else %}—{% endif %}
+                </div>
+                <div class="text-xs text-zinc-400 mt-1">{{ cl.points_gagnes_egalite }}/{{ cl.points_egalite }} pts gagnés</div>
+            </div>
+            {# En Tête #}
+            <div class="p-3.5 rounded-xl" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color);">
+                <div class="text-xs text-zinc-400 uppercase font-semibold">Équipe en Tête</div>
+                <div class="text-xl font-black mt-1 {% if cl.win_rate_en_tete >= 0.5 %}text-emerald-400{% else %}text-amber-400{% endif %}">
+                    {% if cl.points_en_tete > 0 %}{{ (cl.win_rate_en_tete * 100)|round(1) }}%{% else %}—{% endif %}
+                </div>
+                <div class="text-xs text-zinc-400 mt-1">{{ cl.points_gagnes_en_tete }}/{{ cl.points_en_tete }} pts gagnés</div>
+            </div>
+            {# Menée #}
+            <div class="p-3.5 rounded-xl" style="background: rgba(255, 255, 255, 0.02); border: 1px solid var(--border-color);">
+                <div class="text-xs text-zinc-400 uppercase font-semibold">Équipe Menée</div>
+                <div class="text-xl font-black mt-1 {% if cl.win_rate_menee >= 0.5 %}text-emerald-400{% else %}text-amber-400{% endif %}">
+                    {% if cl.points_menee > 0 %}{{ (cl.win_rate_menee * 100)|round(1) }}%{% else %}—{% endif %}
+                </div>
+                <div class="text-xs text-zinc-400 mt-1">{{ cl.points_gagnes_menee }}/{{ cl.points_menee }} pts gagnés</div>
+            </div>
+            {# Money Time #}
+            <div class="p-3.5 rounded-xl" style="background: rgba(245, 158, 11, 0.06); border: 1px solid rgba(245, 158, 11, 0.25);">
+                <div class="text-xs text-amber-400 uppercase font-semibold">Money Time (≥ 20 pts)</div>
+                <div class="text-xl font-black mt-1 text-amber-300">
+                    {% if cl.points_money_time > 0 %}{{ (cl.win_rate_money_time * 100)|round(1) }}%{% else %}—{% endif %}
+                </div>
+                <div class="text-xs text-amber-400/80 mt-1">{{ cl.points_gagnes_money_time }}/{{ cl.points_money_time }} pts gagnés</div>
+            </div>
+        </div>
+
+        {# Balles de set et de match #}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-3 border-t border-white/5">
+            <div class="space-y-2 text-xs">
+                <div class="font-bold text-white uppercase tracking-wider text-[11px] mb-2 flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-rose-500"></span> Balles Adverses (Sauvetages)
+                </div>
+                <div class="flex justify-between py-1.5 px-3 rounded-lg bg-white/[0.02]">
+                    <span style="color: var(--text-secondary);">Balles de set adverses sauvées</span>
+                    <span class="font-semibold text-white">
+                        {{ cl.balles_de_set_adverse_sauvees }} / {{ cl.balles_de_set_adverse_total }}
+                        {% if cl.balles_de_set_adverse_total > 0 %}<span class="text-emerald-400 ml-1">({{ (cl.win_rate_sauve_balle_set * 100)|round(1) }}%)</span>{% endif %}
+                    </span>
+                </div>
+                <div class="flex justify-between py-1.5 px-3 rounded-lg bg-white/[0.02]">
+                    <span style="color: var(--text-secondary);">Balles de match adverses sauvées</span>
+                    <span class="font-semibold text-white">
+                        {{ cl.balles_de_match_adverse_sauvees }} / {{ cl.balles_de_match_adverse_total }}
+                        {% if cl.balles_de_match_adverse_total > 0 %}<span class="text-emerald-400 ml-1">({{ (cl.win_rate_sauve_balle_match * 100)|round(1) }}%)</span>{% endif %}
+                    </span>
+                </div>
+                {% if cl.max_serie_sauve_balle_set > 0 or cl.max_serie_sauve_balle_match > 0 %}
+                <div class="flex justify-between py-1.5 px-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300">
+                    <span>Record série au service sous balle adverse</span>
+                    <span class="font-black">{{ [cl.max_serie_sauve_balle_set, cl.max_serie_sauve_balle_match]|max }} pts consécutifs</span>
+                </div>
+                {% endif %}
+            </div>
+
+            <div class="space-y-2 text-xs">
+                <div class="font-bold text-white uppercase tracking-wider text-[11px] mb-2 flex items-center gap-1.5">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500"></span> Balles Équipe (Conversions)
+                </div>
+                <div class="flex justify-between py-1.5 px-3 rounded-lg bg-white/[0.02]">
+                    <span style="color: var(--text-secondary);">Balles de set converties</span>
+                    <span class="font-semibold text-white">
+                        {{ cl.balles_de_set_equipe_converties }} / {{ cl.balles_de_set_equipe_total }}
+                        {% if cl.balles_de_set_equipe_total > 0 %}<span class="text-emerald-400 ml-1">({{ (cl.win_rate_balle_set_equipe * 100)|round(1) }}%)</span>{% endif %}
+                    </span>
+                </div>
+                <div class="flex justify-between py-1.5 px-3 rounded-lg bg-white/[0.02]">
+                    <span style="color: var(--text-secondary);">Balles de match converties</span>
+                    <span class="font-semibold text-white">
+                        {{ cl.balles_de_match_equipe_converties }} / {{ cl.balles_de_match_equipe_total }}
+                        {% if cl.balles_de_match_equipe_total > 0 %}<span class="text-emerald-400 ml-1">({{ (cl.win_rate_balle_match_equipe * 100)|round(1) }}%)</span>{% endif %}
+                    </span>
+                </div>
+                <div class="flex justify-between py-1.5 px-3 rounded-lg bg-white/[0.02]">
+                    <span style="color: var(--text-secondary);">Side-out Win Rate Global</span>
+                    <span class="font-semibold text-blue-400">{{ (aggregated_stats.sideout_win_rate_global * 100)|round(1) }}%</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    {# ── 5. Profil Visuel & Rôles ──────────────────────────────────── #}
     <div class="player-stats-grid">
         <div class="card p-4 player-profile-radar-card">
             <h3 class="text-xs font-semibold uppercase tracking-wider mb-3" style="color: var(--text-muted);">
@@ -127,6 +428,7 @@
         {% endif %}
     </div>
 
+    {# ── 6. Détail Performance par Match ───────────────────────────── #}
     <div class="card overflow-hidden">
         <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
             <h3 class="text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">Détail performance par match</h3>
@@ -140,18 +442,17 @@
                         <th class="text-center">#</th>
                         <th>Niveau</th>
                         <th class="text-center">Rôle</th>
-                        <th class="text-center">Plausibilité</th>
-                        <th>Sources</th>
                         <th class="text-center">V/D</th>
-                        <th class="text-center">Pts joués</th>
-                        <th class="text-center">Pts gagnés</th>
-                        <th class="text-center">Pts perdus</th>
-                        <th class="text-center">Pts side-out</th>
+                        <th class="text-center">Sets (J/Tit)</th>
+                        <th class="text-center">Temps est.</th>
+                        <th class="text-center">Pts J/G/P</th>
+                        <th class="text-center">+/-</th>
+                        <th class="text-center">On/Off Diff</th>
                         <th class="text-center">% Pts gagnés</th>
                         <th class="text-center">Break %</th>
                         <th class="text-center">Side-out %</th>
-                        <th class="text-center">Services</th>
-                        <th class="text-center">Max série</th>
+                        <th class="text-center">Serv. (Max)</th>
+                        <th class="text-center">Changements</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -161,11 +462,11 @@
                         <td>{{ pm.date|format_date if pm.date else '—' }}</td>
                         <td>
                             {% if pm.adversaire_id %}
-                            <a href="{{ path_for_entity('equipe', pm.adversaire_id) }}" style="color: var(--accent-blue);" class="hover:text-white">{{ pm.adversaire|truncate(30, True) }}</a>
+                            <a href="{{ path_for_entity('equipe', pm.adversaire_id) }}" style="color: var(--accent-blue);" class="hover:text-white">{{ pm.adversaire|truncate(26, True) }}</a>
                             {% else %}
-                            <a href="{{ path_for_entity('match', pm.match_id) }}" style="color: var(--accent-blue);" class="hover:text-white">{{ pm.adversaire|truncate(30, True) }}</a>
+                            <a href="{{ path_for_entity('match', pm.match_id) }}" style="color: var(--accent-blue);" class="hover:text-white">{{ pm.adversaire|truncate(26, True) }}</a>
                             {% endif %}
-                            <div class="text-[11px] mt-1">
+                            <div class="text-[11px] mt-0.5">
                                 <a href="{{ path_for_entity('match', pm.match_id) }}" style="color: var(--text-muted);">Voir match</a>
                                 {% if pm.competition_id %}
                                 · <a href="{{ path_for_entity('competition', pm.competition_id) }}" style="color: var(--text-muted);">Compétition</a>
@@ -185,33 +486,52 @@
                             <span style="color: var(--text-muted);">—</span>
                             {% endif %}
                         </td>
-                        <td class="text-center" style="color: var(--accent-cyan);">
-                            {% if pm.role_code %}
-                            {{ pm.role_plausibility_pct|round(1) }}%
+                        <td class="text-center">{% if pms.victoire %}<span class="badge badge-green text-xs">V</span>{% else %}<span class="badge badge-red text-xs">D</span>{% endif %}</td>
+                        <td class="text-center font-mono">
+                            {{ pm.sets_joues }} / {{ pm.sets_titulaire }}
+                            {% if pm.match_complet %}<span class="text-emerald-400" title="Match complet">★</span>{% endif %}
+                        </td>
+                        <td class="text-center">
+                            {% if pm.temps_jeu_estime is not none %}
+                            {{ pm.temps_jeu_estime|round(0)|int }} min
                             {% else %}
                             —
                             {% endif %}
                         </td>
-                        <td>
-                            {% if pm.role_sources %}
-                            <span class="text-xs" style="color: var(--text-secondary);">{{ pm.role_sources|join(' · ') }}</span>
+                        <td class="text-center font-mono">
+                            {{ pms.points_joues }} <span style="color: var(--text-muted);">/</span>
+                            <span style="color: var(--accent-green);">{{ pms.points_gagnes }}</span> <span style="color: var(--text-muted);">/</span>
+                            <span style="color: var(--accent-red);">{{ pms.points_perdus }}</span>
+                        </td>
+                        <td class="text-center font-bold font-mono {% if pm.plus_minus > 0 %}text-emerald-400{% elif pm.plus_minus < 0 %}text-rose-400{% else %}text-zinc-400{% endif %}">
+                            {% if pm.plus_minus > 0 %}+{% endif %}{{ pm.plus_minus }}
+                        </td>
+                        <td class="text-center font-mono">
+                            {% if pm.differentiel_points_gagnes is not none %}
+                            <span class="{% if pm.differentiel_points_gagnes > 0 %}text-emerald-400{% elif pm.differentiel_points_gagnes < 0 %}text-rose-400{% else %}text-zinc-400{% endif %}">
+                                {% if pm.differentiel_points_gagnes > 0 %}+{% endif %}{{ (pm.differentiel_points_gagnes * 100)|round(1) }}%
+                            </span>
                             {% else %}
                             <span style="color: var(--text-muted);">—</span>
                             {% endif %}
                         </td>
-                        <td class="text-center">{% if pms.victoire %}<span class="badge badge-green text-xs">V</span>{% else %}<span class="badge badge-red text-xs">D</span>{% endif %}</td>
-                        <td class="text-center">{{ pms.points_joues }}</td>
-                        <td class="text-center" style="color: var(--accent-green);">{{ pms.points_gagnes }}</td>
-                        <td class="text-center" style="color: var(--accent-red);">{{ pms.points_perdus }}</td>
-                        <td class="text-center" style="color: var(--accent-blue);">{{ pm.points_gagnes_sideout }}</td>
                         <td class="text-center" style="color: var(--accent-gold);">{{ pm.ratio_points_pct|round(1) }}%</td>
                         <td class="text-center" style="color: var(--accent-purple);">{{ pm.break_point_ratio_pct|round(1) }}%</td>
                         <td class="text-center" style="color: var(--accent-cyan);">{{ pm.sideout_contribution_pct|round(1) }}%</td>
-                        <td class="text-center">{{ pms.services }}</td>
-                        <td class="text-center">{{ pms.max_serie if pms.max_serie > 0 else '—' }}</td>
+                        <td class="text-center font-mono">{{ pms.services }} ({{ pms.max_serie }})</td>
+                        <td class="text-center text-[11px] font-mono">
+                            {% if pm.nb_entrees_sorties > 0 or pm.nb_sorties_entrees > 0 %}
+                            <span class="text-cyan-400" title="In-Out">{{ pm.nb_entrees_sorties }}↕</span>
+                            <span class="text-amber-400" title="Out-In">{{ pm.nb_sorties_entrees }}⇅</span>
+                            {% elif pms.nb_entrees > 0 or pms.nb_sorties > 0 %}
+                            ↑{{ pms.nb_entrees }} ↓{{ pms.nb_sorties }}
+                            {% else %}
+                            —
+                            {% endif %}
+                        </td>
                     </tr>
                     {% else %}
-                    <tr><td colspan="17" class="text-center py-8" style="color: var(--text-muted);">Aucune statistique détaillée sur ce filtre.</td></tr>
+                    <tr><td colspan="16" class="text-center py-8" style="color: var(--text-muted);">Aucune statistique détaillée sur ce filtre.</td></tr>
                     {% endfor %}
                 </tbody>
             </table>

@@ -13,6 +13,7 @@ from pyvolley.database.repositories import ClubRepository, EquipeRepository
 from pyvolley.web.helpers.niveau import resolve_niveau_badge
 from pyvolley.web.helpers.club_branding import build_club_branding
 from pyvolley.web.helpers.common import season_sort_key
+from pyvolley.web.helpers.club_evolution import build_club_evolution_data
 from pyvolley.core.config import settings
 from pyvolley.scrapers.ffvb.adressier_scraper import (
     build_adressier_url,
@@ -208,7 +209,7 @@ def club_detail(
                 "niveau_score": _level_score_from_label(niveau_label),
                 "division": eq.division or (eq.competition.division if eq.competition else None),
                 "competition": eq.competition.nom if eq.competition else "",
-                "kind": f"{genre} Â· {categorie}",
+                "kind": f"{genre} · {categorie}",
             }
         )
 
@@ -223,6 +224,7 @@ def club_detail(
         "niveaux": sorted({row["niveau_label"] for row in team_rows if row["niveau_label"]}),
     }
     level_chart = _build_level_evolution_chart(team_rows)
+    club_evolution = build_club_evolution_data(equipes)
 
     return templates.TemplateResponse(
         "clubs/detail.html",
@@ -235,5 +237,6 @@ def club_detail(
             "team_rows": team_rows,
             "team_filters": team_filters,
             "level_chart": level_chart,
+            "club_evolution": club_evolution,
         },
     )

@@ -39,7 +39,7 @@
 {% set featured_jersey = jersey_cards[0] if jersey_cards else none %}
 {% set secondary_jerseys = jersey_cards[1:] if jersey_cards|length > 1 else [] %}
 
-<div class="space-y-6 player-detail-page" x-data="{ activeTab: '{{ initial_tab|default('resume') }}', filtersOpen: false }">
+<div class="space-y-6 player-detail-page fade-in" x-data="{ activeTab: '{{ initial_tab|default('resume') }}', filtersOpen: false }">
 
     {{ breadcrumb([('Accueil', '/'), ('Joueurs', '/joueurs'), (joueur.nom ~ ' ' ~ joueur.prenom, '')]) }}
 
@@ -51,10 +51,19 @@
 
     <!-- Tab Buttons -->
     <div class="tab-nav">
-        <button @click="activeTab = 'resume'" class="tab-btn" :class="{ 'active': activeTab === 'resume' }">Résumé</button>
-        <button @click="activeTab = 'stats'" class="tab-btn" :class="{ 'active': activeTab === 'stats' }">Stats détaillées</button>
-        <button @click="activeTab = 'matchs'" class="tab-btn" :class="{ 'active': activeTab === 'matchs' }">Tous les matchs</button>
-        <button @click="activeTab = 'carte'" class="tab-btn" :class="{ 'active': activeTab === 'carte' }">Carte des matchs</button>
+        <button @click="activeTab = 'resume'" class="tab-btn" :class="{ 'active': activeTab === 'resume' }">
+            <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i> Résumé
+        </button>
+        <button @click="activeTab = 'stats'" class="tab-btn" :class="{ 'active': activeTab === 'stats' }">
+            <i data-lucide="bar-chart-3" class="w-3.5 h-3.5"></i> Stats détaillées
+        </button>
+        <button @click="activeTab = 'matchs'" class="tab-btn" :class="{ 'active': activeTab === 'matchs' }">
+            <i data-lucide="swords" class="w-3.5 h-3.5"></i> Tous les matchs
+            <span class="badge" style="font-size: 0.6rem; padding: 1px 6px;">{{ match_rows|length }}</span>
+        </button>
+        <button @click="activeTab = 'carte'" class="tab-btn" :class="{ 'active': activeTab === 'carte' }">
+            <i data-lucide="map-pin" class="w-3.5 h-3.5"></i> Carte
+        </button>
     </div>
 
     <!-- Tab Contents -->

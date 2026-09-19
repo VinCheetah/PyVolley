@@ -102,6 +102,10 @@ LEVEL_SORT_ORDER: dict[str, int] = {
     "PRÉ_RÉGIONALE": 6,
     "PREREGIONALE": 6,
     "PRÉRÉGIONALE": 6,
+    "ACCESSION REGIONALE": 6,
+    "ACCESSION RÉGIONALE": 6,
+    "ACCESSION REGION": 6,
+    "ACCESSION RÉGION": 6,
     # Régional
     "R4": 7,
     "REGIONALE 4": 7,
@@ -133,8 +137,8 @@ LEVEL_SORT_ORDER: dict[str, int] = {
     "PRÉNATIONAL": 10,
     "PRENATIONALE": 10,
     "PRÉNATIONALE": 10,
-    "ACCESSION REGIONALE": 10,
-    "ACCESSION RÉGIONALE": 10,
+    "ACCESSION NATIONALE": 10,
+    "ACCESSION N3": 10,
     # National
     "N3": 11,
     "NATIONALE 3": 11,
@@ -145,10 +149,10 @@ LEVEL_SORT_ORDER: dict[str, int] = {
     "NATIONAL": 12,
     "NATIONALE": 12,
     "JEUNES NATIONAL": 12,
-    "N1": 13,
-    "NATIONALE 1": 13,
-    "JEUNES N1": 13,
-    # Elite
+    # N1 et Elite (N1 est l'ancienne dénomination d'Elite)
+    "N1": 15,
+    "NATIONALE 1": 15,
+    "JEUNES N1": 15,
     "ELITE AVENIR": 14,
     "ÉLITE AVENIR": 14,
     "ELITE": 15,
@@ -227,7 +231,11 @@ def classify_level(
     # Division explicite ou déduite
     div_num = str(division).strip() if division is not None and str(division).strip() else None
     if not div_num or div_num.upper() == "NONE":
-        div_num = extract_division_number(competition_name) or extract_division_number(raw_division_cat) or extract_division_number(niveau)
+        div_num = (
+            extract_division_number(competition_name, is_youth=is_youth)
+            or extract_division_number(raw_division_cat, is_youth=is_youth)
+            or extract_division_number(niveau, is_youth=is_youth)
+        )
 
     # Contexte bas niveau (régional ou départemental)
     has_regional = bool(_RE_REGIONAL_WORDS.search(full_text))
@@ -235,7 +243,22 @@ def classify_level(
     has_lower_context = has_regional or has_departmental
 
     # ── 1. Coupe de France ──────────────────────────────────────────
-    if "COUPE DE FRANCE" in full_text or re.search(r"\bCDF\b", full_text):
+    is_cdf_match = (
+        "COUPE DE FRANCE" in full_text
+        or bool(re.search(r"\bCDF\b", full_text))
+        or ("CFA" in full_text and ("ADPVA" in full_text or "ASSIS" in full_text or "BEACH" in full_text))
+        or (re.search(r"\bCFA\b", full_text) and "ASSIS" in full_text)
+    )
+    if is_cdf_match:
+        if "ASSIS" in full_text or "ADPVA" in full_text:
+            return LevelClassification(
+                categorie_principale="COUPE_DE_FRANCE",
+                division=div_num,
+                is_youth=False,
+                label="CdF Assis",
+                css_class="badge-purple",
+                rank=18,
+            )
         if is_youth:
             return LevelClassification(
                 categorie_principale="COUPE_DE_FRANCE",
@@ -254,7 +277,19 @@ def classify_level(
             rank=18,
         )
 
-    # ── 2. Professionnel (Pro A, Pro B) ────────────────────────────
+    # ── 2. Loisir, Compet'Lib, Compet'Mouv & Brassage (Prioritaire sur Elite/Départemental) ──
+    # Un département n'a pas de niveau Élite : Compet'Lib Élite ou Compet'Mouv Élite est du Loisir.
+    if re.search(r"\b(LOISIRS?|BRASSAGES?|COMPET'?\s*LIB|COMPETLIB|COMPET'?\s*MOUV|COMPETMOUV|COMPET'?\s*FUN|COMPETFUN|DETENTE|D[EÉ]TENTE)\b", full_text):
+        return LevelClassification(
+            categorie_principale="LOISIR",
+            division=div_num,
+            is_youth=False,
+            label="Loisir",
+            css_class="badge-purple",
+            rank=0,
+        )
+
+    # ── 3. Professionnel (Pro A, Pro B) ────────────────────────────
     if re.search(r"\b(PRO\s*A|LIGUE\s*A\b|LAM\b|LAF\b)\b", full_text):
         return LevelClassification(
             categorie_principale="PRO",
@@ -283,20 +318,10 @@ def classify_level(
             rank=16,
         )
 
-    # ── 3. Élite & Élite Avenir ────────────────────────────────────
-    # Si le texte comporte un qualificatif régional ou départemental,
-    # c'est un championnat régional jeune d'élite, PAS l'Élite nationale !
-    if not has_lower_context and re.search(r"\bELITE\b", full_text):
-        if re.search(r"\bELITE\s*AVENIR\b", full_text):
-            return LevelClassification(
-                categorie_principale="ELITE",
-                division=None,
-                is_youth=False,
-                label="Elite Avenir",
-                css_class="badge-gold",
-                rank=14,
-            )
+    # ── 4. Élite & Élite Avenir ────────────────────────────────────
+    if re.search(r"\b(ELITE|ÉLITE)\b", full_text):
         if is_youth:
+            # Compétition jeune d'élite (nationale ou régionale, ex: Championnat Régional Élite M18)
             return LevelClassification(
                 categorie_principale="ELITE",
                 division=None,
@@ -305,18 +330,31 @@ def classify_level(
                 css_class="badge-gold",
                 rank=15,
             )
-        return LevelClassification(
-            categorie_principale="ELITE",
-            division=None,
-            is_youth=False,
-            label="Elite",
-            css_class="badge-gold",
-            rank=15,
-        )
+        # Pour les seniors : un comité départemental n'a JAMAIS de division Élite
+        if not has_lower_context and not has_departmental:
+            if re.search(r"\b(ELITE|ÉLITE)\s*AVENIR\b", full_text):
+                return LevelClassification(
+                    categorie_principale="ELITE",
+                    division=None,
+                    is_youth=False,
+                    label="Elite Avenir",
+                    css_class="badge-gold",
+                    rank=14,
+                )
+            return LevelClassification(
+                categorie_principale="ELITE",
+                division=None,
+                is_youth=False,
+                label="Elite",
+                css_class="badge-gold",
+                rank=15,
+            )
+
+    has_accession_nat = bool(re.search(r"\bACCESSION\s+(?:A\s+LA\s+)?(?:NATIONALE?(?:\s*3)?|N3)\b", full_text))
 
     # ── 4. Divisions Nationales (N1, N2, N3, National) ─────────────
-    # N1
-    if re.search(r"\b(NATIONALE?\s*1|N1|1\s*[MF]|NM1|NF1)\b", full_text) and not has_lower_context:
+    # N1 (ancienne dénomination d'Élite)
+    if re.search(r"\b(NATIONALE?\s*1|N1|1\s*[MF]|NM1|NF1)\b", full_text) and not has_lower_context and not has_accession_nat:
         label = "Jeunes N1" if is_youth else "N1"
         return LevelClassification(
             categorie_principale="NATIONALE",
@@ -324,10 +362,10 @@ def classify_level(
             is_youth=is_youth,
             label=label,
             css_class="badge-gold",
-            rank=13,
+            rank=15,
         )
     # N2
-    if re.search(r"\b(NATIONALE?\s*2|N2|2\s*[MF]|NM2|NF2|2FA|2MA)\b", full_text) and not has_lower_context:
+    if re.search(r"\b(NATIONALE?\s*2|N2|2\s*[MF]|NM2|NF2|2FA|2MA)\b", full_text) and not has_lower_context and not has_accession_nat:
         label = "Jeunes N2" if is_youth else "N2"
         return LevelClassification(
             categorie_principale="NATIONALE",
@@ -338,7 +376,7 @@ def classify_level(
             rank=12,
         )
     # N3
-    if re.search(r"\b(NATIONALE?\s*3|N3|3\s*[MF]|NM3|NF3|3FA|3MA)\b", full_text) and not has_lower_context:
+    if re.search(r"\b(NATIONALE?\s*3|N3|3\s*[MF]|NM3|NF3|3FA|3MA)\b", full_text) and not has_lower_context and not has_accession_nat:
         label = "Jeunes N3" if is_youth else "N3"
         return LevelClassification(
             categorie_principale="NATIONALE",
@@ -348,8 +386,8 @@ def classify_level(
             css_class="badge-teal",
             rank=11,
         )
-    if div_num in {"1", "2", "3"} and re.search(r"\bNATIONAL(?:E|AUX|ES?)?\b", full_text) and not has_lower_context:
-        ranks = {"1": 13, "2": 12, "3": 11}
+    if div_num in {"1", "2", "3"} and re.search(r"\bNATIONAL(?:E|AUX|ES?)?\b", full_text) and not has_lower_context and not has_accession_nat:
+        ranks = {"1": 15, "2": 12, "3": 11}
         css = {"1": "badge-gold", "2": "badge-orange", "3": "badge-teal"}[div_num]
         label = f"Jeunes N{div_num}" if is_youth else f"N{div_num}"
         return LevelClassification(
@@ -362,10 +400,13 @@ def classify_level(
         )
 
     # ── 5. Prénationale (Plus haut niveau régional) ────────────────
-    if re.search(
-        r"\b(PRE\s*-?\s*NAT(?:IONAL(?:E|AUX|ES?)?)?|PRE_?NAT(?:IONAL(?:E|AUX|ES?)?)?|PRENAT(?:IONAL(?:E|AUX|ES?)?)?|PNM|PNF)\b",
-        full_text,
-    ) or re.search(r"\bACCESSION\s+REGIONAL(?:E|AUX|ES?)?\b", full_text):
+    if (
+        re.search(
+            r"\b(PRE\s*-?\s*NAT(?:IONAL(?:E|AUX|ES?)?)?|PRE_?NAT(?:IONAL(?:E|AUX|ES?)?)?|PRENAT(?:IONAL(?:E|AUX|ES?)?)?|PNM|PNF)\b",
+            full_text,
+        )
+        or has_accession_nat
+    ):
         return LevelClassification(
             categorie_principale="PRE_NATIONALE",
             division=div_num,
@@ -379,7 +420,7 @@ def classify_level(
     if re.search(
         r"\b(PRE\s*-?\s*REG(?:IONAL(?:E|AUX|ES?)?)?|PRE_?REG(?:IONAL(?:E|AUX|ES?)?)?|PREREG(?:IONAL(?:E|AUX|ES?)?)?|PRM|PRF)\b",
         full_text,
-    ) or re.search(r"\bACCESSION\s+PREREGIONAL(?:E|AUX|ES?)?\b", full_text):
+    ) or re.search(r"\bACCESSION\s+(?:A\s+LA\s+)?REGIONAL(?:E|AUX|ES?)?\b", full_text) or re.search(r"\bACCESSION\s+PREREGIONAL(?:E|AUX|ES?)?\b", full_text):
         return LevelClassification(
             categorie_principale="PRE_REGIONALE",
             division=div_num,
@@ -390,25 +431,34 @@ def classify_level(
         )
 
     # ── 7. Régionale avec division (R1, R2, R3, R4) ────────────────
+    # Pour les équipes jeunes en régional : catégorie "Jeunes Régional" (pas de division R1/R2/R3 senior)
+    if is_youth and has_regional:
+        return LevelClassification(
+            categorie_principale="REGIONALE",
+            division=div_num,
+            is_youth=True,
+            label="Jeunes Régional",
+            css_class="badge-blue",
+            rank=9,
+        )
+
     # R1
     if re.search(r"\b(REGIONALE?\s*1|R1|R1M|R1F)\b", full_text) or (has_regional and div_num == "1"):
-        label = "Jeunes R1" if is_youth else "R1"
         return LevelClassification(
             categorie_principale="REGIONALE",
             division="1",
             is_youth=is_youth,
-            label=label,
+            label="R1",
             css_class="badge-blue",
             rank=9,
         )
     # R2
     if re.search(r"\b(REGIONALE?\s*2|R2|R2M|R2F)\b", full_text) or (has_regional and div_num == "2"):
-        label = "Jeunes R2" if is_youth else "R2"
         return LevelClassification(
             categorie_principale="REGIONALE",
             division="2",
             is_youth=is_youth,
-            label=label,
+            label="R2",
             css_class="badge-blue",
             rank=8,
         )
@@ -445,25 +495,34 @@ def classify_level(
         )
 
     # ── 8. Départementale avec division (D1, D2, D3, D4) ───────────
+    # Pour les équipes jeunes en départemental : catégorie "Jeunes Dép"
+    if is_youth and has_departmental:
+        return LevelClassification(
+            categorie_principale="DEPARTEMENTALE",
+            division=div_num,
+            is_youth=True,
+            label="Jeunes Dép",
+            css_class="badge-cyan",
+            rank=4,
+        )
+
     # D1
     if re.search(r"\b(DEPARTEMENTALE?\s*1|D1|D1M|D1F)\b", full_text) or (has_departmental and div_num == "1"):
-        label = "Jeunes D1" if is_youth else "D1"
         return LevelClassification(
             categorie_principale="DEPARTEMENTALE",
             division="1",
             is_youth=is_youth,
-            label=label,
+            label="D1",
             css_class="badge-cyan",
             rank=4,
         )
     # D2
     if re.search(r"\b(DEPARTEMENTALE?\s*2|D2|D2M|D2F)\b", full_text) or (has_departmental and div_num == "2"):
-        label = "Jeunes D2" if is_youth else "D2"
         return LevelClassification(
             categorie_principale="DEPARTEMENTALE",
             division="2",
             is_youth=is_youth,
-            label=label,
+            label="D2",
             css_class="badge-cyan",
             rank=3,
         )
@@ -707,4 +766,398 @@ def resolve_competition_echelon(
         return "departemental"
 
     return "regional"
+
+
+@dataclass(frozen=True)
+class ContextualLadder:
+    """Échelle de niveaux contextuelle adaptée au territoire et à l'historique d'un club/équipe."""
+
+    levels: list[dict[str, Any]]
+    label_to_score: dict[str, float]
+    y_ticks: list[tuple[float, str]]
+    separators: list[float]
+    lanes: list[dict[str, Any]]
+    y_min: float
+    y_max: float
+
+
+def build_contextual_level_ladder(
+    teams_or_labels: list[Any],
+    entite_comite: Optional[str] = None,
+    entite_ligue: Optional[str] = None,
+) -> ContextualLadder:
+    """Construit une échelle ordonnée des niveaux pertinents pour un club / un ensemble d'équipes.
+
+    Prend en compte :
+    1. La diversité territoriale réelle :
+       - Comités avec D1/D2, ou Dép/Préreg, ou D1/D2/D3, ou juste Dép, etc.
+       - Ligues avec Prénat/R1/R2/R3, ou Prénat/R1, ou Prénat/Régionale, etc.
+       - National : N3 < N2 < Élite (avec N1 comme ancienne dénomination d'Élite) < Pro B < Pro A.
+       - Loisir à la base si présent.
+    2. Les évolutions d'une année sur l'autre :
+       - Réconcilie les changements de dénomination (ex: Dép en saison 1 ➔ D1/D2 en saison 2).
+    3. L'absence de niveaux fantômes sur les graphiques :
+       - L'axe Y ne contient que les niveaux existants et pertinents dans le périmètre sportif.
+    """
+    labels_encountered: set[str] = set()
+    is_loisir_present = False
+
+    for item in teams_or_labels:
+        if isinstance(item, str):
+            lbl = item.strip()
+            if lbl:
+                labels_encountered.add(lbl)
+                if "LOISIR" in lbl.upper():
+                    is_loisir_present = True
+        elif isinstance(item, dict):
+            lbl = item.get("display_label") or item.get("base_label") or item.get("label") or ""
+            if lbl:
+                labels_encountered.add(str(lbl))
+            if item.get("is_loisir") or "LOISIR" in str(lbl).upper() or "LOISIR" in str(item.get("competition", "")).upper():
+                is_loisir_present = True
+        else:
+            lbl = getattr(item, "display_label", None) or getattr(item, "base_label", None) or getattr(item, "label", None) or ""
+            if lbl:
+                labels_encountered.add(str(lbl))
+            if getattr(item, "is_loisir", False) or "LOISIR" in str(lbl).upper():
+                is_loisir_present = True
+
+    # Analyse des labels rencontrés
+    norm_labels = {normalize_text_upper(l) for l in labels_encountered}
+
+    # ── 1. Échelon Départemental ─────────────────────────────────────
+    has_prereg = any(l in norm_labels for l in [
+        "PREREG", "PRÉREG", "PRE REG", "PRE_REGIONALE", "PRÉ_RÉGIONALE",
+        "PREREGIONALE", "PRÉRÉGIONALE", "ACCESSION REGIONALE", "ACCESSION RÉGIONALE", "ACCESSION REGION", "ACCESSION RÉGION",
+    ])
+    has_d1 = any(l in norm_labels for l in ["D1", "DEPARTEMENTALE 1", "DÉPARTEMENTALE 1", "D1M", "D1F"])
+    has_d2 = any(l in norm_labels for l in ["D2", "DEPARTEMENTALE 2", "DÉPARTEMENTALE 2", "D2M", "D2F"])
+    has_d3 = any(l in norm_labels for l in ["D3", "DEPARTEMENTALE 3", "DÉPARTEMENTALE 3", "D3M", "D3F"])
+    has_d4 = any(l in norm_labels for l in ["D4", "DEPARTEMENTALE 4", "DÉPARTEMENTALE 4", "D4M", "D4F"])
+    has_dep = any(l in norm_labels for l in [
+        "DEP", "DÉP", "DEPARTEMENTALE", "DÉPARTEMENTALE", "DEPARTEMENTAL", "DÉPARTEMENTAL",
+        "JEUNES DÉP", "JEUNES DEP", "JEUNES D1", "JEUNES D2", "JEUNES D3", "JEUNES D4",
+    ])
+
+    # Complétion des échelons intermédiaires au sein d'une même hiérarchie
+    # (ex: si une équipe joue en D2 et une en Préreg dans un comité qui a D1, D1 est le palier intermédiaire)
+    if has_d2 and has_prereg and not has_dep:
+        has_d1 = True
+    if has_d3 and (has_d1 or has_prereg):
+        has_d2 = True
+    if has_d4 and (has_d2 or has_d1 or has_prereg):
+        has_d3 = True
+
+    dep_tiers: list[dict[str, Any]] = []
+
+    # Cas A : uniquement Dép générique (sans D1..D4 ni Préreg)
+    if has_dep and not (has_d1 or has_d2 or has_d3 or has_d4 or has_prereg):
+        dep_tiers.append({
+            "key": "DEP",
+            "label": "Dép",
+            "echelon": "departemental",
+            "css": "badge-cyan",
+            "aliases": [
+                "DEP", "DÉP", "DEPARTEMENTALE", "DÉPARTEMENTALE", "DEPARTEMENTAL", "DÉPARTEMENTAL",
+                "JEUNES DÉP", "JEUNES DEP", "JEUNES D1", "JEUNES D2", "JEUNES D3", "JEUNES D4",
+            ],
+        })
+    # Cas B : Préreg + Dép (sans D1..D4)
+    elif has_prereg and has_dep and not (has_d1 or has_d2 or has_d3 or has_d4):
+        dep_tiers.append({
+            "key": "DEP",
+            "label": "Dép",
+            "echelon": "departemental",
+            "css": "badge-cyan",
+            "aliases": [
+                "DEP", "DÉP", "DEPARTEMENTALE", "DÉPARTEMENTALE", "DEPARTEMENTAL", "DÉPARTEMENTAL",
+                "JEUNES DÉP", "JEUNES DEP", "JEUNES D1", "JEUNES D2", "JEUNES D3", "JEUNES D4",
+            ],
+        })
+        dep_tiers.append({
+            "key": "PREREG",
+            "label": "Préreg",
+            "echelon": "departemental",
+            "css": "badge-teal",
+            "aliases": [
+                "PREREG", "PRÉREG", "PRE REG", "PRE_REGIONALE", "PRÉ_RÉGIONALE",
+                "PREREGIONALE", "PRÉRÉGIONALE", "ACCESSION REGIONALE", "ACCESSION RÉGIONALE", "ACCESSION REGION", "ACCESSION RÉGION",
+            ],
+        })
+    # Cas C : Préreg seul
+    elif has_prereg and not (has_dep or has_d1 or has_d2 or has_d3 or has_d4):
+        dep_tiers.append({
+            "key": "PREREG",
+            "label": "Préreg",
+            "echelon": "departemental",
+            "css": "badge-teal",
+            "aliases": [
+                "PREREG", "PRÉREG", "PRE REG", "PRE_REGIONALE", "PRÉ_RÉGIONALE",
+                "PREREGIONALE", "PRÉRÉGIONALE", "ACCESSION REGIONALE", "ACCESSION RÉGIONALE", "ACCESSION REGION", "ACCESSION RÉGION",
+            ],
+        })
+    # Cas D : divisions numérotées D1, D2, D3, D4 et possible réorganisation Dép / Préreg
+    elif has_d1 or has_d2 or has_d3 or has_d4 or has_dep or has_prereg:
+        if has_d4:
+            dep_tiers.append({
+                "key": "D4",
+                "label": "D4",
+                "echelon": "departemental",
+                "css": "badge-cyan",
+                "aliases": ["D4", "DEPARTEMENTALE 4", "DÉPARTEMENTALE 4", "D4M", "D4F"],
+            })
+        if has_d3:
+            dep_tiers.append({
+                "key": "D3",
+                "label": "D3",
+                "echelon": "departemental",
+                "css": "badge-cyan",
+                "aliases": ["D3", "DEPARTEMENTALE 3", "DÉPARTEMENTALE 3", "D3M", "D3F"],
+            })
+        if has_d2:
+            dep_tiers.append({
+                "key": "D2",
+                "label": "D2",
+                "echelon": "departemental",
+                "css": "badge-cyan",
+                "aliases": ["D2", "DEPARTEMENTALE 2", "DÉPARTEMENTALE 2", "D2M", "D2F"],
+            })
+        if has_d1 or has_dep:
+            d1_label = "D1 / Dép" if (has_d1 and has_dep) else ("D1" if has_d1 else "Dép")
+            aliases = ["D1", "DEPARTEMENTALE 1", "DÉPARTEMENTALE 1", "D1M", "D1F"]
+            if has_dep:
+                aliases.extend([
+                    "DEP", "DÉP", "DEPARTEMENTALE", "DÉPARTEMENTALE", "DEPARTEMENTAL", "DÉPARTEMENTAL",
+                    "JEUNES DÉP", "JEUNES DEP", "JEUNES D1", "JEUNES D2", "JEUNES D3", "JEUNES D4",
+                ])
+            dep_tiers.append({
+                "key": "D1",
+                "label": d1_label,
+                "echelon": "departemental",
+                "css": "badge-cyan",
+                "aliases": aliases,
+            })
+        if has_prereg:
+            dep_tiers.append({
+                "key": "PREREG",
+                "label": "Préreg",
+                "echelon": "departemental",
+                "css": "badge-teal",
+                "aliases": [
+                    "PREREG", "PRÉREG", "PRE REG", "PRE_REGIONALE", "PRÉ_RÉGIONALE",
+                    "PREREGIONALE", "PRÉRÉGIONALE", "ACCESSION REGIONALE", "ACCESSION RÉGIONALE", "ACCESSION REGION", "ACCESSION RÉGION",
+                ],
+            })
+
+    # ── 2. Échelon Régional ─────────────────────────────────────────
+    has_prenat = any(l in norm_labels for l in [
+        "PRENAT", "PRÉNAT", "PRE NAT", "PRE_NATIONALE", "PRÉ_NATIONALE",
+        "PRENATIONAL", "PRÉNATIONAL", "PRENATIONALE", "PRÉNATIONALE",
+        "ACCESSION NATIONALE", "ACCESSION N3", "PNM", "PNF",
+    ])
+    has_r1 = any(l in norm_labels for l in ["R1", "REGIONALE 1", "RÉGIONALE 1", "R1M", "R1F"])
+    has_r2 = any(l in norm_labels for l in ["R2", "REGIONALE 2", "RÉGIONALE 2", "R2M", "R2F"])
+    has_r3 = any(l in norm_labels for l in ["R3", "REGIONALE 3", "RÉGIONALE 3", "R3M", "R3F"])
+    has_r4 = any(l in norm_labels for l in ["R4", "REGIONALE 4", "RÉGIONALE 4", "R4M", "R4F"])
+    has_reg_generic = any(l in norm_labels for l in [
+        "REGIONAL", "RÉGIONAL", "REGIONALE", "RÉGIONALE", "JEUNES REGIONAL", "JEUNES RÉGIONAL",
+        "JEUNES REGIONALE", "JEUNES RÉGIONALE", "JEUNES R1", "JEUNES R2",
+    ])
+
+    reg_tiers: list[dict[str, Any]] = []
+
+    if has_r4:
+        reg_tiers.append({
+            "key": "R4",
+            "label": "R4",
+            "echelon": "regional",
+            "css": "badge-blue",
+            "aliases": ["R4", "REGIONALE 4", "RÉGIONALE 4", "R4M", "R4F"],
+        })
+    if has_r3:
+        reg_tiers.append({
+            "key": "R3",
+            "label": "R3",
+            "echelon": "regional",
+            "css": "badge-blue",
+            "aliases": ["R3", "REGIONALE 3", "RÉGIONALE 3", "R3M", "R3F"],
+        })
+    if has_r2:
+        reg_tiers.append({
+            "key": "R2",
+            "label": "R2",
+            "echelon": "regional",
+            "css": "badge-blue",
+            "aliases": ["R2", "REGIONALE 2", "RÉGIONALE 2", "R2M", "R2F"],
+        })
+    if has_r1 or has_reg_generic:
+        r_label = "R1 / Régionale" if (has_r1 and has_reg_generic) else ("R1" if has_r1 else "Régionale")
+        aliases = [
+            "REGIONAL", "RÉGIONAL", "REGIONALE", "RÉGIONALE", "JEUNES REGIONAL", "JEUNES RÉGIONAL",
+            "JEUNES REGIONALE", "JEUNES RÉGIONALE", "JEUNES R1", "JEUNES R2",
+        ]
+        if has_r1:
+            aliases.extend(["R1", "REGIONALE 1", "RÉGIONALE 1", "R1M", "R1F"])
+        reg_tiers.append({
+            "key": "R1" if has_r1 else "REGIONAL",
+            "label": r_label,
+            "echelon": "regional",
+            "css": "badge-blue",
+            "aliases": aliases,
+        })
+    if has_prenat:
+        reg_tiers.append({
+            "key": "PRENAT",
+            "label": "Prénat",
+            "echelon": "regional",
+            "css": "badge-orange",
+            "aliases": [
+                "PRENAT", "PRÉNAT", "PRE NAT", "PRE_NATIONALE", "PRÉ_NATIONALE",
+                "PRENATIONAL", "PRÉNATIONAL", "PRENATIONALE", "PRÉNATIONALE",
+                "ACCESSION NATIONALE", "ACCESSION N3", "PNM", "PNF",
+            ],
+        })
+
+    # ── 3. Échelon National ─────────────────────────────────────────
+    has_n3 = any(l in norm_labels for l in ["N3", "NATIONALE 3", "JEUNES N3", "NM3", "NF3", "3FA", "3MA"])
+    has_n2 = any(l in norm_labels for l in ["N2", "NATIONALE 2", "JEUNES N2", "NM2", "NF2", "2FA", "2MA", "NATIONAL", "NATIONALE", "JEUNES NATIONAL"])
+    has_n1 = any(l in norm_labels for l in ["N1", "NATIONALE 1", "JEUNES N1", "NM1", "NF1", "1FA", "1MA"])
+    has_elite = any(l in norm_labels for l in ["ELITE", "ÉLITE", "JEUNES ELITE", "ELITE AVENIR", "ÉLITE AVENIR"])
+    has_prob = any(l in norm_labels for l in ["PRO B", "LIGUE B", "LBM", "LBF", "PRO"])
+    has_proa = any(l in norm_labels for l in ["PRO A", "LIGUE A", "LAM", "LAF"])
+
+    if has_proa:
+        max_nat = 5
+    elif has_prob:
+        max_nat = 4
+    elif has_elite or has_n1:
+        max_nat = 3
+    elif has_n2:
+        max_nat = 2
+    elif has_n3:
+        max_nat = 1
+    else:
+        max_nat = 0
+
+    nat_tiers: list[dict[str, Any]] = []
+
+    if max_nat >= 1:
+        nat_tiers.append({
+            "key": "N3",
+            "label": "N3",
+            "echelon": "national",
+            "css": "badge-teal",
+            "aliases": ["N3", "NATIONALE 3", "JEUNES N3", "NM3", "NF3", "3FA", "3MA"],
+        })
+    if max_nat >= 2:
+        nat_tiers.append({
+            "key": "N2",
+            "label": "N2",
+            "echelon": "national",
+            "css": "badge-orange",
+            "aliases": ["N2", "NATIONALE 2", "JEUNES N2", "NM2", "NF2", "2FA", "2MA", "NATIONAL", "NATIONALE", "JEUNES NATIONAL"],
+        })
+    if max_nat >= 3:
+        # N1 est l'ancienne dénomination d'Élite
+        if has_n1 and not has_elite:
+            e_label = "N1"
+        elif has_n1 and has_elite:
+            e_label = "Élite / N1"
+        else:
+            e_label = "Élite"
+        aliases = [
+            "ELITE", "ÉLITE", "JEUNES ELITE", "JEUNES ÉLITE", "ELITE AVENIR", "ÉLITE AVENIR",
+            "N1", "NATIONALE 1", "JEUNES N1", "NM1", "NF1", "1FA", "1MA",
+        ]
+        nat_tiers.append({
+            "key": "ELITE",
+            "label": e_label,
+            "echelon": "national",
+            "css": "badge-gold",
+            "aliases": aliases,
+        })
+    if max_nat >= 4:
+        nat_tiers.append({
+            "key": "PRO_B",
+            "label": "Pro B",
+            "echelon": "national",
+            "css": "badge-red",
+            "aliases": ["PRO B", "LIGUE B", "LBM", "LBF", "PRO"],
+        })
+    if max_nat >= 5:
+        nat_tiers.append({
+            "key": "PRO_A",
+            "label": "Pro A",
+            "echelon": "national",
+            "css": "badge-red",
+            "aliases": ["PRO A", "LIGUE A", "LAM", "LAF"],
+        })
+
+    # ── 4. Loisir ───────────────────────────────────────────────────
+    loisir_tiers: list[dict[str, Any]] = []
+    if is_loisir_present:
+        loisir_tiers.append({
+            "key": "LOISIR",
+            "label": "Loisir",
+            "echelon": "loisir",
+            "css": "badge-purple",
+            "aliases": [
+                "LOISIR", "LOISIRS", "BRASSAGE", "DETENTE", "DÉTENTE",
+                "COMPET'FUN", "COMPET FUN", "COMPETFUN", "COMPET'MOUV", "COMPET MOUV", "COMPETMOUV",
+                "COMPET'LIB", "COMPET LIB", "COMPETLIB",
+            ],
+        })
+
+    all_tiers = loisir_tiers + dep_tiers + reg_tiers + nat_tiers
+
+    # Garde-fou si aucune catégorie identifiée
+    if len(all_tiers) == 0:
+        all_tiers = [
+            {"key": "DEP", "label": "Dép", "echelon": "departemental", "css": "badge-cyan", "aliases": ["DEP", "DÉP"]},
+            {"key": "REGIONAL", "label": "Régionale", "echelon": "regional", "css": "badge-blue", "aliases": ["REGIONAL", "RÉGIONAL", "RÉGIONALE"]},
+        ]
+    elif len(all_tiers) == 1:
+        # Assurer au moins 2 ticks pour que Chart.js affiche une grille convenable
+        if all_tiers[0]["echelon"] == "departemental":
+            all_tiers.append({"key": "REGIONAL", "label": "Régionale", "echelon": "regional", "css": "badge-blue", "aliases": ["REGIONAL", "RÉGIONAL", "RÉGIONALE"]})
+        else:
+            all_tiers.insert(0, {"key": "DEP", "label": "Dép", "echelon": "departemental", "css": "badge-cyan", "aliases": ["DEP", "DÉP"]})
+
+    label_to_score: dict[str, float] = {}
+    for idx, tier in enumerate(all_tiers):
+        r_val = float(idx)
+        tier["rank"] = r_val
+        label_to_score[tier["key"]] = r_val
+        label_to_score[tier["label"]] = r_val
+        label_to_score[tier["label"].upper()] = r_val
+        label_to_score[normalize_text_upper(tier["label"])] = r_val
+        for alias in tier.get("aliases", []):
+            label_to_score[alias] = r_val
+            label_to_score[alias.upper()] = r_val
+            label_to_score[normalize_text_upper(alias)] = r_val
+
+    y_ticks = [(tier["rank"], tier["label"]) for tier in all_tiers]
+    separators = [float(idx) + 0.5 for idx in range(len(all_tiers) - 1)]
+    lanes = [
+        {
+            "val": tier["rank"],
+            "label": tier["label"],
+            "bottom": round(tier["rank"] - 0.5, 2),
+            "top": round(tier["rank"] + 0.5, 2),
+        }
+        for tier in all_tiers
+    ]
+    y_min = -0.55
+    y_max = float(len(all_tiers) - 1) + 0.55
+
+    return ContextualLadder(
+        levels=all_tiers,
+        label_to_score=label_to_score,
+        y_ticks=y_ticks,
+        separators=separators,
+        lanes=lanes,
+        y_min=y_min,
+        y_max=y_max,
+    )
+
 

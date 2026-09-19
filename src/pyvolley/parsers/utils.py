@@ -44,9 +44,13 @@ def normalize_name(name: str) -> str:
     return re.sub(r'\s+', ' ', name).strip()
 
 
-def clean_team_name(name: str) -> str:
-    """Nettoie un nom d'équipe (espaces multiples, lettre isolée en fin)."""
-    name = re.sub(r'\s+', ' ', name).strip()
+def clean_team_name(name: Optional[str]) -> str:
+    """Nettoie un nom d'équipe (espaces multiples, ponctuation parasite, lettre isolée en fin)."""
+    if not name:
+        return ""
+    name = re.sub(r'\s+', ' ', str(name)).strip()
+    # Supprimer ponctuation parasite isolée en début / fin (ex: virgules orphelines)
+    name = re.sub(r'^[,\-._/\\;:\'\"\s]+|[,\-._/\\;:\'\"\s]+$', '', name).strip()
     # Lettre isolée en fin = troncature PDF
     name = re.sub(r'\s+[A-Z]$', '', name)
     return name.strip()
@@ -158,7 +162,10 @@ _NIVEAU_KEYWORDS: list[tuple[str, str]] = [
     (r'\bLBF\b', 'ELITE'),
     # PRE-NATIONALE (doit être avant NATIONALE pour éviter un match partiel)
     (r'\bPR[EÉ][\s-]*NATIONAL', 'PRE_NATIONALE'),
-    (r'\bACCESSION\s+R[EÉ]GIONALE\b', 'PRE_NATIONALE'),
+    (r'\bACCESSION\s+(?:A\s+LA\s+)?(?:NATIONALE?(?:\s*3)?|N3)\b', 'PRE_NATIONALE'),
+    # PRE-REGIONALE
+    (r'\bPR[EÉ][\s-]*R[EÉ]GIONAL', 'PRE_REGIONALE'),
+    (r'\bACCESSION\s+(?:A\s+LA\s+)?R[EÉ]GIONAL(?:E|AUX|ES?)?\b', 'PRE_REGIONALE'),
     # NATIONALE
     (r'\bNATIONALE?\s*[1-4]?\b', 'NATIONALE'),
     (r'\bNATIONAL\b', 'NATIONALE'),

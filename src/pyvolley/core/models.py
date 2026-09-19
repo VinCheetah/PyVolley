@@ -7,8 +7,9 @@ Ces modèles représentent les données métier et sont utilisés pour :
 - La documentation automatique de l'API
 """
 
+import re
 from datetime import date as datetime_date, datetime, time as datetime_time
-from typing import Optional
+from typing import Optional, Any
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -82,6 +83,34 @@ class JoueurStats(Joueur):
         return self.victoires / self.matchs_joues
 
 
+# ============== Ligue & Comité ==============
+
+class Ligue(PyVolleyModel):
+    """Ligue régionale de volleyball."""
+    id: Optional[int] = None
+    code: str = Field(..., description="Code ligue à 2 chiffres (ex: 13, 09)")
+    nom: str = Field(..., min_length=2)
+    telephone: Optional[str] = None
+    email: Optional[str] = None
+    site_web: Optional[str] = None
+    adresse_siege: Optional[str] = None
+    president: Optional[str] = None
+
+
+class Comite(PyVolleyModel):
+    """Comité départemental de volleyball."""
+    id: Optional[int] = None
+    code: str = Field(..., description="Code comité à 3 chiffres (ex: 075, 059)")
+    numero_departement: Optional[str] = None
+    nom: str = Field(..., min_length=2)
+    ligue_id: Optional[int] = None
+    ligue_code: Optional[str] = None
+    telephone: Optional[str] = None
+    email: Optional[str] = None
+    site_web: Optional[str] = None
+    adresse_siege: Optional[str] = None
+
+
 # ============== Club & Équipe ==============
 
 class Club(PyVolleyModel):
@@ -90,8 +119,31 @@ class Club(PyVolleyModel):
     nom: str = Field(..., min_length=2)
     nom_court: Optional[str] = None
     code: Optional[str] = None
+    code_ffvb: Optional[str] = None
     ville: Optional[str] = None
     departement: Optional[str] = None
+    ligue: Optional[str] = None
+    ligue_id: Optional[int] = None
+    comite_id: Optional[int] = None
+    adresse_siege: Optional[str] = None
+    code_postal_siege: Optional[str] = None
+    ville_siege: Optional[str] = None
+    email: Optional[str] = None
+    site_web: Optional[str] = None
+    telephone: Optional[str] = None
+    couleurs: Optional[str] = None
+    president: Optional[str] = None
+    correspondant_nom: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+
+    @field_validator("nom", mode="before")
+    @classmethod
+    def validate_nom(cls, v: Any) -> str:
+        if v is None:
+            return ""
+        s = str(v).strip()
+        return re.sub(r"^[,\-._/\\;:'\"\s]+|[,\-._/\\;:'\"\s]+$", "", s).strip()
 
 
 class Equipe(PyVolleyModel):
@@ -111,6 +163,17 @@ class Equipe(PyVolleyModel):
     officiels: list["Officiel"] = Field(default_factory=list)
     entraineur: Optional[str] = None
     assistant: Optional[str] = None
+
+    @field_validator("nom", mode="before")
+    @classmethod
+    def validate_nom(cls, v: Any) -> str:
+        if v is None:
+            return ""
+        s = str(v).strip()
+        cleaned = re.sub(r"^[,\-._/\\;:'\"\s]+|[,\-._/\\;:'\"\s]+$", "", s).strip()
+        if len(cleaned) < 2:
+            raise ValueError("Le nom d'équipe doit contenir au moins 2 caractères")
+        return cleaned
 
 
 # ============== Arbitre ==============
@@ -321,6 +384,7 @@ class Match(MatchBase):
     score_final: Optional[str] = None  # "3/1"
     score_export: Optional[str] = None
     score_pdf: Optional[str] = None
+    sets_detail_export: list[dict] = Field(default_factory=list)
     sets_a: int = 0
     sets_b: int = 0
     duree_totale: Optional[str] = None
@@ -403,8 +467,57 @@ class Match(MatchBase):
         return self.score_resolution.score_display
 
     @property
+    def sets_detail_export_display(self) -> Optional[str]:
+        """Chaîne formatée des sets du scraper (ex: '25-20, 16-25, 25-21, 25-18')."""
+        if not self.sets_detail_export:
+            return None
+        parts = []
+        for s in self.sets_detail_export:
+            sa = s.get("score_a")
+            sb = s.get("score_b")
+            if sa is not None and sb is not None:
+                parts.append(f"{sa}-{sb}")
+        return ", ".join(parts) if parts else None
+
+    @property
+    def sets_detail_pdf_display(self) -> Optional[str]:
+        """Chaîne formatée des sets du parser PDF (ex: '25-20, 18-25, 25-22, 23-25, 15-12')."""
+        if not self.sets:
+            return None
+        parts = []
+        for s in sorted(self.sets, key=lambda item: item.numero):
+            if s.score_a is not None and s.score_b is not None:
+                parts.append(f"{s.score_a}-{s.score_b}")
+        return ", ".join(parts) if parts else None
+
+    @property
+    def score_divergence(self) -> dict:
+        """Détaille la divergence éventuelle entre le scraper et le parser."""
+        score_res = self.score_resolution
+        score_sets_diff = bool(score_res.conflict)
+
+        detail_export_str = self.sets_detail_export_display
+        detail_pdf_str = self.sets_detail_pdf_display
+
+        sets_detail_diff = False
+        if detail_export_str and detail_pdf_str:
+            sets_detail_diff = (detail_export_str != detail_pdf_str)
+
+        has_divergence = score_sets_diff or sets_detail_diff
+        return {
+            "has_divergence": has_divergence,
+            "score_sets_divergent": score_sets_diff,
+            "sets_detail_divergent": sets_detail_diff,
+            "score_scraper": self.score_export,
+            "score_parser": self.score_pdf,
+            "sets_scraper": detail_export_str,
+            "sets_parser": detail_pdf_str,
+            "score_effective": score_res.score_effective,
+        }
+
+    @property
     def score_conflict(self) -> bool:
-        return self.score_resolution.conflict
+        return self.score_divergence["has_divergence"]
 
     def invert_sides(self) -> "Match":
         """Retourne une copie du match avec les équipes A et B inversées."""
@@ -533,6 +646,13 @@ def invert_match_sides(match: Match) -> Match:
         elif match.vainqueur_id == match.equipe_b_id:
             new_vainqueur_id = match.equipe_a_id
 
+    inv_sets_detail_export = []
+    if match.sets_detail_export:
+        for s in match.sets_detail_export:
+            s_copy = dict(s)
+            s_copy["score_a"], s_copy["score_b"] = s_copy.get("score_b"), s_copy.get("score_a")
+            inv_sets_detail_export.append(s_copy)
+
     return match.model_copy(
         update={
             "equipe_a": match.equipe_b,
@@ -544,6 +664,7 @@ def invert_match_sides(match: Match) -> Match:
             "score_final": inv_score_final,
             "score_pdf": inv_score_pdf,
             "score_export": inv_score_export,
+            "sets_detail_export": inv_sets_detail_export,
             "vainqueur_id": new_vainqueur_id,
             "sets": inverted_sets,
             "sanctions": inverted_sanctions,

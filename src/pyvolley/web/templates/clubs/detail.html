@@ -13,6 +13,58 @@
         --club-quaternary: {{ club_branding.hexes[3] if club_branding and club_branding.hexes|length > 3 else (club_branding.primary if club_branding else '#f59e0b') }};
         --club-on-primary: {{ club_branding.text_on_primary if club_branding else '#0b0e17' }};
     }
+    .evolution-tab-btn {
+        padding: 0.45rem 0.875rem;
+        border-radius: 0.5rem;
+        font-size: 0.8125rem;
+        font-weight: 500;
+        transition: all 0.2s ease;
+        border: 1px solid var(--border-color);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--text-secondary);
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+        cursor: pointer;
+    }
+    .evolution-tab-btn:hover {
+        background: rgba(255, 255, 255, 0.07);
+        color: #ffffff;
+    }
+    .evolution-tab-btn.active {
+        background: rgba(59, 130, 246, 0.15);
+        border-color: var(--accent-blue);
+        color: #ffffff;
+        box-shadow: 0 0 12px rgba(59, 130, 246, 0.2);
+    }
+    .evolution-status-btn {
+        padding: 0.3rem 0.75rem;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 500;
+        transition: all 0.2s ease;
+        border: 1px solid var(--border-color);
+        background: rgba(255, 255, 255, 0.03);
+        color: var(--text-muted);
+        cursor: pointer;
+    }
+    .evolution-status-btn:hover {
+        background: rgba(255, 255, 255, 0.07);
+        color: #ffffff;
+    }
+    .evolution-status-btn.active {
+        background: rgba(255, 255, 255, 0.15);
+        border-color: rgba(255, 255, 255, 0.3);
+        color: #ffffff;
+    }
+    .evolution-transition-card {
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+        border-left-width: 4px;
+    }
+    .evolution-transition-card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+    }
 </style>
 {% endblock %}
 
@@ -50,16 +102,26 @@
                         {{ club.code_ffvb }}
                     </span>
                     {% endif %}
-                    {% if club.ville %}
+                    {% if club.ville_siege or club.ville %}
                     <span class="badge badge-blue">
                         <i data-lucide="map-pin" class="w-3 h-3 mr-1"></i>
-                        {{ club.ville }}
+                        {{ club.ville_siege or club.ville }}
                     </span>
                     {% endif %}
-                    {% if club.departement %}
+                    {% if club.comite_rel %}
+                    <span class="badge badge-purple">
+                        <i data-lucide="map" class="w-3 h-3 mr-1"></i>
+                        CD {{ club.comite_rel.numero_departement or club.departement }} - {{ club.comite_rel.nom }}
+                    </span>
+                    {% elif club.departement %}
                     <span class="badge badge-purple">Dép. {{ club.departement }}</span>
                     {% endif %}
-                    {% if club.ligue %}
+                    {% if club.ligue_rel %}
+                    <span class="badge badge-green">
+                        <i data-lucide="landmark" class="w-3 h-3 mr-1"></i>
+                        {{ club.ligue_rel.nom }}
+                    </span>
+                    {% elif club.ligue %}
                     <span class="badge badge-green">
                         <i data-lucide="landmark" class="w-3 h-3 mr-1"></i>
                         {{ club.ligue }}
@@ -88,35 +150,34 @@
                     {% endfor %}
                 </div>
                 {% endif %}
-                {% if ffvb_links and (ffvb_links.planning or ffvb_links.classement or ffvb_links.adressier) %}
                 <div class="flex flex-wrap gap-2 mt-3">
-                    {% if ffvb_links.planning %}
+                    {% if ffvb_links and ffvb_links.planning %}
                     <a href="{{ ffvb_links.planning }}" target="_blank" rel="noopener noreferrer"
-                       class="badge badge-blue hover:opacity-80 transition">
+                       class="badge badge-blue hover:opacity-80 transition"
+                       title="Planning officiel de tous les matchs du club sur le site de la FFVB">
                         <i data-lucide="calendar-days" class="w-3 h-3 mr-1"></i>
                         Planning FFVB
                         <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
                     </a>
                     {% endif %}
-                    {% if ffvb_links.classement %}
+                    {% if ffvb_links and ffvb_links.classement %}
                     <a href="{{ ffvb_links.classement }}" target="_blank" rel="noopener noreferrer"
-                       class="badge badge-green hover:opacity-80 transition">
+                       class="badge badge-green hover:opacity-80 transition"
+                       title="Classement officiel des équipes du club sur le site de la FFVB">
                         <i data-lucide="list-ordered" class="w-3 h-3 mr-1"></i>
                         Classement FFVB
                         <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
                     </a>
                     {% endif %}
-                    {% if ffvb_links.adressier %}
-                    <a href="{{ ffvb_links.adressier }}" target="_blank" rel="noopener noreferrer"
+                    <a href="{{ (ffvb_links.adressier if ffvb_links and ffvb_links.adressier else None) or ffvb_annuaire_url(club) }}" target="_blank" rel="noopener noreferrer"
                        class="badge hover:opacity-80 transition"
-                       style="border-color: var(--club-tertiary); color: var(--club-tertiary);">
+                       style="border-color: var(--club-tertiary); color: var(--club-tertiary);"
+                       title="Fiche officielle du club dans l'annuaire national de la Fédération Française de Volley">
                         <i data-lucide="book-open" class="w-3 h-3 mr-1"></i>
-                        Adressier FFVB
+                        Annuaire FFVB
                         <i data-lucide="external-link" class="w-3 h-3 ml-1"></i>
                     </a>
-                    {% endif %}
                 </div>
-                {% endif %}
             </div>
         </div>
     </div>
@@ -149,11 +210,98 @@
         </div>
     </div>
 
-    <!-- Informations & Dirigeants -->
+    <!-- Informations, Siège social & Dirigeants -->
+    {% set has_siege = club.adresse_siege or club.ville_siege or club.email or club.telephone or club.site_web or club.ligue_rel or club.comite_rel %}
     {% set has_dirigeants = club.president or club.entraineur or club.entraineur_adjoint %}
     {% set has_contact = club.correspondant_nom or club.correspondant_email or club.correspondant_telephone or club.correspondant_portable %}
-    {% if has_dirigeants or has_contact %}
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    {% if has_siege or has_dirigeants or has_contact %}
+    <div class="grid grid-cols-1 md:grid-cols-2 {% if has_siege and has_dirigeants and has_contact %}lg:grid-cols-3{% endif %} gap-6">
+
+        <!-- Siège social & Fédération -->
+        {% if has_siege %}
+        <div class="card p-6">
+            <h2 class="text-sm font-semibold uppercase tracking-wider mb-4" style="color: var(--text-muted);">
+                <i data-lucide="building-2" class="w-4 h-4 inline-block mr-1"></i> Siège Social & Fédération
+            </h2>
+            <dl class="space-y-3 text-sm">
+                {% if club.ligue_rel or club.ligue %}
+                <div class="flex justify-between items-start py-1" style="border-bottom: 1px solid rgba(42,48,80,0.3);">
+                    <dt style="color: var(--text-secondary);">
+                        <i data-lucide="landmark" class="w-3.5 h-3.5 inline-block mr-1" style="color: var(--accent-green);"></i>
+                        Ligue
+                    </dt>
+                    <dd class="font-medium text-white text-right">
+                        {{ club.ligue_rel.nom if club.ligue_rel else club.ligue }}
+                    </dd>
+                </div>
+                {% endif %}
+                {% if club.comite_rel or club.departement %}
+                <div class="flex justify-between items-start py-1" style="border-bottom: 1px solid rgba(42,48,80,0.3);">
+                    <dt style="color: var(--text-secondary);">
+                        <i data-lucide="map" class="w-3.5 h-3.5 inline-block mr-1" style="color: var(--accent-purple);"></i>
+                        Comité dép.
+                    </dt>
+                    <dd class="font-medium text-white text-right">
+                        {% if club.comite_rel %}
+                        {{ club.comite_rel.nom }} ({{ club.comite_rel.numero_departement or club.departement }})
+                        {% else %}
+                        Dép. {{ club.departement }}
+                        {% endif %}
+                    </dd>
+                </div>
+                {% endif %}
+                {% if club.adresse_siege or club.ville_siege %}
+                <div class="flex justify-between items-start py-1" style="border-bottom: 1px solid rgba(42,48,80,0.3);">
+                    <dt style="color: var(--text-secondary);">
+                        <i data-lucide="map-pin" class="w-3.5 h-3.5 inline-block mr-1" style="color: var(--accent-gold);"></i>
+                        Adresse siège
+                    </dt>
+                    <dd class="font-medium text-white text-right max-w-xs">
+                        {% if club.adresse_siege %}{{ club.adresse_siege }}{% endif %}
+                        {% if club.adresse_siege and (club.code_postal_siege or club.ville_siege) %}<br>{% endif %}
+                        {% if club.code_postal_siege %}{{ club.code_postal_siege }} {% endif %}{{ club.ville_siege or '' }}
+                    </dd>
+                </div>
+                {% endif %}
+                {% if club.email %}
+                <div class="flex justify-between items-center py-1" style="border-bottom: 1px solid rgba(42,48,80,0.3);">
+                    <dt style="color: var(--text-secondary);">
+                        <i data-lucide="mail" class="w-3.5 h-3.5 inline-block mr-1" style="color: var(--accent-blue);"></i>
+                        Email club
+                    </dt>
+                    <dd class="truncate max-w-[160px]">
+                        <a href="mailto:{{ club.email }}" class="font-medium hover:text-white transition"
+                           style="color: var(--accent-blue);">{{ club.email }}</a>
+                    </dd>
+                </div>
+                {% endif %}
+                {% if club.telephone %}
+                <div class="flex justify-between items-center py-1" style="border-bottom: 1px solid rgba(42,48,80,0.3);">
+                    <dt style="color: var(--text-secondary);">
+                        <i data-lucide="phone" class="w-3.5 h-3.5 inline-block mr-1" style="color: var(--accent-cyan);"></i>
+                        Téléphone
+                    </dt>
+                    <dd class="font-medium text-white font-mono">{{ club.telephone }}</dd>
+                </div>
+                {% endif %}
+                {% if club.site_web %}
+                <div class="flex justify-between items-center py-1">
+                    <dt style="color: var(--text-secondary);">
+                        <i data-lucide="globe" class="w-3.5 h-3.5 inline-block mr-1" style="color: var(--accent-primary);"></i>
+                        Site web
+                    </dt>
+                    <dd class="truncate max-w-[160px]">
+                        <a href="{{ club.site_web }}" target="_blank" rel="noopener noreferrer"
+                           class="font-medium hover:text-white transition inline-flex items-center gap-1"
+                           style="color: var(--accent-primary);">
+                            Visiter <i data-lucide="external-link" class="w-3 h-3"></i>
+                        </a>
+                    </dd>
+                </div>
+                {% endif %}
+            </dl>
+        </div>
+        {% endif %}
 
         <!-- Dirigeants -->
         {% if has_dirigeants %}
@@ -334,6 +482,295 @@
         show_legend=True
     ) }}
 
+    <!-- Évolution des Niveaux & Trajectoires Sportives -->
+    {% if club_evolution and club_evolution.has_data %}
+    <div class="card overflow-hidden" id="club-evolution-section">
+        <!-- En-tête de la section avec KPIs -->
+        <div class="p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4" style="border-bottom: 1px solid var(--border-color);">
+            <div>
+                <div class="flex items-center gap-2.5">
+                    <div class="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style="background: rgba(245, 158, 11, 0.15); color: var(--accent-gold); border: 1px solid rgba(245, 158, 11, 0.3);">
+                        <i data-lucide="trending-up" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-base md:text-lg font-bold text-white">Évolution des Niveaux & Trajectoires Sportives</h2>
+                        <p class="text-xs" style="color: var(--text-muted);">
+                            Analyse multi-saisons des équipes par pôle de compétition (Seniors, Jeunes, Loisir)
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Badges KPI globaux -->
+            <div class="flex flex-wrap items-center gap-2">
+                {% if club_evolution.club_summary.peak_level and club_evolution.club_summary.peak_level != '—' %}
+                <span class="badge badge-gold" title="Plus haut niveau atteint par le club">
+                    <i data-lucide="trophy" class="w-3 h-3 mr-1"></i>
+                    Sommet : {{ club_evolution.club_summary.peak_level }} ({{ club_evolution.club_summary.peak_genre }})
+                </span>
+                {% endif %}
+                <span class="badge badge-blue">
+                    <i data-lucide="users" class="w-3 h-3 mr-1"></i>
+                    {{ club_evolution.club_summary.total_active_latest }} équipe(s) active(s) en {{ club_evolution.club_summary.latest_season }}
+                </span>
+                {% if club_evolution.club_summary.total_promotions > 0 %}
+                <span class="badge badge-green" title="Total des montées de division enregistrées">
+                    <i data-lucide="arrow-up-right" class="w-3 h-3 mr-1"></i>
+                    {{ club_evolution.club_summary.total_promotions }} accession(s)
+                </span>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Barre d'onglets de navigation par pôle -->
+        <div class="p-3 px-5 flex flex-wrap items-center gap-2" style="background: rgba(0, 0, 0, 0.15); border-bottom: 1px solid var(--border-color);">
+            <button type="button" class="evolution-tab-btn active" data-tab="all">
+                <i data-lucide="layout-grid" class="w-3.5 h-3.5"></i>
+                Vue d'ensemble ({{ club_evolution.charts|length }} pôles)
+            </button>
+            {% for g_key, chart in club_evolution.charts.items() %}
+            <button type="button" class="evolution-tab-btn" data-tab="{{ g_key }}">
+                <i data-lucide="{{ chart.icon }}" class="w-3.5 h-3.5" style="color: {{ chart.color }};"></i>
+                {{ chart.title }}
+            </button>
+            {% endfor %}
+            {% if club_evolution.transitions %}
+            <button type="button" class="evolution-tab-btn" data-tab="movements">
+                <i data-lucide="arrow-left-right" class="w-3.5 h-3.5" style="color: var(--accent-gold);"></i>
+                Changements de niveau ({{ club_evolution.transitions|length }})
+            </button>
+            {% endif %}
+        </div>
+
+        <!-- Conteneur des graphiques (grand format, haute lisibilité) -->
+        <div class="p-5" id="evolution-charts-grid">
+            <div class="flex flex-col gap-8">
+                {% for g_key, chart in club_evolution.charts.items() %}
+                <div class="evolution-pole-card card p-6 flex flex-col justify-between w-full" data-pole="{{ g_key }}" style="background: var(--bg-card-hover); border: 1px solid var(--border-color);">
+                    <div>
+                        <!-- En-tête de la carte du graphique -->
+                        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4">
+                            <div class="flex items-center gap-3">
+                                <div class="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
+                                     style="background: {{ chart.color }}20; border: 1px solid {{ chart.color }}40;">
+                                    <i data-lucide="{{ chart.icon }}" class="w-6 h-6" style="color: {{ chart.color }};"></i>
+                                </div>
+                                <div>
+                                    <h3 class="font-bold text-white text-base md:text-lg flex items-center gap-2">
+                                        {{ chart.title }}
+                                        <span class="text-xs font-normal" style="color: var(--text-muted);">
+                                            ({{ chart.datasets|length }} série{{ 's' if chart.datasets|length > 1 else '' }})
+                                        </span>
+                                    </h3>
+                                    <p class="text-xs md:text-sm" style="color: var(--text-secondary);">{{ chart.subtitle }}</p>
+                                    {% if g_key == 'main' %}
+                                    <div class="flex items-center gap-4 text-xs mt-1.5 font-medium">
+                                        <span class="inline-flex items-center gap-1.5" style="color: #93c5fd;">
+                                            <span class="w-3 h-3 rounded-full" style="background: #3b82f6;"></span> Hommes (Bleu)
+                                        </span>
+                                        <span class="inline-flex items-center gap-1.5" style="color: #f472b6;">
+                                            <span class="w-3 h-3 rounded-full" style="background: #ec4899;"></span> Femmes (Rose)
+                                        </span>
+                                    </div>
+                                    {% elif g_key == 'cdf' %}
+                                    <div class="flex items-center gap-3 text-xs mt-1.5 font-medium">
+                                        <span class="text-xs" style="color: #fcd34d;">
+                                            Axe vertical : Catégories d'âge engagées (M11 &rarr; Senior)
+                                        </span>
+                                    </div>
+                                    {% endif %}
+                                </div>
+                            </div>
+
+                            <!-- Contrôles et Filtres rapides par genre -->
+                            <div class="flex flex-wrap items-center gap-3">
+                                {% if g_key == 'main' %}
+                                <div class="flex items-center gap-1 p-1 rounded-lg" style="background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border-color);">
+                                    <span class="text-xs font-semibold px-2" style="color: var(--text-muted);">Afficher :</span>
+                                    <button type="button" class="gender-filter-btn active text-xs px-2.5 py-1 rounded font-medium transition" data-gender="all">
+                                        Tous
+                                    </button>
+                                    <button type="button" class="gender-filter-btn text-xs px-2.5 py-1 rounded font-medium transition" data-gender="M" style="color: #93c5fd;">
+                                        <span class="inline-block w-2 h-2 rounded-full mr-1" style="background: #3b82f6;"></span> Hommes
+                                    </button>
+                                    <button type="button" class="gender-filter-btn text-xs px-2.5 py-1 rounded font-medium transition" data-gender="F" style="color: #f472b6;">
+                                        <span class="inline-block w-2 h-2 rounded-full mr-1" style="background: #ec4899;"></span> Femmes
+                                    </button>
+                                </div>
+                                {% endif %}
+
+                                <div>
+                                    {% if chart.analysis.trend == 'up' %}
+                                    <span class="badge badge-green text-xs">
+                                        <i data-lucide="trending-up" class="w-3 h-3 mr-1"></i> Progression
+                                    </span>
+                                    {% elif chart.analysis.trend == 'down' %}
+                                    <span class="badge badge-red text-xs">
+                                        <i data-lucide="trending-down" class="w-3 h-3 mr-1"></i> Recul
+                                    </span>
+                                    {% else %}
+                                    <span class="badge badge-blue text-xs">
+                                        <i data-lucide="check-circle-2" class="w-3 h-3 mr-1"></i> Stabilité
+                                    </span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Astuce d'interaction -->
+                        <div class="flex items-center gap-2 text-xs py-2 px-3 rounded-lg mb-3" style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2);">
+                            <i data-lucide="mouse-pointer-click" class="w-4 h-4 flex-shrink-0" style="color: #60a5fa;"></i>
+                            <span style="color: var(--text-secondary);">
+                                <strong class="text-white">Interactif :</strong> Cliquez sur n'importe quel sommet du graphique pour accéder directement à la page de l'équipe correspondante.
+                            </span>
+                        </div>
+
+                        <!-- Graphique Chart.js grand format avec couloirs de catégories -->
+                        <div style="height: {% if g_key == 'main' %}640px{% else %}480px{% endif %}; min-height: 440px; position: relative;" class="w-full">
+                            <canvas id="evolutionChart_{{ g_key }}"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Analyse et points clés -->
+                    <div class="mt-5 pt-3 border-t" style="border-color: rgba(255, 255, 255, 0.08);">
+                        <div class="flex items-center gap-1.5 mb-1.5 text-xs font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
+                            <i data-lucide="sparkles" class="w-3 h-3" style="color: var(--accent-gold);"></i>
+                            Analyse de trajectoire
+                        </div>
+                        <ul class="space-y-1 text-xs" style="color: var(--text-secondary);">
+                            {% for highlight in chart.analysis.highlights %}
+                            <li class="flex items-start gap-2">
+                                <span class="inline-block w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0" style="background: {{ chart.color }};"></span>
+                                <span>{{ highlight }}</span>
+                            </li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Section détaillée : Récapitulatif des Changements de Niveau (Promotions / Relégations) -->
+        {% if club_evolution.transitions %}
+        <div class="p-5 border-t" style="border-color: var(--border-color); background: rgba(0, 0, 0, 0.1);" id="evolution-movements-section">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-5">
+                <div>
+                    <h3 class="text-base font-bold text-white flex items-center gap-2">
+                        <i data-lucide="arrow-left-right" class="w-4 h-4" style="color: var(--accent-gold);"></i>
+                        Récapitulatif des Changements de Niveau
+                    </h3>
+                    <p class="text-xs" style="color: var(--text-muted);">
+                        Suivi des accessions, descentes, maintiens et nouveaux engagements entre saisons
+                    </p>
+                </div>
+
+                <!-- Filtres temporels et périodes -->
+                <div class="flex flex-wrap items-center gap-3">
+                    {% if club_evolution.periods %}
+                    <div class="flex items-center gap-2">
+                        <label for="evolution-period-select" class="text-xs text-nowrap" style="color: var(--text-secondary);">Période :</label>
+                        <select id="evolution-period-select" class="filter-select text-xs py-1 px-2.5">
+                            <option value="all">Toutes les transitions consécutives</option>
+                            {% for p in club_evolution.periods %}
+                            <option value="{{ p.id }}" {% if loop.first %}selected{% endif %}>{{ p.label }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- Filtres par type de mouvement -->
+            <div class="flex flex-wrap items-center gap-2 mb-4">
+                <button type="button" class="evolution-status-btn active" data-status="all">
+                    Tous (<span id="count-status-all">{{ club_evolution.transitions|length }}</span>)
+                </button>
+                <button type="button" class="evolution-status-btn" data-status="promotion">
+                    <span class="inline-block w-2 h-2 rounded-full mr-1" style="background: #22c55e;"></span>
+                    Montées / Accessions
+                </button>
+                <button type="button" class="evolution-status-btn" data-status="relegation">
+                    <span class="inline-block w-2 h-2 rounded-full mr-1" style="background: #ef4444;"></span>
+                    Descentes / Relégations
+                </button>
+                <button type="button" class="evolution-status-btn" data-status="new">
+                    <span class="inline-block w-2 h-2 rounded-full mr-1" style="background: #f59e0b;"></span>
+                    Nouvelles équipes
+                </button>
+                <button type="button" class="evolution-status-btn" data-status="stable">
+                    <span class="inline-block w-2 h-2 rounded-full mr-1" style="background: #3b82f6;"></span>
+                    Maintiens
+                </button>
+            </div>
+
+            <!-- Cartes des mouvements -->
+            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3" id="evolution-transitions-grid">
+                {% for tr in club_evolution.transitions %}
+                <div class="evolution-transition-card card p-4 flex flex-col justify-between"
+                     data-period="{{ tr.period_id }}"
+                     data-status="{{ tr.status }}"
+                     data-group="{{ tr.group }}"
+                     data-cumulative="{{ 'true' if tr.is_cumulative else 'false' }}"
+                     style="background: var(--bg-card-hover); border-left-color: {% if tr.status == 'promotion' %}#22c55e{% elif tr.status == 'relegation' %}#ef4444{% elif tr.status == 'new' %}#f59e0b{% elif tr.status == 'stable' %}#3b82f6{% else %}var(--border-color){% endif %};">
+                    <div>
+                        <div class="flex items-center justify-between gap-2 mb-2">
+                            <span class="font-semibold text-white text-sm truncate" title="{{ tr.team_name }}">
+                                {{ tr.team_name }}
+                            </span>
+                            <span class="badge text-xs" style="font-size: 0.7rem;">
+                                {{ tr.season_label }}
+                            </span>
+                        </div>
+
+                        <div class="flex items-center gap-1.5 text-xs mb-3" style="color: var(--text-muted);">
+                            <span class="badge badge-purple text-xs" style="font-size: 0.65rem;">{{ tr.genre_tag }}</span>
+                            {% if tr.comp_to %}
+                            <span class="truncate" title="{{ tr.comp_to }}">{{ tr.comp_to }}</span>
+                            {% endif %}
+                        </div>
+
+                        <!-- Évolution de niveau -->
+                        <div class="flex items-center gap-2 p-2.5 rounded-lg mb-2" style="background: rgba(0, 0, 0, 0.25);">
+                            <div class="flex-1 text-center">
+                                <span class="text-xs block" style="color: var(--text-muted); font-size: 0.65rem;">Départ</span>
+                                <span class="font-medium text-xs text-white">{{ tr.level_from }}</span>
+                            </div>
+                            <div class="flex items-center justify-center flex-shrink-0 px-1" style="color: {% if tr.status == 'promotion' %}#22c55e{% elif tr.status == 'relegation' %}#ef4444{% else %}var(--accent-blue){% endif %};">
+                                <i data-lucide="arrow-right" class="w-4 h-4"></i>
+                            </div>
+                            <div class="flex-1 text-center">
+                                <span class="text-xs block" style="color: var(--text-muted); font-size: 0.65rem;">Arrivée</span>
+                                <span class="font-bold text-xs" style="color: {% if tr.status == 'promotion' %}#4ade80{% elif tr.status == 'relegation' %}#f87171{% else %}#ffffff{% endif %};">
+                                    {{ tr.level_to }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Badge de statut / delta -->
+                    <div class="flex items-center justify-between gap-2 mt-1">
+                        <span class="badge {{ tr.status_badge }} text-xs">
+                            <i data-lucide="{{ tr.icon }}" class="w-3 h-3 mr-1"></i>
+                            {{ tr.status_label }}
+                        </span>
+                        <span class="text-xs font-mono font-semibold" style="color: {% if tr.status == 'promotion' %}#22c55e{% elif tr.status == 'relegation' %}#ef4444{% else %}var(--text-muted){% endif %};">
+                            {{ tr.delta_text }}
+                        </span>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            <div id="evolution-transitions-empty" class="text-center py-8 hidden" style="color: var(--text-muted);">
+                <i data-lucide="info" class="w-6 h-6 mx-auto mb-2 opacity-60"></i>
+                <p class="text-sm">Aucun mouvement ne correspond aux filtres sélectionnés pour cette période.</p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
     <!-- Equipes du club -->
     <div class="card overflow-hidden">
         <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
@@ -383,19 +820,6 @@
                     <i data-lucide="refresh-ccw" class="w-3 h-3 mr-1"></i> Réinitialiser
                 </button>
             </div>
-
-            {% if level_chart and level_chart.datasets %}
-            <div class="card p-4" style="background: var(--bg-card-hover);">
-                <h3 class="text-sm font-semibold mb-3" style="color: var(--text-muted);">
-                    <i data-lucide="line-chart" class="w-4 h-4 inline-block mr-1"></i>
-                    Évolution des niveaux par type d'équipe
-                </h3>
-                <div style="height: 320px;"><canvas id="clubTeamLevelsChart"></canvas></div>
-                <p class="text-xs mt-2" style="color: var(--text-muted);">
-                    Une ligne = un type (genre · catégorie). Pour chaque saison, le meilleur niveau du type est retenu.
-                </p>
-            </div>
-            {% endif %}
 
             <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 {% for team in team_rows %}
@@ -522,73 +946,303 @@
 })();
 
 (() => {
-    const ctx = document.getElementById('clubTeamLevelsChart');
-    if (!ctx) return;
+    const evoData = {{ club_evolution | tojson if club_evolution else '{}' }};
+    if (!evoData || !evoData.has_data) return;
 
-    const chartData = {{ level_chart | tojson }};
-    if (!chartData || !chartData.datasets || !chartData.datasets.length) return;
+    const chartInstances = {};
+    // Plugin Chart.js personnalisé : tracés horizontaux de démarcation entre catégories et couloirs
+    const categoryBandsPlugin = {
+        id: 'categoryBands',
+        beforeDraw(chart, args, options) {
+            const { ctx, chartArea, scales: { y } } = chart;
+            if (!chartArea || !y || !options) return;
+            const { left, right, top, bottom } = chartArea;
 
-    const labels = chartData.seasons || [];
-    const datasets = chartData.datasets.map((dataset, index) => {
-        const color = PyVolleyCharts.teamPalette[index % PyVolleyCharts.teamPalette.length];
-        return {
-            label: dataset.label,
-            data: dataset.data,
-            tension: 0.25,
-            spanGaps: true,
-            borderColor: color,
-            backgroundColor: color + '33',
-            pointBackgroundColor: color,
-            pointRadius: 3,
-            pointHoverRadius: 5,
-            _levelLabels: dataset.level_labels || [],
-        };
-    });
+            ctx.save();
 
-    PyVolleyCharts.create('clubTeamLevelsChart', 'line', {
-        data: { labels, datasets },
-        options: {
-            plugins: {
-                legend: {
-                    display: true,
-                    position: 'bottom',
-                    labels: { color: PyVolleyCharts.colors.textLight, boxWidth: 10, usePointStyle: true },
+            // 1. Couloirs horizontaux avec bandes alternées
+            if (options.lanes && options.lanes.length > 0) {
+                options.lanes.forEach((lane, idx) => {
+                    const yTop = Math.max(top, y.getPixelForValue(lane.top));
+                    const yBottom = Math.min(bottom, y.getPixelForValue(lane.bottom));
+                    if (yBottom > yTop) {
+                        ctx.fillStyle = idx % 2 === 0 ? 'rgba(255, 255, 255, 0.015)' : 'rgba(59, 130, 246, 0.035)';
+                        ctx.fillRect(left, yTop, right - left, yBottom - yTop);
+                    }
+                });
+            }
+
+            // 2. Traits horizontaux de démarcation entre catégories (traits pointillés bien visibles)
+            if (options.separators && options.separators.length > 0) {
+                ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+                ctx.lineWidth = 1.2;
+                ctx.setLineDash([6, 4]);
+
+                options.separators.forEach(sepVal => {
+                    const yPos = y.getPixelForValue(sepVal);
+                    if (yPos >= top && yPos <= bottom) {
+                        ctx.beginPath();
+                        ctx.moveTo(left, yPos);
+                        ctx.lineTo(right, yPos);
+                        ctx.stroke();
+                    }
+                });
+            }
+
+            ctx.restore();
+        }
+    };
+
+    // 1. Initialisation de chaque graphique actif
+    Object.entries(evoData.charts || {}).forEach(([gKey, chartConfig]) => {
+        const canvasId = `evolutionChart_${gKey}`;
+        const canvas = document.getElementById(canvasId);
+        if (!canvas) return;
+
+        const labels = chartConfig.seasons || [];
+        const datasets = (chartConfig.datasets || []).map((ds) => {
+            const color = ds.color || (ds.gender === 'M' ? '#3b82f6' : (ds.gender === 'F' ? '#ec4899' : '#f59e0b'));
+            return {
+                label: ds.label,
+                data: ds.data,
+                tension: 0.25,
+                spanGaps: true,
+                borderColor: color,
+                backgroundColor: color + '15',
+                borderDash: ds.border_dash || [],
+                borderWidth: ds.border_width || 3.0,
+                pointStyle: ds.point_style || 'circle',
+                pointBackgroundColor: color,
+                pointBorderColor: '#ffffff',
+                pointBorderWidth: 2.0,
+                pointRadius: ds.point_radius || 8.0,
+                pointHoverRadius: (ds.point_radius || 8.0) + 3.5,
+                _gender: ds.gender,
+                _levelLabels: ds.level_labels || [],
+                _competitions: ds.competitions || [],
+                _teamIds: ds.team_ids || [],
+            };
+        });
+
+        const yTickMap = {};
+        (chartConfig.y_ticks || []).forEach(([val, lbl]) => {
+            yTickMap[val] = lbl;
+        });
+
+        const chart = PyVolleyCharts.create(canvasId, 'line', {
+            data: { labels, datasets },
+            plugins: [categoryBandsPlugin],
+            options: {
+                onClick: function(evt, elements) {
+                    if (elements && elements.length > 0) {
+                        const firstPoint = elements[0];
+                        const ds = this.data.datasets[firstPoint.datasetIndex];
+                        if (ds && ds._teamIds) {
+                            const teamId = ds._teamIds[firstPoint.index];
+                            if (teamId) {
+                                window.location.href = `/equipes/${teamId}`;
+                            }
+                        }
+                    }
                 },
-                tooltip: {
-                    callbacks: {
-                        label: function(ctx) {
-                            const levelLabels = ctx.dataset._levelLabels || [];
-                            const level = levelLabels[ctx.dataIndex] || 'Niveau inconnu';
-                            return `${ctx.dataset.label}: ${level}`;
+                onHover: function(evt, elements) {
+                    if (evt && evt.native && evt.native.target) {
+                        evt.native.target.style.cursor = (elements && elements.length > 0) ? 'pointer' : 'default';
+                    }
+                },
+                plugins: {
+                    categoryBands: {
+                        separators: chartConfig.separators || [],
+                        lanes: chartConfig.lanes || [],
+                    },
+                    legend: {
+                        display: true,
+                        position: 'bottom',
+                        labels: {
+                            color: PyVolleyCharts.colors.textLight,
+                            boxWidth: 14,
+                            usePointStyle: true,
+                            padding: 16,
+                            font: { size: 12, family: 'Inter', weight: '500' },
+                        },
+                    },
+                    tooltip: {
+                        padding: 12,
+                        callbacks: {
+                            label: function(ctx) {
+                                const ds = ctx.dataset;
+                                const lvl = (ds._levelLabels && ds._levelLabels[ctx.dataIndex]) || 'Niveau inconnu';
+                                const comp = (ds._competitions && ds._competitions[ctx.dataIndex]);
+                                const genderTag = ds._gender === 'M' ? '♂ Hommes' : (ds._gender === 'F' ? '♀ Femmes' : 'Loisir');
+                                if (comp && comp !== lvl) {
+                                    return `${ds.label} [${genderTag}]: ${lvl} (${comp})`;
+                                }
+                                return `${ds.label} [${genderTag}]: ${lvl}`;
+                            },
+                        },
+                    },
+                },
+                scales: {
+                    x: {
+                        ticks: { color: PyVolleyCharts.colors.textLight, font: { size: 11.5, family: 'Inter' } },
+                        grid: { color: PyVolleyCharts.colors.gridLine },
+                    },
+                    y: {
+                        min: chartConfig.y_min,
+                        max: chartConfig.y_max,
+                        ticks: {
+                            stepSize: 1,
+                            color: '#ffffff',
+                            font: { size: 12, weight: '600', family: 'Inter' },
+                            padding: 14,
+                            callback: function(v) {
+                                const rounded = Math.round(v);
+                                if (Math.abs(v - rounded) < 0.01) {
+                                    return yTickMap[rounded] || '';
+                                }
+                                return '';
+                            },
+                        },
+                        grid: {
+                            drawOnChartArea: false, // Pas de lignes de grille au niveau des catégories, seules les séparations entre catégories sont dessinées
+                            drawTicks: true,
+                            color: 'rgba(255, 255, 255, 0.25)',
+                            tickLength: 6,
                         },
                     },
                 },
             },
-            scales: {
-                x: {
-                    ticks: { color: PyVolleyCharts.colors.textLight },
-                    grid: { color: PyVolleyCharts.colors.gridLine },
-                },
-                y: {
-                    min: 0,
-                    max: 11,
-                    ticks: {
-                        stepSize: 1,
-                        color: PyVolleyCharts.colors.textLight,
-                        callback: function(v) {
-                            const map = {
-                                11: 'CdF', 10: 'Pro A', 9: 'Pro B', 8: 'Elite', 7: 'N1',
-                                6: 'N2', 5: 'N3', 4: 'Prénat', 3: 'Préreg', 2: 'Régional',
-                                1: 'Dép', 0: 'Loisir'
-                            };
-                            return map[v] || '';
-                        },
-                    },
-                    grid: { color: PyVolleyCharts.colors.gridLine },
-                },
-            },
-        },
+        });
+
+        if (chart) {
+            chartInstances[gKey] = chart;
+        }
     });
+
+    // Gestion des boutons de filtre rapide par genre (Hommes / Femmes / Tous)
+    const genderBtns = document.querySelectorAll('.gender-filter-btn');
+    genderBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const targetGender = btn.dataset.gender;
+            genderBtns.forEach(b => {
+                b.classList.toggle('active', b === btn);
+                if (b === btn) {
+                    b.style.background = 'rgba(255, 255, 255, 0.15)';
+                } else {
+                    b.style.background = 'transparent';
+                }
+            });
+
+            const mainChart = chartInstances['main'];
+            if (!mainChart) return;
+
+            mainChart.data.datasets.forEach((ds, idx) => {
+                const meta = mainChart.getDatasetMeta(idx);
+                if (targetGender === 'all') {
+                    meta.hidden = false;
+                } else {
+                    meta.hidden = ds._gender !== targetGender;
+                }
+            });
+            mainChart.update();
+        });
+    });
+
+    // 2. Gestion des onglets de navigation par pôle
+    const tabButtons = document.querySelectorAll('.evolution-tab-btn');
+    const poleCards = document.querySelectorAll('.evolution-pole-card');
+    const movementsSec = document.getElementById('evolution-movements-section');
+
+    tabButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const targetTab = btn.dataset.tab;
+            tabButtons.forEach(b => b.classList.toggle('active', b === btn));
+
+            if (targetTab === 'all') {
+                poleCards.forEach(c => c.classList.remove('hidden'));
+                if (movementsSec) movementsSec.classList.remove('hidden');
+            } else if (targetTab === 'movements') {
+                poleCards.forEach(c => c.classList.add('hidden'));
+                if (movementsSec) {
+                    movementsSec.classList.remove('hidden');
+                    movementsSec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            } else {
+                poleCards.forEach(c => {
+                    c.classList.toggle('hidden', c.dataset.pole !== targetTab);
+                });
+                if (movementsSec) movementsSec.classList.remove('hidden');
+            }
+
+            // Déclencher le redimensionnement de Chart.js
+            setTimeout(() => {
+                Object.values(chartInstances).forEach(c => {
+                    try { c.resize(); } catch (e) {}
+                });
+            }, 50);
+        });
+    });
+
+    // 3. Filtrage dynamique des transitions et mouvements
+    const periodSelect = document.getElementById('evolution-period-select');
+    const statusBtns = document.querySelectorAll('.evolution-status-btn');
+    const transitionCards = document.querySelectorAll('.evolution-transition-card');
+    const emptyNotice = document.getElementById('evolution-transitions-empty');
+    const countStatusAll = document.getElementById('count-status-all');
+
+    let currentStatus = 'all';
+
+    function filterTransitions() {
+        const selectedPeriod = periodSelect ? periodSelect.value : 'all';
+        let visibleCount = 0;
+        let matchingPeriodTotal = 0;
+
+        transitionCards.forEach(card => {
+            const cardPeriod = card.dataset.period;
+            const cardStatus = card.dataset.status;
+            const cardCumulative = card.dataset.cumulative === 'true';
+
+            let matchPeriod = false;
+            if (selectedPeriod === 'all') {
+                matchPeriod = !cardCumulative;
+            } else {
+                matchPeriod = (cardPeriod === selectedPeriod);
+            }
+
+            if (matchPeriod) {
+                matchingPeriodTotal++;
+            }
+
+            const matchStatus = (currentStatus === 'all' || cardStatus === currentStatus);
+            const isVisible = matchPeriod && matchStatus;
+
+            card.classList.toggle('hidden', !isVisible);
+            if (isVisible) visibleCount++;
+        });
+
+        if (countStatusAll) {
+            countStatusAll.textContent = String(matchingPeriodTotal);
+        }
+
+        if (emptyNotice) {
+            emptyNotice.classList.toggle('hidden', visibleCount > 0);
+        }
+    }
+
+    if (periodSelect) {
+        periodSelect.addEventListener('change', filterTransitions);
+    }
+
+    statusBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            statusBtns.forEach(b => b.classList.toggle('active', b === btn));
+            currentStatus = btn.dataset.status;
+            filterTransitions();
+        });
+    });
+
+    // Appliquer le filtrage initial
+    filterTransitions();
 })();
 </script>
 {% endblock %}

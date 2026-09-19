@@ -30,8 +30,8 @@
                         <td>{{ row.date|format_date if row.date else '—' }}</td>
                         <td>{{ row.saison or '—' }}</td>
                         <td>
-                            {% if row.competition_id %}
-                            <a href="{{ path_for_entity('competition', row.competition_id) }}" class="badge">{{ row.competition|truncate_name(28) }}</a>
+                            {% if row.competition_nom or row.competition_id %}
+                            <a href="{{ path_for_entity('competition', row.competition_code or row.competition_id) }}" class="badge hover:opacity-80 transition" title="{{ row.competition_nom or row.competition }}">{{ (row.competition_nom or row.competition)|truncate_name(28) }}</a>
                             {% elif row.competition %}
                             <span class="badge">{{ row.competition|truncate_name(28) }}</span>
                             {% else %}—{% endif %}
@@ -52,13 +52,25 @@
                         </td>
                         <td>{% if row.niveau %}<span class="badge badge-blue text-xs">{{ row.niveau }}</span>{% else %}—{% endif %}</td>
                         <td>{{ row.domicile_exterieur }}</td>
-                        <td class="text-center">{{ row.score }}</td>
+                        <td class="text-center font-mono font-bold">
+                            <a href="{{ path_for_entity('match', row.code_match or row.match_id) }}" class="hover:underline">{{ row.score }}</a>
+                        </td>
                         <td class="text-center">
                             {% if row.victoire is sameas true %}<span class="badge badge-green">V</span>
                             {% elif row.victoire is sameas false %}<span class="badge badge-red">D</span>
                             {% else %}<span class="badge">—</span>{% endif %}
                         </td>
-                        <td class="text-right"><a href="{{ path_for_entity('match', row.match_id) }}" class="badge badge-blue text-xs">Voir</a></td>
+                        <td class="text-right">
+                            <div class="flex items-center justify-end gap-1">
+                                <a href="{{ path_for_entity('match', row.code_match or row.match_id) }}" class="badge badge-blue text-xs hover:opacity-80 transition">Feuille</a>
+                                {% set fdme = ffvb_fdme_url(row.match) %}
+                                {% if fdme %}
+                                <a href="{{ fdme }}" target="_blank" rel="noopener noreferrer" class="badge badge-green text-xs hover:opacity-80 transition" title="Feuille de match officielle FFVB (FDME PDF)">
+                                    <i data-lucide="file-text" class="w-3 h-3"></i>
+                                </a>
+                                {% endif %}
+                            </div>
+                        </td>
                     </tr>
                     {% else %}
                     <tr><td colspan="10" class="text-center py-8" style="color: var(--text-muted);">Aucun match trouvé pour ce filtre.</td></tr>

@@ -40,7 +40,7 @@ CATEGORY_AGE_LIMITS: dict[str, int] = {
 }
 
 _RE_SPACES = re.compile(r"\s+")
-_RE_CATEGORY_M_OR_U = re.compile(r"\b(?:M|U)\s*([0-9]{1,2})\b", re.IGNORECASE)
+_RE_CATEGORY_M_OR_U = re.compile(r"\b(?:M|U)\s*([0-9]{1,2})(?:[MFG]|\b)", re.IGNORECASE)
 
 
 def normalize_text_upper(value: Optional[str]) -> str:
@@ -155,7 +155,7 @@ def category_age_limit(categorie: Optional[str]) -> Optional[int]:
     return CATEGORY_AGE_LIMITS.get(cat or "")
 
 
-def extract_division_number(text: Optional[str]) -> Optional[str]:
+def extract_division_number(text: Optional[str], is_youth: bool = False) -> Optional[str]:
     """Extrait un numéro de division canonique (ex: '1', '2', '3') depuis un texte.
 
     Exemples :
@@ -165,33 +165,48 @@ def extract_division_number(text: Optional[str]) -> Optional[str]:
     - 'NM2' → '2'
     - 'D1F' → '1'
     - 'DEPARTEMENTALE 3' → '3'
+    - 'DEPARTEMENTALE 4X4' → None (format de jeu, pas division 4)
     """
     if not text:
         return None
     upper = normalize_text_upper(text)
 
+    # Élimination préalable des mentions de formats de jeu (4x4, 6x6) pour éviter
+    # qu'un '4' dans '4x4' soit faussement extrait comme Division 4.
+    clean_text = re.sub(r"\b[46]\s*[xX]\s*[46]\b", " ", upper)
+
+    # Détection si contexte jeune
+    youth_context = is_youth or bool(re.search(
+        r"\b(M[0-9]{1,2}|JEUNES?|CADETS?|CADETTES?|MINIMES?|BENJAMINS?|BENJAMINES?|POUSSINS?|POUSSINES?|JUNIORS?|ESPOIRS?)\b",
+        clean_text,
+    ))
+
     # 1. Après le mot du niveau : 'NATIONALE 2', 'REGIONALE 1', 'DEPARTEMENTALE 3'
     pattern_level_num = re.search(
         r"\b(?:NATIONAL(?:E|AUX|ES?)?|R[EÉ]GIONAL(?:E|AUX|ES?)?|D[EÉ]PARTEMENTAL(?:E|AUX|ES?)?|PR[EÉ]NATIONAL(?:E|AUX|ES?)?|PR[EÉ]R[EÉ]GIONAL(?:E|AUX|ES?)?)\s+([1-4])\b",
-        upper,
+        clean_text,
     )
     if pattern_level_num:
         return pattern_level_num.group(1)
 
-    # 2. Format condensé de division : 'R1', 'R2', 'N1', 'N2', 'N3', 'D1', 'D2', 'D3', 'D4'
-    pattern_code = re.search(r"\b[RND]([1-4])\b", upper)
+    # 2. Format condensé de division explicite : 'R1', 'R2', 'N1', 'N2', 'N3', 'D1', 'D2', 'D3', 'D4'
+    pattern_code = re.search(r"\b[RND]([1-4])\b", clean_text)
     if pattern_code:
         return pattern_code.group(1)
 
     # 3. Format de code poule avec chiffre : '2FA', '3MA', 'R1M', 'D2F'
-    pattern_prefix = re.match(r"^[A-Z]?([1-4])[MF]", upper)
-    if pattern_prefix:
-        return pattern_prefix.group(1)
+    # Attention : en contexte jeune, '3MA' signifie M13 Masculin Poule A, pas division 3 !
+    if not youth_context:
+        pattern_prefix = re.match(r"^[A-Z]?([1-4])[MF]", clean_text)
+        if pattern_prefix:
+            return pattern_prefix.group(1)
 
-    # 4. Chiffre isolé en fin de nom : 'CHAMPIONNAT REGIONAL M15 MASCULINS 2' → '2'
-    pattern_end_digit = re.search(r"\b([1-4])\s*$", upper)
-    if pattern_end_digit:
-        return pattern_end_digit.group(1)
+    # 4. Chiffre isolé en fin de nom : 'CHAMPIONNAT REGIONAL MASCULINS 2' → '2'
+    # En contexte jeune, les chiffres terminaux sont des numéros de phase, poule ou équipe, jamais des divisions.
+    if not youth_context:
+        pattern_end_digit = re.search(r"\b([1-4])\s*$", clean_text)
+        if pattern_end_digit:
+            return pattern_end_digit.group(1)
 
     return None
 

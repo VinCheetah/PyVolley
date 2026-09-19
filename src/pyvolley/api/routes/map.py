@@ -105,13 +105,25 @@ def _club_popup(club: ClubDB) -> str:
         stats_parts.append(f"{salles_count} salle{'s' if salles_count > 1 else ''}")
     stats_str = " · ".join(stats_parts) if stats_parts else "Club FFVB"
 
+    siege_html = ""
+    full_siege = []
+    if getattr(club, "adresse_siege", None):
+        full_siege.append(club.adresse_siege)
+    cp_v = f"{getattr(club, 'code_postal_siege', '') or ''} {getattr(club, 'ville_siege', '') or ''}".strip()
+    if cp_v:
+        full_siege.append(cp_v)
+    if full_siege:
+        siege_html = f'<div class="pyvolley-popup-meta text-xs text-slate-400 mt-1">🏛️ Siège : {_escape(", ".join(full_siege))}</div>'
+
+    club_target = club.code_ffvb or club.id
+
     return f"""
     <div class="pyvolley-popup-card">
       <div class="pyvolley-popup-header">
         {logo_html}
         <div class="min-w-0 flex-1">
-          <div class="pyvolley-popup-category">Club</div>
-          <a href="/clubs/{club.id}" class="pyvolley-popup-title" title="{nom}">{nom}</a>
+          <div class="pyvolley-popup-category">Club · Siège Social</div>
+          <a href="/clubs/{club_target}" class="pyvolley-popup-title" title="{nom}">{nom}</a>
           <div class="pyvolley-popup-sub">{location_str}</div>
         </div>
       </div>
@@ -119,9 +131,10 @@ def _club_popup(club: ClubDB) -> str:
         <div class="pyvolley-popup-meta">
           <span>{stats_str}</span>
         </div>
+        {siege_html}
       </div>
       <div class="pyvolley-popup-actions">
-        <a href="/clubs/{club.id}" class="pyvolley-btn-popup-primary">
+        <a href="/clubs/{club_target}" class="pyvolley-btn-popup-primary">
           Voir la fiche du club
           <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
         </a>
@@ -158,7 +171,8 @@ def _salle_popup(salle: SalleClubDB) -> str:
 
     club_link = ""
     if club_nom and club_id:
-        club_link = f'<div class="pyvolley-popup-sub">Club : <a href="/clubs/{club_id}">{club_nom}</a></div>'
+        club_target = (salle.club.code_ffvb if salle.club and getattr(salle.club, "code_ffvb", None) else club_id)
+        club_link = f'<div class="pyvolley-popup-sub">Club : <a href="/clubs/{club_target}">{club_nom}</a></div>'
 
     return f"""
     <div class="pyvolley-popup-card">
@@ -262,7 +276,7 @@ def _match_popup(match: MatchDB, perspective_team_id: Optional[int] = None) -> s
       {f'<div class="pyvolley-popup-venue"><svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg> {salle_str}</div>' if salle_str else ''}
 
       <div class="pyvolley-popup-actions">
-        <a href="/matchs/{match.id}" class="pyvolley-btn-popup-primary">
+        <a href="/matchs/{match.code_match or match.id}" class="pyvolley-btn-popup-primary">
           Feuille de match
           <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
         </a>
@@ -394,24 +408,16 @@ async def get_map_locations(
             )
 
         for club in query.limit(limit).all():
-            # Résolution précise : si le club n'a pas de lat/lng direct, chercher sa salle principale
+            # Positionnement strict du club selon son siège social (adresse administrative)
             c_lat = club.latitude
             c_lng = club.longitude
-            c_addr = None
-            c_salles = getattr(club, "salles", []) or []
-            if (c_lat is None or c_lng is None) and c_salles:
-                main_salle = next((s for s in c_salles if s.numero == 1 and s.latitude is not None), None)
-                if not main_salle:
-                    main_salle = next((s for s in c_salles if s.latitude is not None), None)
-                if main_salle:
-                    c_lat = main_salle.latitude
-                    c_lng = main_salle.longitude
-                    c_addr = main_salle.adresse
+            c_addr = club.adresse_siege or None
+            c_ville = f"{club.code_postal_siege or ''} {club.ville_siege or ''}".strip() or club.ville
 
             coords = resolve_entity_coordinates(
                 latitude=c_lat,
                 longitude=c_lng,
-                ville=club.ville,
+                ville=c_ville,
                 adresse=c_addr,
                 departement=club.departement,
                 entity_id=club.id,

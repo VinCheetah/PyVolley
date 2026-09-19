@@ -4,20 +4,13 @@
    ═══════════════════════════════════════════════════════════════ #}
 
 <div x-show="activeTab === 'resume'" class="space-y-6">
-    <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-        <div class="stat-card"><div class="stat-value gradient-text-blue">{{ stats.matchs_joues }}</div><div class="stat-label">Matchs joués</div></div>
-        <div class="stat-card"><div class="stat-value" style="color: var(--accent-green);">{{ stats.victoires }}</div><div class="stat-label">Victoires</div></div>
-        <div class="stat-card"><div class="stat-value" style="color: var(--accent-red);">{{ stats.defaites }}</div><div class="stat-label">Défaites</div></div>
-        <div class="stat-card"><div class="stat-value gradient-text-gold">{% set win_rate = stats.taux_victoire|default(none, true) %}{% if win_rate is not none %}{{ win_rate|round(0)|int }}%{% else %}—{% endif %}</div><div class="stat-label">Taux de victoire</div></div>
-        <div class="stat-card"><div class="stat-value" style="color: var(--accent-cyan);">{{ stats.sets_gagnes }}</div><div class="stat-label">Sets gagnés</div></div>
-        <div class="stat-card"><div class="stat-value" style="color: var(--accent-purple);">{{ stats.equipes_count }}</div><div class="stat-label">Équipes</div></div>
-    </div>
-
+    <!-- ── Level & Club Overview ── -->
     <div class="grid grid-cols-1 xl:grid-cols-5 gap-4">
-        <div class="card p-5 xl:col-span-3 space-y-4">
+        <!-- Level Card -->
+        <div class="card p-5 xl:col-span-3 space-y-4 stagger-3">
             <div class="flex flex-wrap items-center justify-between gap-3">
-                <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--accent-cyan);">
-                    <i data-lucide="medal" class="w-4 h-4 inline-block mr-1"></i>
+                <h2 class="section-title flex items-center gap-1.5" style="color: var(--accent-cyan-light);">
+                    <i data-lucide="medal" class="w-4 h-4"></i>
                     Niveau sportif
                 </h2>
                 {% if player_profile.current_saison_label %}
@@ -26,31 +19,32 @@
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div class="p-4 rounded-xl" style="background: rgba(6, 182, 212, 0.08); border: 1px solid rgba(6, 182, 212, 0.25);">
+                <div class="p-4" style="background: var(--accent-cyan-bg); border: 1px solid var(--accent-cyan-border); border-radius: var(--radius-sm);">
                     <p class="text-xs uppercase tracking-wider" style="color: var(--text-muted);">Meilleur niveau actuel</p>
                     {% if current_level %}
-                    <p class="text-xl font-extrabold mt-1" style="color: var(--accent-cyan);">{{ current_level.label }}</p>
+                    <p class="mt-1" style="font-family: var(--font-display); font-size: 1.25rem; font-weight: 800; color: var(--accent-cyan-light);">{{ current_level.label }}</p>
                     <p class="text-xs mt-1" style="color: var(--text-secondary);">{{ current_level.match_count }} match{% if current_level.match_count > 1 %}s{% endif %} · {{ current_level.wins }} V / {{ current_level.losses }} D</p>
                     {% else %}
-                    <p class="text-lg font-bold mt-1" style="color: var(--text-muted);">Non disponible</p>
+                    <p class="mt-1" style="font-family: var(--font-display); font-size: 1rem; font-weight: 700; color: var(--text-muted);">Non disponible</p>
                     {% endif %}
                 </div>
-                <div class="p-4 rounded-xl" style="background: rgba(168, 85, 247, 0.08); border: 1px solid rgba(168, 85, 247, 0.25);">
+                <div class="p-4" style="background: var(--accent-purple-bg); border: 1px solid var(--accent-purple-border); border-radius: var(--radius-sm);">
                     <p class="text-xs uppercase tracking-wider" style="color: var(--text-muted);">Meilleur niveau passé</p>
                     {% if previous_best_level %}
-                    <p class="text-xl font-extrabold mt-1" style="color: var(--accent-purple);">{{ previous_best_level.label }}</p>
+                    <p class="mt-1" style="font-family: var(--font-display); font-size: 1.25rem; font-weight: 800; color: var(--accent-purple-light);">{{ previous_best_level.label }}</p>
                     <p class="text-xs mt-1" style="color: var(--text-secondary);">{{ previous_best_level.match_count }} match{% if previous_best_level.match_count > 1 %}s{% endif %} · {{ previous_best_level.wins }} V / {{ previous_best_level.losses }} D</p>
                     {% elif current_level %}
-                    <p class="text-sm font-semibold mt-1" style="color: var(--text-secondary);">Identique au niveau actuel</p>
+                    <p class="text-sm mt-1" style="font-weight: 600; color: var(--text-secondary);">Identique au niveau actuel</p>
                     {% else %}
-                    <p class="text-lg font-bold mt-1" style="color: var(--text-muted);">Non disponible</p>
+                    <p class="mt-1" style="font-family: var(--font-display); font-size: 1rem; font-weight: 700; color: var(--text-muted);">Non disponible</p>
                     {% endif %}
                 </div>
             </div>
 
+            <!-- Level distribution bars -->
             <div class="space-y-2">
                 <div class="flex items-center justify-between">
-                    <p class="text-xs uppercase tracking-wider" style="color: var(--text-muted);">Répartition des matchs par niveau</p>
+                    <p class="text-xs uppercase tracking-wider" style="color: var(--text-muted);">Répartition par niveau</p>
                     <span class="text-xs" style="color: var(--text-secondary);">{{ player_profile.level_distribution_total }} match{% if player_profile.level_distribution_total > 1 %}s{% endif %}</span>
                 </div>
                 {% for lvl in level_distribution %}
@@ -59,8 +53,8 @@
                         <span class="font-semibold" style="color: var(--text-primary);">{{ lvl.label }}</span>
                         <span style="color: var(--text-secondary);">{{ lvl.count }} · {{ lvl.pct|round(0)|int }}%</span>
                     </div>
-                    <div class="w-full rounded-full h-2" style="background: rgba(42, 48, 80, 0.65);">
-                        <div class="h-2 rounded-full" style="width: {{ lvl.pct }}%; background: linear-gradient(90deg, var(--accent-blue), var(--accent-cyan));"></div>
+                    <div class="w-full rounded-full h-2" style="background: var(--bg-secondary);">
+                        <div class="h-2 rounded-full" style="width: {{ lvl.pct }}%; background: linear-gradient(90deg, var(--accent-primary), var(--accent-gold));"></div>
                     </div>
                 </div>
                 {% else %}
@@ -73,45 +67,48 @@
             {% endif %}
         </div>
 
-        <div class="card p-5 xl:col-span-2 space-y-4">
+        <!-- Club History -->
+        <div class="card p-5 xl:col-span-2 space-y-4 stagger-4">
             <div class="flex flex-wrap items-center justify-between gap-3">
-                <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--accent-green);">
-                    <i data-lucide="building" class="w-4 h-4 inline-block mr-1"></i>
+                <h2 class="section-title flex items-center gap-1.5" style="color: var(--accent-green-light);">
+                    <i data-lucide="building" class="w-4 h-4"></i>
                     Parcours clubs
                 </h2>
                 <span class="badge">{{ 1 + former_clubs|length if current_club else former_clubs|length }} club{% if (1 + former_clubs|length if current_club else former_clubs|length) > 1 %}s{% endif %}</span>
             </div>
 
-            <div class="p-4 rounded-xl" style="background: rgba(34, 197, 94, 0.08); border: 1px solid rgba(34, 197, 94, 0.25);">
+            <!-- Current Club -->
+            <div class="p-4" style="background: var(--accent-green-bg); border: 1px solid var(--accent-green-border); border-radius: var(--radius-sm);">
                 <p class="text-xs uppercase tracking-wider" style="color: var(--text-muted);">Club actuel</p>
                 {% if current_club %}
-                <a href="{{ path_for_entity('club', current_club.id) }}" class="text-lg font-bold mt-1 inline-block hover:text-white" style="color: var(--accent-green-light);">{{ current_club.nom }}</a>
+                <a href="{{ path_for_entity('club', current_club) }}" class="mt-1 inline-block" style="font-family: var(--font-display); font-size: 1.1rem; font-weight: 800; color: var(--accent-green-light);">{{ current_club.nom }}</a>
                 <p class="text-xs mt-1" style="color: var(--text-secondary);">{{ current_club.match_count }} match{% if current_club.match_count > 1 %}s{% endif %}</p>
                 <div class="flex flex-wrap gap-2 mt-2">
                     {% for saison in current_club.saisons[:3] %}
                     <span class="badge">{{ saison }}</span>
                     {% endfor %}
-                    <a href="/joueurs/{{ joueur.licence }}?tab=matchs&club_ids={{ current_club.id }}" class="badge badge-blue">Voir ses matchs club</a>
+                    <a href="/joueurs/{{ joueur.licence }}?tab=matchs&club_ids={{ current_club.id }}" class="badge badge-orange">Voir les matchs</a>
                 </div>
                 {% else %}
                 <p class="text-sm mt-1" style="color: var(--text-muted);">Non déterminé.</p>
                 {% endif %}
             </div>
 
+            <!-- Former Clubs -->
             <div>
                 <p class="text-xs uppercase tracking-wider mb-2" style="color: var(--text-muted);">Anciens clubs</p>
                 <div class="space-y-2 max-h-72 overflow-y-auto pr-1">
                     {% for club in former_clubs %}
-                    <div class="p-3 rounded-lg" style="background: rgba(42, 48, 80, 0.45); border: 1px solid var(--border-color);">
+                    <div class="p-3" style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
                         <div class="flex items-center justify-between gap-2">
-                            <a href="{{ path_for_entity('club', club.id) }}" class="font-semibold hover:text-white" style="color: var(--accent-blue-light);">{{ club.nom|truncate_name(30) }}</a>
+                            <a href="{{ path_for_entity('club', club) }}" class="font-semibold" style="color: var(--accent-blue-light);">{{ club.nom|truncate_name(30) }}</a>
                             <span class="badge">{{ club.match_count }} m.</span>
                         </div>
                         <div class="flex flex-wrap gap-2 mt-2">
                             {% for saison in club.saisons[:2] %}
                             <span class="badge">{{ saison }}</span>
                             {% endfor %}
-                            <a href="/joueurs/{{ joueur.licence }}?tab=matchs&club_ids={{ club.id }}" class="badge badge-blue">Matchs</a>
+                            <a href="/joueurs/{{ joueur.licence }}?tab=matchs&club_ids={{ club.id }}" class="badge badge-orange">Matchs</a>
                         </div>
                     </div>
                     {% else %}
@@ -122,16 +119,17 @@
         </div>
     </div>
 
-    <div class="card p-5 player-level-timeline-card">
+    <!-- ── Level Timeline ── -->
+    <div class="card p-5 player-level-timeline-card stagger-5">
         <div class="flex flex-wrap items-center justify-between gap-3">
-            <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--accent-cyan);">
-                <i data-lucide="line-chart" class="w-4 h-4 inline-block mr-1"></i>
-                Evolution du niveau des matchs
+            <h2 class="section-title flex items-center gap-1.5" style="color: var(--accent-cyan-light);">
+                <i data-lucide="line-chart" class="w-4 h-4"></i>
+                Evolution du niveau
             </h2>
             <span class="badge badge-blue">{{ level_timeline_summary.known_count }} / {{ level_timeline_summary.total_count }} matchs avec niveau</span>
         </div>
         {% if level_reference_order_text %}
-        <p class="player-level-reference mt-2">Ordre de reference: {{ level_reference_order_text }}</p>
+        <p class="player-level-reference mt-2">Ordre de référence: {{ level_reference_order_text }}</p>
         {% endif %}
 
         <div class="player-level-kpis mt-4">
@@ -140,56 +138,57 @@
                 <strong>{{ level_timeline_summary.current_label or 'Inconnu' }}</strong>
             </div>
             <div class="player-level-kpi">
-                <span>Pic observe</span>
+                <span>Pic observé</span>
                 <strong>{{ level_timeline_summary.peak_label or 'Inconnu' }}</strong>
             </div>
             <div class="player-level-kpi">
-                <span>Couverture des niveaux</span>
+                <span>Couverture</span>
                 <strong>{{ level_timeline_summary.coverage_pct|round(0)|int }}%</strong>
-                <small>{{ level_timeline_summary.known_count }} matchs identifies sur {{ level_timeline_summary.total_count }}</small>
+                <small>{{ level_timeline_summary.known_count }} / {{ level_timeline_summary.total_count }} matchs</small>
             </div>
         </div>
 
         {% if level_timeline|length > 1 %}
         <div class="player-level-chart-controls mt-4">
-            <label for="matchLevelTimelineRange">Periode affichee</label>
+            <label for="matchLevelTimelineRange">Période</label>
             <select id="matchLevelTimelineRange" class="filter-select player-level-chart-select">
-                <option value="all" selected>Tous les matchs</option>
-                <option value="40">40 derniers matchs</option>
-                <option value="20">20 derniers matchs</option>
-                <option value="10">10 derniers matchs</option>
+                <option value="all" selected>Tous</option>
+                <option value="40">40 derniers</option>
+                <option value="20">20 derniers</option>
+                <option value="10">10 derniers</option>
             </select>
         </div>
         <div class="player-level-chart-wrap mt-4"><canvas id="matchLevelTimelineChart"></canvas></div>
         {% else %}
-        <p class="text-sm mt-4" style="color: var(--text-muted);">Pas assez de matchs renseignes pour tracer une evolution.</p>
+        <p class="text-sm mt-4" style="color: var(--text-muted);">Pas assez de matchs pour tracer une évolution.</p>
         {% endif %}
     </div>
 
+    <!-- ── Jersey Identity ── -->
     <div class="card p-5 player-jersey-section">
         <div class="flex items-center justify-between gap-3 flex-wrap">
-            <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--accent-purple);">
-                <i data-lucide="shirt" class="w-4 h-4 inline-block mr-1"></i>
-                Identite maillot
+            <h2 class="section-title flex items-center gap-1.5" style="color: var(--accent-purple-light);">
+                <i data-lucide="shirt" class="w-4 h-4"></i>
+                Identité maillot
             </h2>
             <span class="badge badge-purple">{{ jersey_profile.variants_count }} version{% if jersey_profile.variants_count > 1 %}s{% endif %}</span>
         </div>
 
         <div class="player-jersey-metrics mt-4">
             <div class="player-jersey-chip">
-                <span>Numero signature</span>
-                <strong>{% if jersey_profile.principal_numero %}#{{ jersey_profile.principal_numero }}{% else %}-{% endif %}</strong>
-                <small>{{ jersey_profile.principal_pct|round(0)|int }}% des matchs avec numero</small>
+                <span>Numéro signature</span>
+                <strong>{% if jersey_profile.principal_numero %}#{{ jersey_profile.principal_numero }}{% else %}—{% endif %}</strong>
+                <small>{{ jersey_profile.principal_pct|round(0)|int }}% des matchs</small>
             </div>
             <div class="player-jersey-chip">
-                <span>Stabilite</span>
+                <span>Stabilité</span>
                 <strong>{{ jersey_profile.consistency_label }}</strong>
-                <small>{{ jersey_profile.distinct_numeros }} numero{% if jersey_profile.distinct_numeros > 1 %}s{% endif %} differents</small>
+                <small>{{ jersey_profile.distinct_numeros }} n°{% if jersey_profile.distinct_numeros > 1 %}s{% endif %}</small>
             </div>
             <div class="player-jersey-chip">
-                <span>Ancrage club actuel</span>
+                <span>Ancrage club</span>
                 <strong>{{ jersey_profile.current_club_pct|round(0)|int }}%</strong>
-                <small>des maillots releves</small>
+                <small>des maillots relevés</small>
             </div>
         </div>
 
@@ -216,16 +215,16 @@
                     <span class="player-jersey-club-link muted">{{ featured_jersey.club_nom }}</span>
                     {% endif %}
                     {% if featured_jersey.is_placeholder %}
-                    <p class="text-xs mt-1" style="color: var(--accent-gold);">Apercu visuel: numero absent des feuilles disponibles.</p>
+                    <p class="text-xs mt-1" style="color: var(--accent-gold);">Numéro non répertorié dans les feuilles disponibles</p>
                     {% else %}
-                    <p class="text-xs mt-1" style="color: var(--text-muted);">{{ featured_jersey.count }} match{% if featured_jersey.count > 1 %}s{% endif %} · {{ featured_jersey.pct|round(0)|int }}% des maillots detectes</p>
+                    <p class="text-xs mt-1" style="color: var(--text-muted);">{{ featured_jersey.count }} match{% if featured_jersey.count > 1 %}s{% endif %} · {{ featured_jersey.pct|round(0)|int }}%</p>
                     {% endif %}
                     <div class="flex flex-wrap gap-2 mt-3">
                         {% if featured_jersey.is_current_club %}
                         <span class="badge badge-green">Club actuel</span>
                         {% endif %}
                         {% if featured_jersey.club_id %}
-                        <a href="/joueurs/{{ joueur.licence }}?tab=matchs&club_ids={{ featured_jersey.club_id }}" class="badge badge-blue">Matchs de ce club</a>
+                        <a href="/joueurs/{{ joueur.licence }}?tab=matchs&club_ids={{ featured_jersey.club_id }}" class="badge badge-orange">Matchs club</a>
                         {% endif %}
                     </div>
                 </div>
@@ -248,15 +247,15 @@
                     <div class="mt-2">
                         <div class="text-xs font-semibold" style="color: var(--text-primary);">{{ jersey.club_nom|truncate_name(28) }}</div>
                         {% if jersey.is_placeholder %}
-                        <div class="text-[11px]" style="color: var(--accent-gold);">Donnees partielles</div>
+                        <div style="font-size: 0.65rem; color: var(--accent-gold);">Données partielles</div>
                         {% else %}
-                        <div class="text-[11px]" style="color: var(--text-muted);">{{ jersey.count }} match{% if jersey.count > 1 %}s{% endif %} · {{ jersey.pct|round(0)|int }}%</div>
+                        <div style="font-size: 0.65rem; color: var(--text-muted);">{{ jersey.count }} match{% if jersey.count > 1 %}s{% endif %} · {{ jersey.pct|round(0)|int }}%</div>
                         {% endif %}
                     </div>
                 </div>
                 {% else %}
                 <div class="player-jersey-empty">
-                    Aucune variante supplementaire de maillot detectee.
+                    Aucune variante supplémentaire détectée.
                 </div>
                 {% endfor %}
             </div>
@@ -265,7 +264,7 @@
 
         {% if numero_stats.distribution and numero_stats.distribution|length > 1 %}
         <div class="player-numero-distribution mt-5">
-            <p class="text-xs uppercase tracking-wider" style="color: var(--text-muted);">Repartition des numeros portes</p>
+            <p class="text-xs uppercase tracking-wider" style="color: var(--text-muted);">Répartition des numéros</p>
             <div class="space-y-2 mt-2">
                 {% for dist in numero_stats.distribution[:5] %}
                 <div class="player-numero-row">
@@ -279,10 +278,11 @@
         {% endif %}
     </div>
 
-    <div class="card overflow-hidden">
+    <!-- ── Recent Matches ── -->
+    <div class="card overflow-hidden stagger-6">
         <div class="p-4" style="border-bottom: 1px solid var(--border-color);">
-            <h2 class="text-sm font-semibold uppercase tracking-wider" style="color: var(--text-muted);">
-                <i data-lucide="clock-3" class="w-4 h-4 inline-block mr-1"></i>
+            <h2 class="section-title flex items-center gap-1.5">
+                <i data-lucide="clock-3" class="w-4 h-4"></i>
                 Derniers matchs
             </h2>
         </div>
@@ -302,15 +302,12 @@
             <tbody>
                 {% for row in recent_matchs %}
                 <tr>
-                    <td>{{ row.date|format_date if row.date else '—' }}</td>
+                    <td style="font-family: var(--font-mono); font-size: 0.72rem;">{{ row.date|format_date if row.date else '—' }}</td>
                     <td>
                         {% if row.equipe_id %}
                         <a href="{{ path_for_entity('equipe', row.equipe_id) }}">{{ row.equipe_nom|truncate_name(26) }}</a>
                         {% else %}
                         {{ row.equipe_nom|truncate_name(26) }}
-                        {% endif %}
-                        {% if row.club_id %}
-                        <div class="text-xs mt-1"><a href="{{ path_for_entity('club', row.club_id) }}" style="color: var(--text-muted);">Club</a></div>
                         {% endif %}
                     </td>
                     <td>
@@ -321,20 +318,31 @@
                         {% endif %}
                     </td>
                     <td>
-                        {% if row.competition_id %}
-                        <a href="{{ path_for_entity('competition', row.competition_id) }}" class="badge">Compétition</a>
+                        {% if row.competition_nom or row.competition_id %}
+                        <a href="{{ path_for_entity('competition', row.competition_code or row.competition_id) }}" class="badge hover:opacity-80 transition" title="{{ row.competition_nom }}">{{ row.competition_nom|truncate_name(22) or 'Compétition' }}</a>
                         {% else %}
                         <span style="color: var(--text-muted);">—</span>
                         {% endif %}
                     </td>
-                    <td class="text-center">{{ row.score }}</td>
+                    <td class="text-center" style="font-family: var(--font-display); font-weight: 700;">
+                        <a href="{{ path_for_entity('match', row.code_match or row.match_id) }}" class="hover:underline">{{ row.score }}</a>
+                    </td>
                     <td class="text-center">
                         {% if row.victoire is sameas true %}<span class="badge badge-green">V</span>
                         {% elif row.victoire is sameas false %}<span class="badge badge-red">D</span>
                         {% else %}<span class="badge">—</span>{% endif %}
                     </td>
-                    <td>{% if row.niveau %}<span class="badge badge-blue">{{ row.niveau }}</span>{% else %}<span style="color: var(--text-muted);">—</span>{% endif %}</td>
-                    <td class="text-right"><a href="{{ path_for_entity('match', row.match_id) }}" class="badge badge-blue text-xs">Voir</a></td>
+                    <td class="text-right">
+                        <div class="flex items-center justify-end gap-1">
+                            <a href="{{ path_for_entity('match', row.code_match or row.match_id) }}" class="badge badge-orange hover:opacity-80 transition">Feuille</a>
+                            {% set fdme = ffvb_fdme_url(row.match) %}
+                            {% if fdme %}
+                            <a href="{{ fdme }}" target="_blank" rel="noopener noreferrer" class="badge badge-green text-xs hover:opacity-80 transition" title="Feuille de match officielle FFVB (FDME PDF)">
+                                <i data-lucide="file-text" class="w-3 h-3"></i>
+                            </a>
+                            {% endif %}
+                        </div>
+                    </td>
                 </tr>
                 {% else %}
                 <tr><td colspan="8" class="text-center py-8" style="color: var(--text-muted);">Aucun match trouvé pour ce filtre.</td></tr>

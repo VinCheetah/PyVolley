@@ -342,6 +342,47 @@ class MatchViewService:
             "players": [],
         }
 
+        # Remplissage des statistiques joueurs
+        players_list = []
+        for js in (getattr(match, "joueur_stats", []) or []):
+            pts_j = js.points_joues or 0
+            pts_g = js.points_gagnes or 0
+            pts_so = js.points_gagnes_sideout if js.points_gagnes_sideout is not None else max(0, pts_g - (js.points_gagnes_service or 0))
+            eff = round(pct(pts_g, pts_j), 1) if pts_j > 0 else 0.0
+            bp = round(pct(js.points_gagnes_service or 0, js.services or 0), 1) if (js.services or 0) > 0 else 0.0
+            j_prenom = js.joueur.prenom if js.joueur else ""
+            j_nom = js.joueur.nom if js.joueur else ""
+            players_list.append({
+                "joueur_id": js.joueur_id,
+                "side": js.side or ("A" if js.equipe_id == match.equipe_a_id else "B"),
+                "nom": j_nom,
+                "prenom": j_prenom,
+                "numero": js.numero,
+                "points_joues": pts_j,
+                "points_gagnes": pts_g,
+                "points_perdus": js.points_perdus or 0,
+                "points_gagnes_sideout": pts_so,
+                "efficacite_pct": eff,
+                "break_point_ratio_pct": bp,
+                "services": js.services or 0,
+                "max_serie": js.max_serie or 0,
+                "max_services_set": getattr(js, "max_services_set", 0) or 0,
+                "temps_jeu": js.temps_jeu_estime or 0.0,
+                "plus_minus": js.plus_minus or (pts_g - (js.points_perdus or 0)),
+                "differentiel_points_gagnes": js.differentiel_points_gagnes,
+                "presence_relative_pct": round((getattr(js, "presence_relative", 0.0) or 0.0) * 100, 1),
+                "sets_joues": js.sets_joues or 0,
+                "sets_titulaire": js.sets_titulaire or 0,
+                "nb_entrees": js.nb_entrees or 0,
+                "nb_sorties": js.nb_sorties or 0,
+                "nb_entrees_sorties": getattr(js, "nb_entrees_sorties", 0) or 0,
+                "nb_sorties_entrees": getattr(js, "nb_sorties_entrees", 0) or 0,
+                "presence_par_set": js.presence_par_set or [],
+                "rotations": getattr(js, "stats_rotations", {}) or {},
+                "clutch": getattr(js, "stats_clutch", {}) or {},
+            })
+        stats_dashboard["players"] = players_list
+
         # Lookups maillots et liberos par equipe
         players_by_side_num: dict[str, dict[str, dict[str, Any]]] = {"A": {}, "B": {}}
         libero_by_side: dict[str, Optional[dict[str, Any]]] = {"A": None, "B": None}

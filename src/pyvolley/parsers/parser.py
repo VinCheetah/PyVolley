@@ -18,6 +18,7 @@ Architecture du PDF FFVB (page unique) :
 
 from __future__ import annotations
 
+import re
 import logging
 from time import perf_counter
 from datetime import datetime
@@ -524,6 +525,10 @@ def _build_match(
     # Normaliser aussi les noms d’équipe (VB uniformé)
     nom_a = normalize_club_name(nom_a)
     nom_b = normalize_club_name(nom_b)
+    if len(nom_a) < 2 or not re.search(r"[a-zA-Z0-9]", nom_a):
+        nom_a = "Équipe A"
+    if len(nom_b) < 2 or not re.search(r"[a-zA-Z0-9]", nom_b):
+        nom_b = "Équipe B"
 
     all_joueurs_a = merge_liberos(joueurs_a, liberos_a)
     all_joueurs_b = merge_liberos(joueurs_b, liberos_b)

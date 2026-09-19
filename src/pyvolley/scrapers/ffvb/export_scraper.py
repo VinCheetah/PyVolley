@@ -804,14 +804,18 @@ def parse_export_csv(
             elif type_forfait == "equipe_b" and equipe_a_nom:
                 vainqueur = equipe_a_nom
 
+        # Entité source réelle de la ligne si renseignée (ex: AALNV dans export ABCCS)
+        row_entite = _clean_str(row[COL_ENTITE]) if COL_ENTITE < len(row) else None
+        effective_entite = row_entite if row_entite and row_entite != "Entité" else entite_code
+
         # URL feuille de match
         feuille_url = build_feuille_match_url(
-            base_url, entite_code, code_match, saison
+            base_url, effective_entite, code_match, saison
         )
 
         match_info = ExportMatchInfo(
             code_match=code_match,
-            entite_code=entite_code,
+            entite_code=effective_entite,
             poule_code=poule_code,
             poule_code_ffvb=poule_code_base if phase_ar else None,
             saison=saison,

@@ -412,11 +412,14 @@ def equipe_detail(
             club_code_ffvb=equipe.club.code_ffvb,
         )
 
+    primary_poule = next((m.poule for m in matchs if getattr(m, "poule", None)), None)
+
     return templates.TemplateResponse(
         "equipes/detail.html",
         {
             "request": request,
             "equipe": equipe,
+            "primary_poule": primary_poule,
             "matchs": matchs,
             "saison_stats": equipe_saison_stats,
             "victoires": victoires,

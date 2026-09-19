@@ -1,91 +1,93 @@
 {# ═══════════════════════════════════════════════════════════════
-   Joueur Detail — Hero Section
-   Player avatar, name, licence, age estimate, badges & insight chips
+   PyVolley — Player Hero Card
    ═══════════════════════════════════════════════════════════════ #}
 
-<div class="card p-6 md:p-8 player-hero">
-    <div class="flex flex-col md:flex-row md:items-center gap-6">
-        <div class="w-20 h-20 rounded-2xl flex items-center justify-center flex-shrink-0"
-             style="background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));">
-            <span class="text-3xl font-black text-white">
-                {{ joueur.prenom[0] if joueur.prenom else '' }}{{ joueur.nom[0] if joueur.nom else '' }}
-            </span>
+<div class="player-hero stagger-1">
+    <!-- Top row: Avatar + Identity -->
+    <div class="flex gap-5 items-start flex-wrap">
+        <!-- Avatar -->
+        <div class="player-hero-avatar">
+            <span>{{ (joueur.prenom[:1] if joueur.prenom else '') ~ (joueur.nom[:1] if joueur.nom else '') }}</span>
         </div>
-        <div class="flex-1">
-            <h1 class="text-2xl md:text-3xl font-bold mb-1">
-                <span class="text-secondary">{{ joueur.prenom }}</span>
-                <span class="text-white">{{ joueur.nom }}</span>
+
+        <!-- Name + badges -->
+        <div class="flex-1" style="min-width: 200px;">
+            <h1 class="player-hero-name">
+                {% if joueur.prenom %}<span class="firstname">{{ joueur.prenom }}</span>{% endif %}
+                <span class="lastname">{{ joueur.nom }}</span>
+                {% if numero_stats.principal %}
+                <span style="font-family: var(--font-display); font-size: 1rem; color: var(--accent-primary); font-weight: 700; vertical-align: super;">#{{ numero_stats.principal }}</span>
+                {% endif %}
             </h1>
-            <div class="flex flex-wrap gap-2 mt-2">
-                <span class="badge">
-                    <i data-lucide="credit-card" class="w-3 h-3 mr-1"></i>
+
+            <div class="player-hero-badges">
+                {% if joueur.licence %}
+                <span class="badge badge-orange">
+                    <i data-lucide="credit-card" class="w-3 h-3"></i>
                     {{ joueur.licence }}
                 </span>
-                {% if estimated_age %}
-                <span class="badge badge-gold" title="Basé sur les catégories jeunes et les saisons observées">
-                    <i data-lucide="hourglass" class="w-3 h-3 mr-1"></i>
-                    Âge max estimé: {{ estimated_age.max_age_years }} ans
-                </span>
                 {% endif %}
-                {% if current_level %}
+
+                {% if estimated_age and estimated_age.max_age_years is not none %}
                 <span class="badge badge-blue">
-                    <i data-lucide="trending-up" class="w-3 h-3 mr-1"></i>
-                    Niveau saison: {{ current_level.label }}
+                    <i data-lucide="calendar" class="w-3 h-3"></i>
+                    ≤ {{ estimated_age.max_age_years }} ans
                 </span>
                 {% endif %}
-                {% if previous_best_level %}
+
+                {% if role_overview.available and role_overview.principal_label != 'Non déterminé' %}
                 <span class="badge badge-purple">
-                    <i data-lucide="history" class="w-3 h-3 mr-1"></i>
-                    Pic historique: {{ previous_best_level.label }}
+                    <i data-lucide="target" class="w-3 h-3"></i>
+                    {{ role_overview.principal_label }}
                 </span>
                 {% endif %}
+
+                {% if level_timeline_summary.current_label %}
+                <span class="badge badge-green">
+                    <i data-lucide="trophy" class="w-3 h-3"></i>
+                    {{ level_timeline_summary.current_label }}
+                </span>
+                {% endif %}
+
                 {% if current_club %}
-                <a href="{{ path_for_entity('club', current_club.id) }}" class="badge badge-green hover:opacity-85 transition">
-                    <i data-lucide="building-2" class="w-3 h-3 mr-1"></i>
-                    Club actuel: {{ current_club.nom|truncate_name(26) }}
+                <a href="{{ path_for_entity('club', current_club) }}" class="badge badge-cyan hover:opacity-80 transition" title="Voir la fiche du club">
+                    <i data-lucide="home" class="w-3 h-3"></i>
+                    {{ current_club.nom }}
                 </a>
                 {% endif %}
-                <span class="badge badge-purple">{{ stats.matchs_joues }} matchs filtrés</span>
-                {% if active_filter_count > 0 %}
-                <span class="badge badge-gold">{{ active_filter_count }} filtre{% if active_filter_count > 1 %}s{% endif %}</span>
-                {% endif %}
             </div>
-            {% if estimated_age %}
-            <p class="text-xs mt-3 text-muted">
-                Estimation d'âge basée sur les catégories jeunes
-                {% if estimated_age.best_category_labels %}({{ estimated_age.best_category_labels|join(', ') }}){% endif %}
-                {% if estimated_age.best_season_labels %}en saison {{ estimated_age.best_season_labels|join(', ') }}{% endif %}.
-                Date de naissance minimale estimée: {{ estimated_age.birth_date_min_display }}.
-            </p>
+        </div>
+    </div>
+
+    <!-- Quick Insight Cards -->
+    <div class="player-hero-insights stagger-2">
+        <div class="player-hero-insight">
+            <span>Matchs</span>
+            <strong>{{ stats.matchs_joues }}</strong>
+            {% if active_filter_count > 0 %}
+            <small>sur {{ base_match_count }} total</small>
             {% endif %}
-            <div class="player-hero-insights mt-4">
-                <div class="player-hero-insight">
-                    <span>Numero signature</span>
-                    <strong>{% if jersey_profile.principal_numero %}#{{ jersey_profile.principal_numero }}{% else %}-{% endif %}</strong>
-                    <small>{{ jersey_profile.principal_pct|round(0)|int }}% des feuilles</small>
-                </div>
-                <div class="player-hero-insight">
-                    <span>Stabilite maillot</span>
-                    <strong>{{ jersey_profile.consistency_label }}</strong>
-                    <small>{{ jersey_profile.distinct_numeros }} numero{% if jersey_profile.distinct_numeros > 1 %}s{% endif %} detecte{% if jersey_profile.distinct_numeros > 1 %}s{% endif %}</small>
-                </div>
-                <div class="player-hero-insight">
-                    <span>Niveau recent</span>
-                    <strong>{{ level_timeline_summary.current_label or (current_level.label if current_level else 'Non disponible') }}</strong>
-                    <small>{{ level_timeline_summary.known_count }} / {{ level_timeline_summary.total_count }} matchs avec niveau connu</small>
-                </div>
-                <div class="player-hero-insight">
-                    <span>Role detecte</span>
-                    <strong>{{ role_overview.principal_label if role_overview.available else 'Non determine' }}</strong>
-                    <small>
-                        {% if role_overview.available %}
-                        Plausibilite {{ role_overview.plausibility_pct|round(1) }}%
-                        {% else %}
-                        Donnees insuffisantes
-                        {% endif %}
-                    </small>
-                </div>
-            </div>
+        </div>
+        <div class="player-hero-insight">
+            <span>Victoires</span>
+            <strong style="color: var(--accent-green-light);">{{ stats.victoires }}</strong>
+            {% if stats.defaites %}
+            <small>{{ stats.defaites }} défaite{{ 's' if stats.defaites > 1 }}</small>
+            {% endif %}
+        </div>
+        <div class="player-hero-insight">
+            <span>Win rate</span>
+            {% if stats.taux_victoire is not none %}
+            <strong style="color: {% if stats.taux_victoire >= 60 %}var(--accent-green-light){% elif stats.taux_victoire >= 40 %}var(--accent-gold-light){% else %}var(--accent-red-light){% endif %};">
+                {{ stats.taux_victoire }}%
+            </strong>
+            {% else %}
+            <strong style="color: var(--text-muted);">—</strong>
+            {% endif %}
+        </div>
+        <div class="player-hero-insight">
+            <span>Équipes</span>
+            <strong>{{ stats.equipes_count }}</strong>
         </div>
     </div>
 </div>

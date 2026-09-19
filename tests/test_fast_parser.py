@@ -82,3 +82,27 @@ def test_fast_parser_sets_and_parity(parser):
         assert len(match.arbitres) > 0
         # Vérification des joueurs
         assert len(match.equipe_a.joueurs) > 0 or len(match.equipe_b.joueurs) > 0
+
+
+def test_fast_parser_team_orientation_in_sets(parser):
+    """Vérifie que les formations de sets correspondent aux joueurs de chaque équipe respective,
+    même lorsque l'équipe A se trouve à droite du terrain (gauche_est_equipe_a == False)."""
+    sample_pdfs = sorted(list(DATA_SAMPLE_DIR.glob("*.pdf")))
+    for pdf_path in sample_pdfs:
+        result = parser.parse(pdf_path)
+        if not result.success:
+            continue
+        match = result.match
+        if not match.sets:
+            continue
+        nums_a = {j.numero.lstrip('0') for j in match.equipe_a.joueurs if j.numero}
+        nums_b = {j.numero.lstrip('0') for j in match.equipe_b.joueurs if j.numero}
+        s1 = match.sets[0]
+        if s1.equipe_a and s1.equipe_a.formation:
+            pos_a = {n.lstrip('0') for n in s1.equipe_a.formation.as_list() if n}
+            if len(pos_a) >= 4 and len(nums_a) >= 4 and len(nums_b) >= 4:
+                # La formation A ne doit pas être inversée avec les joueurs de l'équipe B
+                in_a = len(pos_a & nums_a)
+                in_b = len(pos_a & nums_b)
+                assert in_a >= in_b, f"Inversion détectée dans le set 1 de {pdf_path.name}: {in_b} joueurs de B vs {in_a} de A"
+

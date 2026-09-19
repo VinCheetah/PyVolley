@@ -688,7 +688,7 @@ class JoueurViewService:
 
         # Statistiques détaillées de match & Rôles
         stats_service = JoueurMatchStatsService(session)
-        stats_rows = stats_service.repo.get_for_joueur(joueur_id, limit=1200)
+        stats_rows = stats_service.repo.get_for_joueur(joueur_id_int, limit=1200)
 
         aggregated_stats = None
         per_match_stats = []
@@ -768,6 +768,10 @@ class JoueurViewService:
                 break_ratio = round(pct(pts_gagnes_srv, row.services or 0), 1) if (row.services or 0) > 0 else 0.0
                 sideout_contrib = round(pct(pts_so, pts_gagnes), 1) if pts_gagnes > 0 else 0.0
 
+                plus_minus = getattr(row, "plus_minus", None)
+                if plus_minus is None:
+                    plus_minus = pts_gagnes - pts_perdus
+
                 pms_entry = {
                     "match_id": row.match_id,
                     "date": match.date_match.strftime("%d/%m/%Y") if match and match.date_match else None,
@@ -776,9 +780,25 @@ class JoueurViewService:
                     "points_perdus": pts_perdus,
                     "points_gagnes_service": pts_gagnes_srv,
                     "points_gagnes_sideout": pts_so,
+                    "plus_minus": plus_minus,
+                    "differentiel_points_gagnes": getattr(row, "differentiel_points_gagnes", None),
                     "services": row.services or 0,
                     "max_serie": row.max_serie or 0,
+                    "max_services_set": getattr(row, "max_services_set", 0) or 0,
                     "victoire": row.victoire,
+                    "sets_joues": getattr(row, "sets_joues", 0) or 0,
+                    "sets_gagnes": getattr(row, "sets_gagnes", 0) or 0,
+                    "sets_perdus": getattr(row, "sets_perdus", 0) or 0,
+                    "sets_titulaire": getattr(row, "sets_titulaire", 0) or 0,
+                    "presence_relative": getattr(row, "presence_relative", 0.0) or 0.0,
+                    "temps_jeu_estime": getattr(row, "temps_jeu_estime", None),
+                    "nb_entrees": getattr(row, "nb_entrees", 0) or 0,
+                    "nb_sorties": getattr(row, "nb_sorties", 0) or 0,
+                    "nb_entrees_sorties": getattr(row, "nb_entrees_sorties", 0) or 0,
+                    "nb_sorties_entrees": getattr(row, "nb_sorties_entrees", 0) or 0,
+                    "titulaire_set_1": getattr(row, "titulaire_set_1", False),
+                    "match_complet": getattr(row, "match_complet", False),
+                    "match_non_joue": getattr(row, "match_non_joue", False),
                     "role_principal": row.role_principal,
                     "role_confiance": row.role_confiance,
                 }
@@ -807,6 +827,16 @@ class JoueurViewService:
                         "ratio_points_pct": ratio_points,
                         "break_point_ratio_pct": break_ratio,
                         "sideout_contribution_pct": sideout_contrib,
+                        "plus_minus": plus_minus,
+                        "differentiel_points_gagnes": getattr(row, "differentiel_points_gagnes", None),
+                        "presence_relative_pct": round((getattr(row, "presence_relative", 0.0) or 0.0) * 100, 1),
+                        "temps_jeu_estime": getattr(row, "temps_jeu_estime", None),
+                        "sets_joues": getattr(row, "sets_joues", 0) or 0,
+                        "sets_titulaire": getattr(row, "sets_titulaire", 0) or 0,
+                        "nb_entrees_sorties": getattr(row, "nb_entrees_sorties", 0) or 0,
+                        "nb_sorties_entrees": getattr(row, "nb_sorties_entrees", 0) or 0,
+                        "match_complet": getattr(row, "match_complet", False),
+                        "match_non_joue": getattr(row, "match_non_joue", False),
                         "stats": pms_entry,
                     }
                 )
@@ -859,9 +889,13 @@ class JoueurViewService:
             dom_ext = "Domicile" if side == "A" else ("Extérieur" if side == "B" else "Inconnu")
             recent_matchs.append(
                 {
+                    "match": match,
                     "match_id": match.id,
+                    "code_match": getattr(match, "code_match", None),
                     "date": match.date_match,
                     "competition_id": row["competition"].id if row["competition"] else None,
+                    "competition_code": getattr(row["competition"], "code_competition", None) if row["competition"] else None,
+                    "competition_nom": row["competition"].nom if row["competition"] else None,
                     "equipe_nom": equipe_joueur.nom if equipe_joueur else "?",
                     "equipe_id": equipe_joueur.id if equipe_joueur else None,
                     "adversaire_nom": adversaire.nom if adversaire else "?",
@@ -884,11 +918,15 @@ class JoueurViewService:
             dom_ext = "Domicile" if side == "A" else ("Extérieur" if side == "B" else "Inconnu")
             match_rows.append(
                 {
+                    "match": match,
                     "match_id": match.id,
+                    "code_match": getattr(match, "code_match", None),
                     "date": match.date_match,
                     "saison": row["saison"].code if row["saison"] else None,
                     "competition": competition.nom if competition else None,
+                    "competition_nom": competition.nom if competition else None,
                     "competition_id": competition.id if competition else None,
+                    "competition_code": getattr(competition, "code_competition", None) if competition else None,
                     "equipe_id": row["equipe_joueur"].id if row["equipe_joueur"] else None,
                     "equipe_nom": row["equipe_joueur"].nom if row["equipe_joueur"] else "?",
                     "adversaire_id": row["adversaire"].id if row["adversaire"] else None,
@@ -954,8 +992,8 @@ class JoueurViewService:
         allowed_tabs = {"resume", "stats", "matchs", "carte"}
         initial_tab = tab if tab in allowed_tabs else "resume"
 
-        carriere_stats_obj = JoueurCarriereStatsRepository(session).get_for_joueur(joueur_id)
-        saison_stats_rows = JoueurSaisonStatsRepository(session).get_for_joueur(joueur_id)
+        carriere_stats_obj = JoueurCarriereStatsRepository(session).get_for_joueur(joueur_id_int)
+        saison_stats_rows = JoueurSaisonStatsRepository(session).get_for_joueur(joueur_id_int)
 
         level_counts: dict[str, int] = defaultdict(int)
         for r in filtered_rows:

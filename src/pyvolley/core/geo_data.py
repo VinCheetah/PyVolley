@@ -916,3 +916,113 @@ def resolve_entity_coordinates(
         return centroid[0] + sin(angle) * radius, centroid[1] + cos(angle) * radius
 
     return None
+
+
+def haversine_distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Calcule la distance orthodromique en kilomètres entre deux points GPS."""
+    from math import asin, cos, radians, sin, sqrt
+    R = 6371.0
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = sin(dlat / 2.0) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2.0) ** 2
+    return 2.0 * R * asin(sqrt(a))
+
+
+def is_coordinate_in_department(
+    lat: float,
+    lon: float,
+    departement: str | None,
+    max_distance_km: float = 120.0,
+) -> tuple[bool, float]:
+    """Vérifie si une coordonnée GPS se situe dans le rayon acceptable d'un département.
+
+    Args:
+        lat: Latitude.
+        lon: Longitude.
+        departement: Code département (ex: '38', '2A', '974').
+        max_distance_km: Rayon toléré en kilomètres autour du centroïde (défaut: 120 km).
+
+    Returns:
+        tuple (is_in_dept: bool, distance_km: float)
+    """
+    if not departement or lat is None or lon is None:
+        return True, 0.0
+
+    dept_code = departement.strip().upper()
+    if len(dept_code) == 1 and dept_code.isdigit():
+        dept_code = dept_code.zfill(2)
+
+    centroid = DEPARTMENT_CENTROIDS.get(dept_code)
+    if not centroid:
+        return True, 0.0
+
+    dist = haversine_distance_km(lat, lon, centroid[0], centroid[1])
+    # DROM-COM ont des centroïdes locaux; un seuil de 150 km est adapté pour la Guyane
+    threshold = 180.0 if dept_code == "973" else max_distance_km
+    return (dist <= threshold), dist
+
+
+# ─── Mapping Département <-> Ligue régionale FFVB ──────────────────
+DEPT_TO_LIGUE: dict[str, str] = {
+    # Auvergne-Rhône-Alpes (09)
+    "01": "AUVERGNE-RHÔNE-ALPES", "03": "AUVERGNE-RHÔNE-ALPES", "07": "AUVERGNE-RHÔNE-ALPES",
+    "15": "AUVERGNE-RHÔNE-ALPES", "26": "AUVERGNE-RHÔNE-ALPES", "38": "AUVERGNE-RHÔNE-ALPES",
+    "42": "AUVERGNE-RHÔNE-ALPES", "43": "AUVERGNE-RHÔNE-ALPES", "63": "AUVERGNE-RHÔNE-ALPES",
+    "69": "AUVERGNE-RHÔNE-ALPES", "73": "AUVERGNE-RHÔNE-ALPES", "74": "AUVERGNE-RHÔNE-ALPES",
+    # Bourgogne-Franche-Comté (04)
+    "21": "BOURGOGNE-FRANCHE-COMTE", "25": "BOURGOGNE-FRANCHE-COMTE", "39": "BOURGOGNE-FRANCHE-COMTE",
+    "58": "BOURGOGNE-FRANCHE-COMTE", "70": "BOURGOGNE-FRANCHE-COMTE", "71": "BOURGOGNE-FRANCHE-COMTE",
+    "89": "BOURGOGNE-FRANCHE-COMTE", "90": "BOURGOGNE-FRANCHE-COMTE",
+    # Bretagne (05)
+    "22": "BRETAGNE", "29": "BRETAGNE", "35": "BRETAGNE", "56": "BRETAGNE",
+    # Centre-Val de Loire (06)
+    "18": "CENTRE-VAL DE LOIRE", "28": "CENTRE-VAL DE LOIRE", "36": "CENTRE-VAL DE LOIRE",
+    "37": "CENTRE-VAL DE LOIRE", "41": "CENTRE-VAL DE LOIRE", "45": "CENTRE-VAL DE LOIRE",
+    # Corse (30)
+    "2A": "CORSE", "2B": "CORSE",
+    # Grand Est (16)
+    "08": "GRAND EST", "10": "GRAND EST", "51": "GRAND EST", "52": "GRAND EST",
+    "54": "GRAND EST", "55": "GRAND EST", "57": "GRAND EST", "67": "GRAND EST",
+    "68": "GRAND EST", "88": "GRAND EST",
+    # Hauts-de-France (10)
+    "02": "HAUTS-DE-FRANCE", "59": "HAUTS-DE-FRANCE", "60": "HAUTS-DE-FRANCE",
+    "62": "HAUTS-DE-FRANCE", "80": "HAUTS-DE-FRANCE",
+    # Île-de-France (13)
+    "75": "ILE-DE-FRANCE", "77": "ILE-DE-FRANCE", "78": "ILE-DE-FRANCE",
+    "91": "ILE-DE-FRANCE", "92": "ILE-DE-FRANCE", "93": "ILE-DE-FRANCE",
+    "94": "ILE-DE-FRANCE", "95": "ILE-DE-FRANCE",
+    # Normandie (18)
+    "14": "NORMANDIE", "27": "NORMANDIE", "50": "NORMANDIE", "61": "NORMANDIE", "76": "NORMANDIE",
+    # Nouvelle-Aquitaine (12)
+    "16": "NOUVELLE AQUITAINE", "17": "NOUVELLE AQUITAINE", "19": "NOUVELLE AQUITAINE",
+    "23": "NOUVELLE AQUITAINE", "24": "NOUVELLE AQUITAINE", "33": "NOUVELLE AQUITAINE",
+    "40": "NOUVELLE AQUITAINE", "47": "NOUVELLE AQUITAINE", "64": "NOUVELLE AQUITAINE",
+    "79": "NOUVELLE AQUITAINE", "86": "NOUVELLE AQUITAINE", "87": "NOUVELLE AQUITAINE",
+    # Occitanie (14)
+    "09": "OCCITANIE", "11": "OCCITANIE", "12": "OCCITANIE", "30": "OCCITANIE",
+    "31": "OCCITANIE", "32": "OCCITANIE", "34": "OCCITANIE", "46": "OCCITANIE",
+    "48": "OCCITANIE", "65": "OCCITANIE", "66": "OCCITANIE", "81": "OCCITANIE", "82": "OCCITANIE",
+    # Pays de la Loire (02)
+    "44": "PAYS DE LA LOIRE", "49": "PAYS DE LA LOIRE", "53": "PAYS DE LA LOIRE",
+    "72": "PAYS DE LA LOIRE", "85": "PAYS DE LA LOIRE",
+    # Provence-Alpes-Côte d'Azur (08)
+    "04": "PROVENCE-ALPES-CÔTE D'AZUR", "05": "PROVENCE-ALPES-CÔTE D'AZUR",
+    "06": "PROVENCE-ALPES-CÔTE D'AZUR", "13": "PROVENCE-ALPES-CÔTE D'AZUR",
+    "83": "PROVENCE-ALPES-CÔTE D'AZUR", "84": "PROVENCE-ALPES-CÔTE D'AZUR",
+    # DROM-COM
+    "971": "GUADELOUPE",
+    "972": "MARTINIQUE",
+    "973": "GUYANE",
+    "974": "LA REUNION",
+    "976": "MAYOTTE",
+}
+
+REGION_NAME_TO_DEPTS: dict[str, list[str]] = {}
+for _d, _l in DEPT_TO_LIGUE.items():
+    REGION_NAME_TO_DEPTS.setdefault(_l, []).append(_d)
+
+# Permet également à LIGUE_TO_DEPTS d'accepter les noms complets de ligue/région sans écraser les codes FFVB (LIGU, etc.)
+for _reg, _depts in REGION_NAME_TO_DEPTS.items():
+    if _reg not in LIGUE_TO_DEPTS:
+        LIGUE_TO_DEPTS[_reg] = _depts
+

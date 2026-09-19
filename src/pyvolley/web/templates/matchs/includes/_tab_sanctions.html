@@ -33,9 +33,19 @@
                     {% endif %}
                 </td>
                 <td>
+                    {% if s.equipe == 'A' and match.equipe_a %}
+                    <a href="{{ path_for_entity('equipe', match.equipe_a) }}" class="badge badge-blue hover:underline">
+                        {{ match.equipe_a.nom }}
+                    </a>
+                    {% elif s.equipe == 'B' and match.equipe_b %}
+                    <a href="{{ path_for_entity('equipe', match.equipe_b) }}" class="badge badge-red hover:underline">
+                        {{ match.equipe_b.nom }}
+                    </a>
+                    {% else %}
                     <span class="badge {% if s.equipe == 'A' %}badge-blue{% else %}badge-red{% endif %}">
                         Eq. {{ s.equipe }}
                     </span>
+                    {% endif %}
                 </td>
                 <td class="font-mono">{{ s.joueur_numero or '-' }}</td>
                 <td class="font-mono" style="color: var(--text-muted);">

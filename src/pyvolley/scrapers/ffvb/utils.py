@@ -90,7 +90,7 @@ def build_classement_url(
     params = {
         "saison": saison,
         "codent": entity_code,
-        "poession": poule,
+        "poule": poule,
     }
     return urljoin(base_url, f"vbspo_calendrier.php?{urlencode(params)}")
 

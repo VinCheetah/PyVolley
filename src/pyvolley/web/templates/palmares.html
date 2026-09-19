@@ -106,7 +106,11 @@
                 </div>
                 <div class="truncate">
                     {% if item.nom is defined %}
-                    <span class="font-semibold text-white text-sm block truncate">{{ item.nom }}</span>
+                    {% if item.ville is defined %}
+                    <a href="{{ path_for_entity('club', item.id) }}" class="font-semibold text-white hover:text-amber-400 transition text-sm block truncate">{{ item.nom }}</a>
+                    {% else %}
+                    <a href="{{ path_for_entity('equipe', item.id) }}" class="font-semibold text-white hover:text-amber-400 transition text-sm block truncate">{{ item.nom }}</a>
+                    {% endif %}
                     {% if item.niveau %}
                     <span class="badge badge-purple text-[0.65rem] px-1.5 py-0.5 mt-0.5">{{ item.niveau }}</span>
                     {% elif item.ville %}

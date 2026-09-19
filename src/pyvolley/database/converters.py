@@ -116,6 +116,7 @@ def match_db_to_core(
         else None,
         score_export=getattr(match_db, "score_export", None),
         score_pdf=getattr(match_db, "score_pdf", None),
+        sets_detail_export=getattr(match_db, "sets_detail_export", None) or [],
         sets_a=match_db.sets_equipe_a or 0,
         sets_b=match_db.sets_equipe_b or 0,
         duree_totale=match_db.duree_totale,

@@ -12,6 +12,7 @@ import hashlib
 from typing import Optional, List, Any, Union
 from datetime import datetime, date as datetime_date, time as datetime_time
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy import select, delete
 
@@ -102,6 +103,8 @@ class MatchImportService:
         *,
         defer_rollups: bool = False,
         defer_player_stats: bool = False,
+        import_log_id: Optional[int] = None,
+        **kwargs,
     ) -> Optional[MatchDB]:
         """
         Importe un match complet dans la base de données.
@@ -111,17 +114,18 @@ class MatchImportService:
         """
         # 1. Saison
         saison = self._get_or_create_saison(match_data)
-
-        # 2. Vérifier si le match existe déjà
         saison_id = saison.id if saison else None
-        existing = self._get_match_by_code(match_data.code_match, saison_id)
-        if existing:
-            logger.debug(f"Match {match_data.code_match} déjà présent, ignoré")
-            return None
 
-        # 3. Compétition & Poule
+        # 2. Compétition & Poule
         competition = self._get_or_create_competition(match_data, saison)
         poule = self._get_or_create_poule(match_data, competition)
+        competition_id = competition.id if competition else None
+
+        # 3. Vérifier si le match existe déjà dans cette compétition
+        existing = self._get_match_by_code(match_data.code_match, saison_id, competition_id)
+        if existing:
+            logger.debug(f"Match {match_data.code_match} déjà présent dans la compétition, ignoré")
+            return None
 
         # 4. Clubs & Équipes
         equipe_a_db = self._resolve_equipe(match_data.equipe_a, match_data, saison, competition)
@@ -463,7 +467,7 @@ class MatchImportService:
     ) -> Optional[CompetitionDB]:
         """Crée ou récupère la compétition.
 
-        La compétition est identifiée par son nom + saison + genre.
+        La compétition est identifiée par son nom + saison + genre + catégorie + entité.
         Lie l'entité organisatrice (ligue, comité, nationale) si disponible.
         """
         if not match_data.competition:
@@ -486,7 +490,10 @@ class MatchImportService:
         if not categorie and not classification.is_youth:
             categorie = "SENIOR"
 
-        cache_key = (match_data.competition, saison.id, genre, categorie)
+        entite = self._resolve_entite(match_data)
+        entite_id = entite.id if entite else None
+
+        cache_key = (match_data.competition, saison.id, genre, categorie, entite_id)
 
         if cache_key in self._competition_cache:
             return self._competition_cache[cache_key]
@@ -499,6 +506,10 @@ class MatchImportService:
                 CompetitionDB.saison_id == saison.id,
             )
         )
+        if entite_id is not None:
+            stmt = stmt.where(CompetitionDB.entite_id == entite_id)
+        else:
+            stmt = stmt.where(CompetitionDB.entite_id.is_(None))
         if genre:
             stmt = stmt.where(CompetitionDB.genre == genre)
         else:
@@ -517,34 +528,74 @@ class MatchImportService:
                 existing.niveau_badge = classification.label
                 existing.niveau_rank = classification.rank
             # If entite_id is not yet linked, try to link it now
-            if not existing.entite_id:
-                entite = self._resolve_entite(match_data)
-                if entite:
-                    existing.entite_id = entite.id
+            if not existing.entite_id and entite_id:
+                existing.entite_id = entite_id
             self._competition_cache[cache_key] = existing
             return existing
 
         # Extraire un code lisible depuis le nom de compétition
         comp_code = self._extract_code_from_competition_name(match_data.competition)
 
-        # Résoudre l'entité organisatrice
-        entite = self._resolve_entite(match_data)
+        try:
+            with self.session.begin_nested():
+                competition = CompetitionDB(
+                    nom=match_data.competition,
+                    code_competition=comp_code,
+                    genre=genre,
+                    categorie=categorie,
+                    niveau=classification.categorie_principale,
+                    division=classification.division,
+                    niveau_badge=classification.label,
+                    niveau_rank=classification.rank,
+                    saison_id=saison.id,
+                    entite_id=entite_id,
+                )
+                self.session.add(competition)
+                self.session.flush()
+        except IntegrityError:
+            stmt_conflict = select(CompetitionDB).where(
+                CompetitionDB.nom == match_data.competition,
+                CompetitionDB.saison_id == saison.id,
+                CompetitionDB.genre == genre,
+                CompetitionDB.categorie == categorie,
+            )
+            if entite_id is not None:
+                stmt_conflict = stmt_conflict.where(CompetitionDB.entite_id == entite_id)
+            else:
+                stmt_conflict = stmt_conflict.where(CompetitionDB.entite_id.is_(None))
+            competition = self.session.execute(stmt_conflict).scalar_one_or_none()
+            if not competition and genre:
+                stmt_cg = select(CompetitionDB).where(
+                    CompetitionDB.nom == match_data.competition,
+                    CompetitionDB.saison_id == saison.id,
+                    CompetitionDB.genre == genre,
+                )
+                if entite_id is not None:
+                    stmt_cg = stmt_cg.where(CompetitionDB.entite_id == entite_id)
+                else:
+                    stmt_cg = stmt_cg.where(CompetitionDB.entite_id.is_(None))
+                competition = self.session.execute(stmt_cg).scalars().first()
+            if not competition:
+                stmt_cs = select(CompetitionDB).where(
+                    CompetitionDB.nom == match_data.competition,
+                    CompetitionDB.saison_id == saison.id,
+                )
+                if entite_id is not None:
+                    stmt_cs = stmt_cs.where(CompetitionDB.entite_id == entite_id)
+                else:
+                    stmt_cs = stmt_cs.where(CompetitionDB.entite_id.is_(None))
+                competition = self.session.execute(stmt_cs).scalars().first()
 
-        competition = CompetitionDB(
-            nom=match_data.competition,
-            code_competition=comp_code,
-            genre=genre,
-            categorie=categorie,
-            niveau=classification.categorie_principale,
-            division=classification.division,
-            niveau_badge=classification.label,
-            niveau_rank=classification.rank,
-            saison_id=saison.id,
-            entite_id=entite.id if entite else None,
-        )
-        self.session.add(competition)
-        self.session.flush()
         self._competition_cache[cache_key] = competition
+        if competition:
+            canonical_key = (
+                competition.nom,
+                competition.saison_id,
+                competition.genre,
+                competition.categorie,
+                competition.entite_id,
+            )
+            self._competition_cache[canonical_key] = competition
         return competition
 
     def _get_or_create_poule(
@@ -1335,6 +1386,16 @@ class MatchImportService:
                     match_db.sets_equipe_b = sets_b
                     changed = True
 
+                if score_resolution.score_export and not bool(match_db.forfait):
+                    expected_vainqueur = None
+                    if sets_a > sets_b and match_db.equipe_a:
+                        expected_vainqueur = match_db.equipe_a.nom
+                    elif sets_b > sets_a and match_db.equipe_b:
+                        expected_vainqueur = match_db.equipe_b.nom
+                    if expected_vainqueur and match_db.vainqueur != expected_vainqueur:
+                        match_db.vainqueur = expected_vainqueur
+                        changed = True
+
         computed_played = compute_match_played(
             vainqueur=match_db.vainqueur,
             score_sets=match_db.score_sets,
@@ -1364,22 +1425,25 @@ class MatchImportService:
 
         return changed
 
-    def _get_match_by_code(self, code_match: str, saison_id: Optional[int]) -> Optional[MatchDB]:
-        """Cherche un match existant par code + saison.
+    def _get_match_by_code(
+        self,
+        code_match: str,
+        saison_id: Optional[int],
+        competition_id: Optional[int] = None,
+    ) -> Optional[MatchDB]:
+        """Cherche un match existant par code + saison + (optionnellement) competition_id.
 
-        Quand ``saison_id`` est fourni, la recherche utilise le couple
-        (code_match, saison_id) — ce qui correspond à la contrainte
-        d'unicité ``uq_match_code_saison``.
-
-        Quand ``saison_id`` est ``None``, on cherche uniquement les matchs
-        qui n'ont pas de saison rattachée pour éviter les faux positifs
-        inter-saisons.
+        Quand ``competition_id`` est fourni, la recherche cible précisément
+        le match au sein de sa compétition (conformément à la contrainte
+        d'unicité ``uq_match_code_saison_competition``).
         """
         stmt = select(MatchDB).where(MatchDB.code_match == code_match)
         if saison_id is not None:
             stmt = stmt.where(MatchDB.saison_id == saison_id)
         else:
             stmt = stmt.where(MatchDB.saison_id.is_(None))
+        if competition_id is not None:
+            stmt = stmt.where(MatchDB.competition_id == competition_id)
         return self.session.scalar(stmt)
 
     # =================================================================
@@ -1398,6 +1462,7 @@ class MatchImportService:
         source: str = "online",
         duree_totale: Optional[str] = None,
         vainqueur: Optional[str] = None,
+        competition_id: Optional[int] = None,
     ) -> Optional[MatchDB]:
         """Met à jour les scores d'un match existant depuis une source externe.
 
@@ -1413,12 +1478,13 @@ class MatchImportService:
             source: Origine des données ("online", "manual")
             duree_totale: Durée totale du match (optionnel)
             vainqueur: Nom du vainqueur (optionnel)
+            competition_id: ID optionnel de la compétition
 
         Returns:
             Le MatchDB mis à jour, ou None si le match n'existe pas ou
             a déjà des détails.
         """
-        match_db = self._get_match_by_code(code_match, saison_id)
+        match_db = self._get_match_by_code(code_match, saison_id, competition_id)
         if not match_db:
             logger.debug("update_match_scores: match %s non trouvé", code_match)
             return None
@@ -1482,6 +1548,8 @@ class MatchImportService:
         force: bool = False,
         defer_rollups: bool = False,
         defer_player_stats: bool = False,
+        import_log_id: Optional[int] = None,
+        **kwargs,
     ) -> bool:
         """Enrichit un match existant en base avec les données d'un PDF parsé.
 
@@ -1584,32 +1652,40 @@ class MatchImportService:
         elif parsed_played and not match_db.match_joue:
             match_db.match_joue = True
             updated = True
-        if parsed.vainqueur_nom and (not match_db.vainqueur or force):
-            match_db.vainqueur = parsed.vainqueur_nom
-            updated = True
+        has_scraper_score = bool(match_db.score_export)
+
         if parsed_score_sets:
             parsed_sets_a, parsed_sets_b = score_sets_to_pair(parsed_score_sets)
-            if force or match_db.score_pdf != parsed_score_sets or match_db.score_sets != parsed_score_sets:
+            if match_db.score_pdf != parsed_score_sets:
                 match_db.score_pdf = parsed_score_sets
-                match_db.score_sets = parsed_score_sets
                 updated = True
-            if parsed_sets_a is not None and parsed_sets_b is not None and (
-                force
-                or match_db.sets_equipe_a != parsed_sets_a
-                or match_db.sets_equipe_b != parsed_sets_b
-            ):
-                match_db.sets_equipe_a = parsed_sets_a
-                match_db.sets_equipe_b = parsed_sets_b
-                updated = True
-        elif parsed_score_resolution.score_pdf and (force or not match_db.score_pdf):
+
+            if not has_scraper_score:
+                if match_db.score_sets != parsed_score_sets:
+                    match_db.score_sets = parsed_score_sets
+                    updated = True
+                if parsed_sets_a is not None and parsed_sets_b is not None and (
+                    match_db.sets_equipe_a != parsed_sets_a
+                    or match_db.sets_equipe_b != parsed_sets_b
+                ):
+                    match_db.sets_equipe_a = parsed_sets_a
+                    match_db.sets_equipe_b = parsed_sets_b
+                    updated = True
+        elif parsed_score_resolution.score_pdf and match_db.score_pdf != parsed_score_resolution.score_pdf:
             match_db.score_pdf = parsed_score_resolution.score_pdf
             updated = True
-        if (parsed.sets_a or parsed.sets_b) and (
-            (match_db.sets_equipe_a == 0 and match_db.sets_equipe_b == 0) or force
+
+        if parsed.vainqueur_nom and (not match_db.vainqueur or not has_scraper_score):
+            match_db.vainqueur = parsed.vainqueur_nom
+            updated = True
+
+        if not has_scraper_score and (parsed.sets_a or parsed.sets_b) and (
+            match_db.sets_equipe_a == 0 and match_db.sets_equipe_b == 0
         ):
             match_db.sets_equipe_a = parsed.sets_a
             match_db.sets_equipe_b = parsed.sets_b
             updated = True
+
         if parsed.duree_totale and (not match_db.duree_totale or force):
             match_db.duree_totale = parsed.duree_totale
             updated = True
@@ -1722,10 +1798,18 @@ class MatchImportService:
         if self._sync_match_status(match_db):
             updated = True
 
-        # ── Statut et métadonnées ──
-        if updated:
+        # Le PDF a été analysé avec succès. Même en l'absence de nouvelles données
+        # (ex: feuille sans joueurs, forfait, ou données déjà identiques), le match
+        # est désormais bien parsé pour éviter qu'il ne soit re-traité indéfiniment.
+        if match_db.parsing_status != "parsed":
             match_db.parsing_status = "parsed"
-            match_db.source_pdf = parsed.source_pdf
+            if parsed.source_pdf:
+                match_db.source_pdf = parsed.source_pdf
+            match_db.parsed_at = parsed.parsed_at or datetime.now()
+
+        # ── Statut et métadonnées si enrichi ──
+        if updated:
+            match_db.source_pdf = parsed.source_pdf or match_db.source_pdf
             match_db.parsed_at = parsed.parsed_at or datetime.now()
             match_db.updated_at = datetime.now()
             if not defer_player_stats or not defer_rollups:
@@ -1936,8 +2020,10 @@ class BulkImportService:
 
                 saison = self.import_service._get_or_create_saison(match)
                 saison_id = saison.id if saison else None
+                competition = self.import_service._get_or_create_competition(match, saison)
+                competition_id = competition.id if competition else None
 
-                if self.import_service._get_match_by_code(match.code_match, saison_id):
+                if self.import_service._get_match_by_code(match.code_match, saison_id, competition_id):
                     stats["duplicates"] += 1
                 else:
                     self.import_service.import_match(match)

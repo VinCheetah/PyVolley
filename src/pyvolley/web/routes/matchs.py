@@ -892,9 +892,18 @@ def match_detail(
             "players": [],
         }
 
+        participations_by_joueur = {
+            p.joueur_id: p.joueur
+            for p in (match.participations or [])
+            if p.joueur_id and p.joueur
+        }
+
         for item in (player_stats_a + player_stats_b):
             stats = item.get("stats", {})
             joueur_id = item.get("joueur_id")
+            j_obj = participations_by_joueur.get(joueur_id)
+            nom = stats.get("nom") or (j_obj.nom if j_obj else None) or "Joueur"
+            prenom = stats.get("prenom") or (j_obj.prenom if j_obj else None) or ""
             history_rows = list(repo.session.execute(
                 select(JoueurMatchStatsDB, MatchDB)
                 .join(MatchDB, MatchDB.id == JoueurMatchStatsDB.match_id)
@@ -935,8 +944,8 @@ def match_detail(
                 "joueur_id": joueur_id,
                 "side": stats.get("side"),
                 "numero": stats.get("numero"),
-                "nom": stats.get("nom"),
-                "prenom": stats.get("prenom"),
+                "nom": nom,
+                "prenom": prenom,
                 "est_capitaine": bool(stats.get("est_capitaine")),
                 "est_libero": bool(stats.get("est_libero")),
                 "points_joues": safe_int(stats.get("points_joues")),

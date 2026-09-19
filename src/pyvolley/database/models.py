@@ -108,15 +108,71 @@ class EntiteFFVBDB(Base):
 
 
 # =====================================================================
+# Ligue & Comité Départemental
+# =====================================================================
+
+class LigueDB(Base):
+    """Ligue régionale de volleyball (échelon régional FFVB)."""
+    __tablename__ = "ligues"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(String(10), unique=True, index=True)  # ex: "13", "09"
+    nom: Mapped[str] = mapped_column(String(150), index=True)  # ex: "ILE-DE-FRANCE"
+    telephone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    email: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    site_web: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    adresse_siege: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    president: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # Relations
+    comites: Mapped[List["ComiteDB"]] = relationship(
+        back_populates="ligue", cascade="all, delete-orphan"
+    )
+    clubs: Mapped[List["ClubDB"]] = relationship(back_populates="ligue_rel")
+
+    def __repr__(self) -> str:
+        return f"<Ligue {self.code}: {self.nom}>"
+
+
+class ComiteDB(Base):
+    """Comité départemental de volleyball (échelon départemental FFVB)."""
+    __tablename__ = "comites"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ligue_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("ligues.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    code: Mapped[str] = mapped_column(String(10), unique=True, index=True)  # ex: "075", "059"
+    numero_departement: Mapped[Optional[str]] = mapped_column(String(5), index=True, nullable=True)  # ex: "75", "59"
+    nom: Mapped[str] = mapped_column(String(150), index=True)  # ex: "Paris", "Nord"
+    telephone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    email: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    site_web: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    adresse_siege: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+
+    # Relations
+    ligue: Mapped[Optional["LigueDB"]] = relationship(back_populates="comites")
+    clubs: Mapped[List["ClubDB"]] = relationship(back_populates="comite_rel")
+
+    def __repr__(self) -> str:
+        return f"<Comite {self.code}: {self.nom}>"
+
+
+# =====================================================================
 # Club
 # =====================================================================
 
 class ClubDB(Base):
     """Club de volleyball (entité permanente).
 
-    Les champs d'adressier (couleurs, président, correspondant, adresse, etc.)
-    sont enrichis automatiquement depuis l'endpoint ``adressier_pdf.php``
-    de la FFVB lors du scraping Phase 1.
+    Les données administratives, de ligue, comité et siège social
+    sont initialisées via l'annuaire fédéral (``rech_aff_club.php``).
+    Les infrastructures sportives (salles S1 et S2) sont enrichies
+    depuis l'adressier de poule (``adressier_pdf.php``).
     """
     __tablename__ = "clubs"
 
@@ -127,6 +183,24 @@ class ClubDB(Base):
     ville: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     departement: Mapped[Optional[str]] = mapped_column(String(5), nullable=True)
     ligue: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+    # Rattachement hiérarchique
+    ligue_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("ligues.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    comite_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("comites.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
+    # Siège social (localisation administrative)
+    adresse_siege: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    code_postal_siege: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    ville_siege: Mapped[Optional[str]] = mapped_column(String(150), nullable=True)
+
+    # Coordonnées officielles du club
+    email: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    site_web: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    telephone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     couleurs: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
     # Dirigeants
@@ -145,11 +219,13 @@ class ClubDB(Base):
     # Logo externe (synchronisé depuis Volleybox)
     logo_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
-    # Coordonnées géographiques (pour la carte interactive)
+    # Coordonnées géographiques du siège social (pour la carte interactive)
     latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
     # Relations
+    ligue_rel: Mapped[Optional["LigueDB"]] = relationship(back_populates="clubs")
+    comite_rel: Mapped[Optional["ComiteDB"]] = relationship(back_populates="clubs")
     equipes: Mapped[List["EquipeDB"]] = relationship(back_populates="club")
     aliases: Mapped[List["ClubAliasDB"]] = relationship(
         back_populates="club", cascade="all, delete-orphan"
@@ -227,8 +303,11 @@ class CompetitionDB(Base):
     # Caractéristiques
     genre: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     categorie: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    echelon: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)  # National, Regional, Departemental
     niveau: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     division: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    format_jeu: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # 6x6, 4x4, 3x3, 2x2
+    variante: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)  # Standard, Sourd, Assis, Beach
     niveau_badge: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     niveau_rank: Mapped[int] = mapped_column(Integer, default=-1)
 
@@ -246,9 +325,13 @@ class CompetitionDB(Base):
     equipes: Mapped[List["EquipeDB"]] = relationship(back_populates="competition")
 
     __table_args__ = (
-        UniqueConstraint("nom", "saison_id", "genre", "categorie", name="uq_competition_nom_saison_genre_cat"),
+        UniqueConstraint(
+            "nom", "saison_id", "genre", "categorie", "entite_id",
+            name="uq_competition_nom_saison_genre_cat_entite",
+        ),
         Index("ix_competitions_saison", "saison_id"),
         Index("ix_competitions_genre_categorie", "genre", "categorie"),
+        Index("ix_competitions_entite_saison", "entite_id", "saison_id"),
     )
 
     def __repr__(self) -> str:
@@ -264,9 +347,18 @@ class PouleDB(Base):
     __tablename__ = "poules"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    code: Mapped[str] = mapped_column(String(20))  # "EMA", "PMA", "1FA"
+    code: Mapped[str] = mapped_column(String(20))  # "EMA", "PMA", "1FA" (code 3 caractères)
     nom: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     tour: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # Tour number (1, 2, 3... or 99 for finals)
+
+    # Caractéristiques calculées directement dans la poule
+    echelon: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)  # National, Regional, Departemental
+    niveau: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # N2, Prenat, R1, D1, Dep...
+    division: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # 1, 2, 3, 4, None
+    genre: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # Masculin, Feminin, Mixte, Inconnu
+    categorie: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)  # Senior, M18, M15...
+    format_jeu: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # 6x6, 4x4, 3x3, 2x2
+    variante: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)  # Standard, Sourd, Assis, Beach
 
     # Cache du classement complet sérialisé (O(1))
     classement_cache: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
@@ -280,6 +372,7 @@ class PouleDB(Base):
     __table_args__ = (
         UniqueConstraint("code", "competition_id", name="uq_poule_code_competition"),
         Index("ix_poules_tour", "competition_id", "tour"),
+        Index("ix_poules_echelon_niveau", "echelon", "niveau"),
     )
 
     def __repr__(self) -> str:
@@ -407,6 +500,7 @@ class MatchDB(Base):
     score_sets: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # "3/1"
     score_export: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
     score_pdf: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    sets_detail_export: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)  # [{"numero": 1, "score_a": 25, "score_b": 20}]
     sets_equipe_a: Mapped[int] = mapped_column(Integer, default=0)
     sets_equipe_b: Mapped[int] = mapped_column(Integer, default=0)
     duree_totale: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
@@ -473,7 +567,11 @@ class MatchDB(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("code_match", "saison_id", name="uq_match_code_saison"),
+        UniqueConstraint(
+            "code_match", "saison_id", "competition_id",
+            name="uq_match_code_saison_competition",
+        ),
+        Index("ix_matchs_code_saison_comp", "code_match", "saison_id", "competition_id"),
         Index("ix_matchs_date", "date_match"),
         Index("ix_matchs_competition", "competition_id"),
         Index("ix_matchs_has_details", "has_details", "saison_id"),
@@ -592,8 +690,57 @@ class MatchDB(Base):
         return self.score_resolution.score_display
 
     @property
+    def sets_detail_export_display(self) -> Optional[str]:
+        """Chaîne formatée des sets du scraper (ex: '25-20, 16-25, 25-21, 25-18')."""
+        if not self.sets_detail_export:
+            return None
+        parts = []
+        for s in self.sets_detail_export:
+            sa = s.get("score_a")
+            sb = s.get("score_b")
+            if sa is not None and sb is not None:
+                parts.append(f"{sa}-{sb}")
+        return ", ".join(parts) if parts else None
+
+    @property
+    def sets_detail_pdf_display(self) -> Optional[str]:
+        """Chaîne formatée des sets du parser PDF (ex: '25-20, 18-25, 25-22, 23-25, 15-12')."""
+        if not self.sets:
+            return None
+        parts = []
+        for s in sorted(self.sets, key=lambda item: item.numero):
+            if s.score_a is not None and s.score_b is not None:
+                parts.append(f"{s.score_a}-{s.score_b}")
+        return ", ".join(parts) if parts else None
+
+    @property
+    def score_divergence(self) -> dict:
+        """Détaille la divergence éventuelle entre le scraper et le parser."""
+        score_res = self.score_resolution
+        score_sets_diff = bool(score_res.conflict)
+
+        detail_export_str = self.sets_detail_export_display
+        detail_pdf_str = self.sets_detail_pdf_display
+
+        sets_detail_diff = False
+        if detail_export_str and detail_pdf_str:
+            sets_detail_diff = (detail_export_str != detail_pdf_str)
+
+        has_divergence = score_sets_diff or sets_detail_diff
+        return {
+            "has_divergence": has_divergence,
+            "score_sets_divergent": score_sets_diff,
+            "sets_detail_divergent": sets_detail_diff,
+            "score_scraper": self.score_export,
+            "score_parser": self.score_pdf,
+            "sets_scraper": detail_export_str,
+            "sets_parser": detail_pdf_str,
+            "score_effective": score_res.score_effective,
+        }
+
+    @property
     def score_conflict(self) -> bool:
-        return self.score_resolution.conflict
+        return self.score_divergence["has_divergence"]
 
     @property
     def score_primary_source(self) -> Optional[str]:
@@ -895,10 +1042,30 @@ class JoueurMatchStatsDB(Base):
 
     # Sets & Présence
     sets_joues: Mapped[int] = mapped_column(Integer, default=0)
+    sets_gagnes: Mapped[int] = mapped_column(Integer, default=0)
+    sets_perdus: Mapped[int] = mapped_column(Integer, default=0)
+    sets_commences: Mapped[int] = mapped_column(Integer, default=0)
     sets_titulaire: Mapped[int] = mapped_column(Integer, default=0)
+    sets_termines: Mapped[int] = mapped_column(Integer, default=0)
+    titulaire_set_1: Mapped[bool] = mapped_column(Boolean, default=False)
+    match_complet: Mapped[bool] = mapped_column(Boolean, default=False)
+    match_non_joue: Mapped[bool] = mapped_column(Boolean, default=False)
+    presence_relative: Mapped[float] = mapped_column(Float, default=0.0)
     temps_jeu_estime: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     nb_entrees: Mapped[int] = mapped_column(Integer, default=0)
     nb_sorties: Mapped[int] = mapped_column(Integer, default=0)
+    nb_entrees_sorties: Mapped[int] = mapped_column(Integer, default=0)
+    nb_sorties_entrees: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Net Impact On/Off & Sideout
+    plus_minus: Mapped[int] = mapped_column(Integer, default=0)
+    differentiel_points_gagnes: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    sideout_win_rate: Mapped[float] = mapped_column(Float, default=0.0)
+    max_services_set: Mapped[int] = mapped_column(Integer, default=0)
+
+    # Rotations & Clutch (JSON)
+    stats_rotations: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    stats_clutch: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     # Rôles & Inférences
     role_principal: Mapped[Optional[str]] = mapped_column(String(30), nullable=True, index=True)
@@ -932,7 +1099,31 @@ class JoueurMatchStatsDB(Base):
 
     def to_detailed_stats(self) -> "JoueurMatchDetailedStats":
         """Convertit l'entité SQL en modèle Pydantic d'analyse."""
-        from pyvolley.analysis.models import JoueurMatchDetailedStats
+        from pyvolley.analysis.models import (
+            JoueurMatchDetailedStats,
+            RotationStats,
+            ClutchStats,
+            PresenceSet,
+            ServiceSetDetail,
+        )
+
+        presences = []
+        for p in (self.presence_par_set or []):
+            if isinstance(p, dict):
+                presences.append(PresenceSet(**p))
+            elif isinstance(p, PresenceSet):
+                presences.append(p)
+
+        services_details = []
+        for s in (self.detail_services_par_set or []):
+            if isinstance(s, dict):
+                services_details.append(ServiceSetDetail(**s))
+            elif isinstance(s, ServiceSetDetail):
+                services_details.append(s)
+
+        rotations_obj = RotationStats(**self.stats_rotations) if self.stats_rotations else RotationStats()
+        clutch_obj = ClutchStats(**self.stats_clutch) if self.stats_clutch else ClutchStats()
+
         return JoueurMatchDetailedStats(
             numero=self.numero or "",
             nom=self.joueur.nom if self.joueur else "",
@@ -952,21 +1143,37 @@ class JoueurMatchStatsDB(Base):
             ratio_points_gagnes=self.ratio_points_gagnes,
             break_point_ratio=self.break_point_ratio,
             sideout_contribution_ratio=self.sideout_contribution_ratio,
+            sideout_win_rate=self.sideout_win_rate,
+            plus_minus=self.plus_minus,
+            differentiel_points_gagnes=self.differentiel_points_gagnes,
             services=self.services,
             serie=self.series,
             max_serie=self.max_serie,
             moyenne_services_par_serie=self.moyenne_services_par_serie,
             nb_services=self.services,
             meilleure_serie=self.max_serie,
-            detail_services_par_set=self.detail_services_par_set or [],
+            max_services_set=self.max_services_set,
+            detail_services_par_set=services_details,
             sets_joues=self.sets_joues,
+            sets_gagnes=self.sets_gagnes,
+            sets_perdus=self.sets_perdus,
+            sets_commences=self.sets_commences,
             sets_titulaire=self.sets_titulaire,
-            presence_par_set=self.presence_par_set or [],
+            sets_termines=self.sets_termines,
+            titulaire_set_1=self.titulaire_set_1,
+            match_complet=self.match_complet,
+            match_non_joue=self.match_non_joue,
+            presence_relative=self.presence_relative,
+            presence_par_set=presences,
             temps_jeu_estime=self.temps_jeu_estime,
             temps_jeu_par_set=self.temps_jeu_par_set or {},
             nb_entrees=self.nb_entrees,
             nb_sorties=self.nb_sorties,
             nb_changements_total=self.nb_entrees + self.nb_sorties,
+            nb_entrees_sorties=self.nb_entrees_sorties,
+            nb_sorties_entrees=self.nb_sorties_entrees,
+            rotations=rotations_obj,
+            clutch=clutch_obj,
             temps_morts_provoques=self.temps_morts_provoques,
             role_principal=self.role_principal,
             roles_possibles=self.roles_possibles or [],
@@ -979,6 +1186,9 @@ class JoueurMatchStatsDB(Base):
         """Retourne un dictionnaire complet des métriques de match."""
         return {
             "joueur_id": self.joueur_id,
+            "nom": self.joueur.nom if self.joueur else None,
+            "prenom": self.joueur.prenom if self.joueur else None,
+            "licence": self.joueur.licence if self.joueur else None,
             "match_id": self.match_id,
             "equipe_id": self.equipe_id,
             "numero": self.numero,
@@ -995,15 +1205,31 @@ class JoueurMatchStatsDB(Base):
             "ratio_points_gagnes": self.ratio_points_gagnes,
             "break_point_ratio": self.break_point_ratio,
             "sideout_contribution_ratio": self.sideout_contribution_ratio,
+            "sideout_win_rate": self.sideout_win_rate,
+            "plus_minus": self.plus_minus,
+            "differentiel_points_gagnes": self.differentiel_points_gagnes,
             "services": self.services,
             "series": self.series,
             "max_serie": self.max_serie,
+            "max_services_set": self.max_services_set,
             "moyenne_services_par_serie": self.moyenne_services_par_serie,
             "sets_joues": self.sets_joues,
+            "sets_gagnes": self.sets_gagnes,
+            "sets_perdus": self.sets_perdus,
+            "sets_commences": self.sets_commences,
             "sets_titulaire": self.sets_titulaire,
+            "sets_termines": self.sets_termines,
+            "titulaire_set_1": self.titulaire_set_1,
+            "match_complet": self.match_complet,
+            "match_non_joue": self.match_non_joue,
+            "presence_relative": self.presence_relative,
             "temps_jeu_estime": self.temps_jeu_estime,
             "nb_entrees": self.nb_entrees,
             "nb_sorties": self.nb_sorties,
+            "nb_entrees_sorties": self.nb_entrees_sorties,
+            "nb_sorties_entrees": self.nb_sorties_entrees,
+            "stats_rotations": self.stats_rotations,
+            "stats_clutch": self.stats_clutch,
             "temps_morts_provoques": self.temps_morts_provoques,
             "role_principal": self.role_principal,
             "role_confiance": self.role_confiance,
@@ -1356,8 +1582,16 @@ class GeoStatsDB(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     saison_id: Mapped[Optional[int]] = mapped_column(ForeignKey("saisons.id", ondelete="CASCADE"), nullable=True, index=True)
     echelon: Mapped[str] = mapped_column(String(20), index=True)  # "national", "region", "departement"
-    code_territoire: Mapped[str] = mapped_column(String(20), index=True)  # "FR", "ARA", "75", etc.
+    code_territoire: Mapped[str] = mapped_column(String(20), index=True)  # "FR", "13", "075", etc.
     nom_territoire: Mapped[str] = mapped_column(String(100))
+
+    # Liens relationnels directs avec les entités territoriales
+    ligue_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("ligues.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    comite_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("comites.id", ondelete="CASCADE"), nullable=True, index=True
+    )
 
     nb_clubs: Mapped[int] = mapped_column(Integer, default=0)
     nb_equipes: Mapped[int] = mapped_column(Integer, default=0)
@@ -1373,6 +1607,8 @@ class GeoStatsDB(Base):
     updated_at: Mapped[dt] = mapped_column(DateTime, default=dt.now, onupdate=dt.now)
 
     saison: Mapped[Optional["SaisonDB"]] = relationship()
+    ligue: Mapped[Optional["LigueDB"]] = relationship()
+    comite: Mapped[Optional["ComiteDB"]] = relationship()
 
     __table_args__ = (
         UniqueConstraint("saison_id", "echelon", "code_territoire", name="uq_geo_stats_territoire"),

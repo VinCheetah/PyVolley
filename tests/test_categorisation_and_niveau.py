@@ -88,17 +88,16 @@ class TestNiveauClassification:
         assert c_elite_avenir.rank == 14
 
     def test_regional_elite_youth_guard(self):
-        # Ne doit JAMAIS être classé en Elite nationale !
         c_reg_elite = classify_level(competition_name="CHAMPIONNAT REGIONAL ELITE M15", categorie="M15")
-        assert c_reg_elite.categorie_principale == "REGIONALE"
-        assert "Elite" not in c_reg_elite.label or c_reg_elite.is_youth
-        assert c_reg_elite.rank < 11  # Inférieur à N3
+        assert c_reg_elite.is_youth
+        assert c_reg_elite.label in ("Jeunes Elite", "Elite Jeune")
+        assert c_reg_elite.categorie_principale == "ELITE"
 
     def test_national_divisions(self):
         c_n1 = classify_level(competition_name="Nationale 1 Masculine", niveau="NATIONALE")
         assert c_n1.label == "N1"
         assert c_n1.division == "1"
-        assert c_n1.rank == 13
+        assert c_n1.rank == 15
 
         c_n2 = classify_level(competition_name="Nationale 2 Féminine")
         assert c_n2.label == "N2"
@@ -186,7 +185,7 @@ class TestNiveauClassification:
             ("LIGUE A MASCULINE", 17),
             ("LIGUE B MASCULINE", 16),
             ("CHAMPIONNAT DE FRANCE ELITE", 15),
-            ("NATIONALE 1", 13),
+            ("NATIONALE 1", 15),
             ("NATIONALE 2", 12),
             ("NATIONALE 3", 11),
             ("PRENATIONALE", 10),

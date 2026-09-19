@@ -7,6 +7,7 @@ from typing import Any
 
 import typer
 from rich.console import Console
+from rich import box
 from rich.table import Table
 
 
@@ -85,7 +86,12 @@ def display_warning_summary(
         return
 
     if parsing_count:
-        table = Table(title="⚠️ Problèmes de parsing")
+        table = Table(
+            title="⚠️ Problèmes de parsing",
+            box=box.ROUNDED,
+            border_style="dim",
+            header_style="bold cyan",
+        )
         table.add_column("Catégorie", style="white")
         table.add_column("Occurrences", justify="right", style="red")
         for label, count in parsing_count.most_common():
@@ -94,7 +100,12 @@ def display_warning_summary(
         console.print(table)
 
     if data_count:
-        table = Table(title="📋 Données incomplètes (source PDF)")
+        table = Table(
+            title="📋 Données incomplètes (source PDF)",
+            box=box.ROUNDED,
+            border_style="dim",
+            header_style="bold cyan",
+        )
         table.add_column("Catégorie", style="white")
         table.add_column("Occurrences", justify="right", style="yellow")
         for label, count in data_count.most_common():
@@ -142,7 +153,12 @@ def display_plausibility_summary(console: Console, results: list[dict]) -> None:
     if not action_counter and not rule_counter:
         return
 
-    table = Table(title="🧪 Contrôles de vraisemblance")
+    table = Table(
+        title="🧪 Contrôles de vraisemblance",
+        box=box.ROUNDED,
+        border_style="dim",
+        header_style="bold cyan",
+    )
     table.add_column("Action", style="magenta")
     table.add_column("Occurrences", justify="right", style="cyan")
     for action, count in action_counter.most_common():
@@ -150,7 +166,12 @@ def display_plausibility_summary(console: Console, results: list[dict]) -> None:
     console.print()
     console.print(table)
 
-    detail_table = Table(title="🧩 Règles de vraisemblance")
+    detail_table = Table(
+        title="🧩 Règles de vraisemblance",
+        box=box.ROUNDED,
+        border_style="dim",
+        header_style="bold cyan",
+    )
     detail_table.add_column("Règle", style="white")
     detail_table.add_column("Occurrences", justify="right", style="yellow")
     for rule_id, count in rule_counter.most_common():

@@ -130,3 +130,62 @@ def test_detail_pages_render_successfully(client_with_db):
     for path in detail_pages:
         response = client_with_db.get(path)
         assert response.status_code == 200, f"Detail page {path} failed with status {response.status_code}"
+
+
+def test_match_page_displays_score_divergence_when_conflict_exists(client_with_db):
+    """Vérifie que la page d'un match avec conflit de scores affiche clairement l'alerte et la comparaison."""
+    from pyvolley.api.dependencies import get_session
+    from pyvolley.database.models import MatchDB, SetDB
+
+    # Récupérer la session de test
+    app = client_with_db.app
+    session_gen = app.dependency_overrides[get_session]
+    session = next(session_gen())
+
+    # Créer un match divergent
+    match_divergent = MatchDB(
+        code_match="MDIV999",
+        equipe_a_id=1,
+        equipe_b_id=2,
+        competition_id=1,
+        poule_id=1,
+        score_sets="3/1",
+        score_export="3/1",
+        score_pdf="3/2",
+        sets_equipe_a=3,
+        sets_equipe_b=1,
+        sets_detail_export=[
+            {"numero": 1, "score_a": 25, "score_b": 20},
+            {"numero": 2, "score_a": 22, "score_b": 25},
+            {"numero": 3, "score_a": 25, "score_b": 18},
+            {"numero": 4, "score_a": 25, "score_b": 21},
+        ],
+        vainqueur="Équipe Alpha",
+        match_joue=True,
+        has_details=True,
+    )
+    session.add(match_divergent)
+    session.flush()
+
+    # Sets PDF (5 sets)
+    s1 = SetDB(numero=1, match_id=match_divergent.id, score_a=25, score_b=20)
+    s2 = SetDB(numero=2, match_id=match_divergent.id, score_a=22, score_b=25)
+    s3 = SetDB(numero=3, match_id=match_divergent.id, score_a=25, score_b=18)
+    s4 = SetDB(numero=4, match_id=match_divergent.id, score_a=23, score_b=25)
+    s5 = SetDB(numero=5, match_id=match_divergent.id, score_a=15, score_b=13)
+    session.add_all([s1, s2, s3, s4, s5])
+    session.commit()
+
+    response = client_with_db.get(f"/matchs/{match_divergent.id}")
+    assert response.status_code == 200
+    html = response.text
+
+    # Vérification des éléments d'alerte et de comparaison
+    assert "Divergence constatée entre le score officiel (Scraper) et la feuille de match (FDME)" in html
+    assert "Site FFVB (Scraper)" in html
+    assert "Feuille de match (FDME)" in html
+    assert "Scrape 3/1 (officiel)" in html or "Scrape 3/1" in html
+    assert "3/2" in html
+    assert "25-20, 22-25, 25-18, 25-21" in html
+    assert "Divergence score" in html
+

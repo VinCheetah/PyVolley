@@ -31,6 +31,7 @@ from pyvolley.scrapers.ffvb.utils import (
     build_competition_calendar_url,
     build_home_url,
 )
+from pyvolley.scrapers.ffvb.export_scraper import build_export_url
 
 router = APIRouter()
 
@@ -43,12 +44,12 @@ def _to_ffvb_saison(saison_code: Optional[str]) -> Optional[str]:
 
 def _build_poule_links(poule) -> dict[str, Optional[str]]:
     if not poule or not poule.competition or not poule.competition.entite or not poule.competition.saison:
-        return {"calendrier": None, "classement": None}
+        return {"calendrier": None, "classement": None, "export_csv": None}
 
     entite_code = poule.competition.entite.code
     saison_code = _to_ffvb_saison(poule.competition.saison.code)
     if not entite_code or not saison_code:
-        return {"calendrier": None, "classement": None}
+        return {"calendrier": None, "classement": None, "export_csv": None}
 
     return {
         "calendrier": build_competition_calendar_url(
@@ -62,6 +63,12 @@ def _build_poule_links(poule) -> dict[str, Optional[str]]:
             entite_code,
             saison_code,
             poule.code,
+        ),
+        "export_csv": build_export_url(
+            settings.ffvb_base_url,
+            entite_code,
+            saison_code,
+            poule=poule.code,
         ),
     }
 
@@ -172,6 +179,7 @@ def competition_detail(
         poule_links = _build_poule_links(poule)
         poule.url_calendrier = poule_links["calendrier"]
         poule.url_classement = poule_links["classement"]
+        poule.url_export_csv = poule_links["export_csv"]
 
     first_poule = sorted(competition.poules or [], key=lambda p: p.code)[0] if competition.poules else None
     if first_poule and competition.entite and competition.saison:
@@ -367,6 +375,15 @@ def _compute_poule_classements(
         match_data_list = []
         for m in poule_matchs:
             if m.match_joue and ((m.sets_equipe_a or 0) + (m.sets_equipe_b or 0) > 0 or m.forfait):
+                if getattr(m, "sets_detail_export", None):
+                    pts_a = sum(int(s.get("score_a") or 0) for s in m.sets_detail_export)
+                    pts_b = sum(int(s.get("score_b") or 0) for s in m.sets_detail_export)
+                elif m.sets:
+                    pts_a = sum(s.score_a or 0 for s in m.sets)
+                    pts_b = sum(s.score_b or 0 for s in m.sets)
+                else:
+                    pts_a, pts_b = 0, 0
+
                 match_data_list.append(
                     MatchData(
                         match_id=m.id,
@@ -376,8 +393,8 @@ def _compute_poule_classements(
                         equipe_b_nom=m.equipe_b.nom if m.equipe_b else "?",
                         sets_a=m.sets_equipe_a or 0,
                         sets_b=m.sets_equipe_b or 0,
-                        points_a=0,
-                        points_b=0,
+                        points_a=pts_a,
+                        points_b=pts_b,
                         match_joue=True,
                         forfait=m.forfait,
                         type_forfait=getattr(m, "type_forfait", None),
@@ -508,6 +525,15 @@ def _build_finals_data(finals_tour: dict) -> dict:
             match_data_list = []
             for m in all_finals_matchs:
                 if m.match_joue and ((m.sets_equipe_a or 0) + (m.sets_equipe_b or 0) > 0 or m.forfait):
+                    if getattr(m, "sets_detail_export", None):
+                        pts_a = sum(int(s.get("score_a") or 0) for s in m.sets_detail_export)
+                        pts_b = sum(int(s.get("score_b") or 0) for s in m.sets_detail_export)
+                    elif m.sets:
+                        pts_a = sum(s.score_a or 0 for s in m.sets)
+                        pts_b = sum(s.score_b or 0 for s in m.sets)
+                    else:
+                        pts_a, pts_b = 0, 0
+
                     match_data_list.append(
                         MatchData(
                             match_id=m.id,
@@ -517,8 +543,8 @@ def _build_finals_data(finals_tour: dict) -> dict:
                             equipe_b_nom=m.equipe_b.nom if m.equipe_b else "?",
                             sets_a=m.sets_equipe_a or 0,
                             sets_b=m.sets_equipe_b or 0,
-                            points_a=0,
-                            points_b=0,
+                            points_a=pts_a,
+                            points_b=pts_b,
                             match_joue=True,
                             forfait=m.forfait,
                             type_forfait=getattr(m, "type_forfait", None),

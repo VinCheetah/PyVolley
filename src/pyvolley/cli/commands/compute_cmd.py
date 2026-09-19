@@ -101,7 +101,7 @@ def compute_stats(
 
         for s in target_saisons:
             filter_combos.append(
-                (f"Saison {s.code}", StatsFilters(saison=s.code))
+                (f"Saison {s.code}", StatsFilters(saison_id=s.id))
             )
 
         console.print(

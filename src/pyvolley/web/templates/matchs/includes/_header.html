@@ -6,3 +6,101 @@
 {% from "macros/scoreboard.html" import match_scoreboard %}
 
 {{ match_scoreboard(match) }}
+
+{% if match.score_conflict %}
+{% set div_info = match.score_divergence %}
+<div class="card p-5 sm:p-6 mb-8 shadow-lg"
+     style="background: linear-gradient(135deg, rgba(245, 158, 11, 0.10) 0%, rgba(180, 83, 9, 0.04) 100%); border: 1px solid rgba(245, 158, 11, 0.35);">
+    <div class="flex items-start gap-3.5 mb-4">
+        <div class="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+             style="background: rgba(245, 158, 11, 0.2); color: #f59e0b;">
+            <i data-lucide="alert-triangle" class="w-5 h-5"></i>
+        </div>
+        <div class="flex-1 min-w-0">
+            <div class="flex flex-wrap items-center gap-2 mb-1">
+                <h3 class="text-base sm:text-lg font-bold text-white tracking-tight">
+                    Divergence constatée entre le score officiel (Scraper) et la feuille de match (FDME)
+                </h3>
+                <span class="badge text-xs font-semibold"
+                      style="background: rgba(245, 158, 11, 0.2); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.4);">
+                    Règle de prévalence active
+                </span>
+            </div>
+            <p class="text-xs sm:text-sm text-zinc-300 leading-relaxed">
+                Le <strong>score du scraper prévaut pour la compétition, le choix du vainqueur et l'attribution des points au classement</strong>.
+                Le déroulé et les sets de la feuille de match (PDF) sont utilisés pour calculer normalement les <strong>statistiques de jeu individuelles des joueurs</strong>.
+            </p>
+        </div>
+    </div>
+
+    <!-- Comparaison côte à côte -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4 pt-4 border-t border-amber-500/20 text-xs sm:text-sm">
+        <!-- Colonne Scraper (Officiel) -->
+        <div class="rounded-lg p-4"
+             style="background: rgba(24, 24, 27, 0.7); border: 1px solid rgba(168, 85, 247, 0.3);">
+            <div class="flex items-center justify-between gap-2 mb-3">
+                <span class="font-bold uppercase tracking-wider text-purple-400 text-xs flex items-center gap-1.5">
+                    <i data-lucide="globe" class="w-4 h-4"></i>
+                    Site FFVB (Scraper)
+                </span>
+                <span class="px-2 py-0.5 rounded text-[11px] font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                    Officiel Compétition & Classement
+                </span>
+            </div>
+            <div class="space-y-2">
+                <div class="flex justify-between items-center py-1 border-b border-zinc-800">
+                    <span class="text-zinc-400">Score en sets :</span>
+                    <span class="font-mono font-bold text-white text-base">{{ match.score_export or '—' }}</span>
+                </div>
+                {% if match.vainqueur %}
+                <div class="flex justify-between items-center py-1 border-b border-zinc-800">
+                    <span class="text-zinc-400">Vainqueur retenu :</span>
+                    <span class="font-semibold text-emerald-400 flex items-center gap-1">
+                        <i data-lucide="trophy" class="w-3.5 h-3.5"></i>
+                        {{ match.vainqueur }}
+                    </span>
+                </div>
+                {% endif %}
+                <div class="flex justify-between items-start py-1">
+                    <span class="text-zinc-400">Détail des sets :</span>
+                    <span class="font-mono text-zinc-200 text-right">
+                        {{ match.sets_detail_export_display or 'Non renseigné' }}
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Colonne Parser (Feuille de match) -->
+        <div class="rounded-lg p-4"
+             style="background: rgba(24, 24, 27, 0.7); border: 1px solid rgba(34, 197, 94, 0.3);">
+            <div class="flex items-center justify-between gap-2 mb-3">
+                <span class="font-bold uppercase tracking-wider text-emerald-400 text-xs flex items-center gap-1.5">
+                    <i data-lucide="file-text" class="w-4 h-4"></i>
+                    Feuille de match (FDME)
+                </span>
+                <span class="px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    Déroulé & Stats Joueurs
+                </span>
+            </div>
+            <div class="space-y-2">
+                <div class="flex justify-between items-center py-1 border-b border-zinc-800">
+                    <span class="text-zinc-400">Score feuille :</span>
+                    <span class="font-mono font-bold text-white text-base">{{ match.score_pdf or '—' }}</span>
+                </div>
+                <div class="flex justify-between items-start py-1">
+                    <span class="text-zinc-400">Détail des sets :</span>
+                    <span class="font-mono text-zinc-200 text-right">
+                        {{ match.sets_detail_pdf_display or 'Non renseigné' }}
+                    </span>
+                </div>
+                <div class="flex justify-between items-center py-1">
+                    <span class="text-zinc-400">Données joueurs :</span>
+                    <span class="text-zinc-300 text-right">
+                        {{ match.participations|length }} joueurs · stats calculées
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}

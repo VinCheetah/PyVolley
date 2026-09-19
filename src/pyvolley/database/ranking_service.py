@@ -353,6 +353,7 @@ class RankingService:
                     metadata={
                         "licence": joueur.licence if joueur else None,
                         "club_id": getattr(joueur, "club_id", None) or (rec.equipe.club_id if getattr(rec, "equipe", None) and rec.equipe else None),
+                        "club_code_ffvb": rec.equipe.club.code_ffvb if (getattr(rec, "equipe", None) and rec.equipe and rec.equipe.club) else None,
                     },
                 )
             )
@@ -445,6 +446,7 @@ class RankingService:
                     },
                     metadata={
                         "club_id": club.id if club else None,
+                        "club_code_ffvb": club.code_ffvb if club else None,
                         "competition": rec.competition.nom if rec.competition else None,
                     },
                 )
