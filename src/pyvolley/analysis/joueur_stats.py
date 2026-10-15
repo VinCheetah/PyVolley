@@ -386,7 +386,7 @@ def analyze_joueur_match(
     remplace_par_libero: bool = False,
     est_mode_libero: bool = False,
     joueurs_remplaces_numeros: Optional[list[str]] = None,
-    precomputed_roles: Optional[dict[str, RoleInference]] = None,
+    precomputed_roles: Optional[dict[str, ...]] = None,
     precomputed_timelines: Optional[dict[int, list[ServiceTurn]]] = None,
 ) -> Optional[JoueurMatchDetailedStats]:
     """Analyse détaillée d'un joueur sur un match.

@@ -7,6 +7,7 @@ utilisées par les deux services d'import (Phase 1 CSV et Phase 2 PDF).
 
 import re
 import unicodedata
+from typing import Optional
 
 
 def normalize_club_name(name: str) -> str:

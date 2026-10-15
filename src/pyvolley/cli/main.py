@@ -98,7 +98,6 @@ from pyvolley.cli.commands.pipeline_cmd import (
 )
 from pyvolley.cli.commands.parse_cmd import parse
 from pyvolley.cli.plausibility_cli import apply_plausibility_core_to_match_db
-from pyvolley.pipeline.cli import pipeline_app
 
 # Enregistrement des sous-applications
 app.add_typer(list_app, name="list")
@@ -109,7 +108,6 @@ app.add_typer(dev_app, name="dev")
 app.add_typer(compute_app, name="compute")
 app.add_typer(audit_app, name="audit")
 app.add_typer(sync_app, name="sync")
-app.add_typer(pipeline_app, name="pipeline")
 
 # ── Commandes racines principales ──────────────────────────────────────────
 app.command("import")(import_data)

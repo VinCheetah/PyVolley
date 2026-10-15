@@ -3,6 +3,7 @@ Routes API — Statistiques globales.
 """
 
 from fastapi import APIRouter, Depends
+from typing import Optional
 
 from pyvolley.api.dependencies import (
     get_joueur_repo,
